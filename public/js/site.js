@@ -78,7 +78,7 @@ export async function boot(active) {
     <div><h4>Trips</h4><ul><li><a href="/trips/camp-trips">Camp trips</a></li><li><a href="/trips/shabbatons">Shabbatons</a></li><li><a href="/trips/kehila-trips">Kehila trips</a></li><li><a href="/trips/kivrei-tzadikim">Kivrei Tzadikim</a></li><li><a href="/trips/yeshiva-and-school-trips">Yeshiva and school</a></li><li><a href="/trips/chasunos">Chasunos</a></li><li><a href="/trips/simchos">Simchos</a></li></ul></div>
     <div><h4>Customers</h4><ul><li><a href="/book">Request a quote</a></li><li><a href="/pay">Pay an invoice</a></li><li><a href="/driver">Driver portal</a></li></ul></div>
     <div><h4>Office</h4><ul><li><a href="tel:${tel}">${esc(c.phone)}</a></li><li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>${c.address ? `<li>${esc(c.address)}</li>` : ''}${hoursLines(c.hours).map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>
-  </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span><span><a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a></span></div></div></footer>`;
+  </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span></div></div></footer>`;
   if (c.chesky) import('/js/chesky.js').then((m) => m.initChesky({ name: c.chesky_name, phone: c.phone })).catch(() => {});
   beacon();
   initShare();

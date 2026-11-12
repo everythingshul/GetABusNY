@@ -217,7 +217,7 @@ footer.site h4{color:#fff;font-size:.95rem;margin-bottom:12px;letter-spacing:0}
 footer.site ul{list-style:none;margin:0;padding:0}footer.site li{margin:7px 0}
 footer.site .logo-w{background:#fff;display:inline-block;padding:8px 12px;border-radius:8px;margin-bottom:14px}
 footer.site .logo-w img{height:34px}
-footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 84px 6px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:.85rem}
+footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 0 6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:.85rem}
 .socials{display:flex;gap:8px;flex-wrap:wrap}
 .socials a{width:38px;height:38px;border-radius:50%;background:#1a2f3f;display:grid;place-items:center;color:#fff}
 .socials a:hover{background:var(--lime);color:var(--navy)}
