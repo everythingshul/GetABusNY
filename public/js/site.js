@@ -10,7 +10,16 @@ export async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
   return j;
 }
-export const fmtWhen = (s) => { if (!s) return 'Not set'; const d = new Date(s.length === 10 ? s + 'T00:00:00Z' : s + ':00Z'); return d.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(s.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM' -> "June 1, 2099" or "June 1, 2099, 7:00 AM". */
+export const fmtWhen = (s) => {
+  if (!s) return 'Not set';
+  const m = /^(\d{4})-(\d\d)-(\d\d)(?:[T ](\d\d):(\d\d))?/.exec(String(s));
+  if (!m) return String(s);
+  let out = `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
+  if (m[4] !== undefined) { let h = +m[4]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; out += `, ${h}:${m[5]} ${ap}`; }
+  return out;
+};
 
 let cfgP;
 export const config = () => (cfgP ||= api('/config'));
@@ -53,18 +62,20 @@ export function hoursLines(hours) {
 
 export async function boot(active) {
   const c = await config();
-  document.documentElement.lang = 'en';
-  const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/book', 'Request a quote'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay invoice'], ['/driver', 'Drivers']];
+  document.documentElement.lang = 'en-US';
+  const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay invoice'], ['/driver', 'Drivers']];
   const tel = c.phone.replace(/[^+\d]/g, '');
   const st = openNow(c.hours);
+  const phoneIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>';
   $('#hdr').innerHTML = `<div class="topbar"><div class="wrap"><span><span class="open-dot ${st.open ? 'on' : ''}"></span>${esc(st.text)}</span><span><a href="tel:${tel}">${esc(c.phone)}</a> &nbsp;&middot;&nbsp; <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></span></div></div>
   <header class="site"><div class="wrap"><a class="logo" href="/"><img src="/img/logo.png" alt="${esc(c.business_name)}" width="190" height="44"></a>
   <button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
-  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}<a class="btn btn-lime btn-sm" href="/book" style="margin-left:8px">Book now</a></nav></div></header>`;
+  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
+  <div class="hdr-cta"><a class="hdr-tel" href="tel:${tel}" aria-label="Call ${esc(c.phone)}">${phoneIcon}<span>${esc(c.phone)}</span></a><a class="btn btn-lime btn-sm" href="/book">Request a quote</a></div></div></header>`;
   $('.burger').onclick = (e) => { const n = $('nav.main'); const o = n.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
   $('#ftr').innerHTML = `<footer class="site"><div class="wrap"><div class="cols">
     <div><span class="logo-w"><img src="/img/logo.png" alt="${esc(c.business_name)}"></span><p>Charter bus broker for camps, shuls, yeshivos and families. In business since 2016.</p><div class="socials">${socialLinks(c.socials)}</div></div>
-    <div><h4>Company</h4><ul><li><a href="/about">About us</a></li><li><a href="/fleet">Our fleet</a></li><li><a href="/contact">Contact</a></li><li><a href="/terms">Terms and conditions</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/credits">Photo credits</a></li></ul></div>
+    <div><h4>Company</h4><ul><li><a href="/about">About us</a></li><li><a href="/fleet">Our fleet</a></li><li><a href="/contact">Contact</a></li><li><a href="/terms">Terms and conditions</a></li><li><a href="/privacy">Privacy</a></li></ul></div>
     <div><h4>Customers</h4><ul><li><a href="/book">Request a quote</a></li><li><a href="/pay">Pay an invoice</a></li><li><a href="/driver">Driver portal</a></li></ul></div>
     <div><h4>Office</h4><ul><li><a href="tel:${tel}">${esc(c.phone)}</a></li><li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>${c.address ? `<li>${esc(c.address)}</li>` : ''}${hoursLines(c.hours).map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>
   </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span><span><a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a></span></div></div></footer>`;

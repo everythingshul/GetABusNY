@@ -1,6 +1,6 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request a Quote | Get A Bus NY</title><meta name="description" content="Tell us your dates, times, pickups and stops for your camp trip, Shabbaton, Kehila trip or Kivrei Tzadikim trip. Vehicle choice is optional. We send a quote, usually the same business day."><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
-<section style="padding-top:40px"><div class="wrap"><div class="eyebrow">Request a quote</div><h1 style="font-size:clamp(2rem,4.5vw,3rem)">Tell us about your trip</h1>
-<p class="muted" style="max-width:44em">No payment now. List every pickup, stop and drop-off in order and we will quote the whole route, usually the same business day. Questions? Call <a id="ph" href="#"></a>. Our office is closed Shabbos; requests sent then are answered Sunday.</p>
+<!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request a Quote | Get A Bus NY</title><meta name="description" content="Tell us your dates, times, pickups and stops for your camp trip, Shabbaton, Kehila trip or Kivrei Tzadikim trip. Vehicle choice is optional. We send a quote, usually the same business day."><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body class="lux"><div id="hdr"></div><main id="main">
+<section class="pagehead"><div class="wrap"><div class="eyebrow">Request a quote</div><h1>Tell us about your trip</h1><p>No payment now. List every pickup, stop and drop-off in order and we will quote the whole route, usually the same business day. Questions? Call <a id="ph" href="#"></a>. Our office is closed Shabbos; requests sent then are answered Sunday.</p></div></section>
+<section id="formsec" style="padding-top:34px"><div class="wrap">
 <div class="book-grid">
 <form id="f" class="card" novalidate>
 <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -61,6 +61,7 @@ if(q.get('purpose'))$('#pur').value=q.get('purpose');
 if(q.get('type')){const r=document.querySelector(`input[name=trip_type][value="${q.get('type')}"]`);if(r)r.checked=true;}
 const type=()=>document.querySelector('input[name=trip_type]:checked').value;
 const ed=itineraryEditor($('#itn'),{roundTrip:type()==='round_trip'});
+if(q.get('pickup')||q.get('dropoff'))ed.set([{kind:'pickup',address:q.get('pickup')||''},{kind:'dropoff',address:q.get('dropoff')||''}]);
 function layout(){const t=type();$('#retrow').hidden=t==='one_way';$('#rl').textContent=t==='multi_day'?'Last day':t==='hourly'?'End date':'Return date';$('#rd').required=$('#rt').required=t!=='one_way';ed.setRoundTrip(t==='round_trip'||t==='multi_day');}
 function recommend(){const n=+$('#px').value;const b=$('#recbox');if(!n){b.hidden=true;return;}
  const fits=fl.filter(v=>v.capacity>=n).sort((a,b)=>a.capacity-b.capacity);b.hidden=false;
@@ -90,6 +91,6 @@ $('#f').onsubmit=async e=>{e.preventDefault();const err=$('#err');err.hidden=tru
  const b=$('#go');b.disabled=true;b.textContent='Sending…';
  try{const r=await api('/request',{body:{website:e.target.website.value,trip_type:type(),purpose:$('#pur').value,depart_at:dep,return_at:ret,itinerary:it,passengers:+$('#px').value,vehicle_id:$('#vh').value||null,name:$('#nm').value,company:$('#co').value,email:$('#em').value,phone:$('#ph2').value,sms_optin:$('#sms').checked,comments:$('#cm').value,referred_by:$('#rf').value}});
   $('#ref').textContent=r.ref;$('#to').textContent=$('#em').value;document.querySelectorAll('.phl').forEach(a=>{a.href='tel:'+tel;a.textContent=c.phone});
-  document.querySelector('section').hidden=true;$('#done').hidden=false;fillIcons();window.scrollTo({top:0,behavior:'smooth'});
+  document.querySelectorAll('section.pagehead,#formsec').forEach(x=>x.hidden=true);$('#done').hidden=false;fillIcons();window.scrollTo({top:0,behavior:'smooth'});
  }catch(x){bad(x.message);b.disabled=false;b.textContent='Send my request';}};
 </script></body></html>
