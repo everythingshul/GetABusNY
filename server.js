@@ -26,7 +26,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  if (req.path.startsWith('/d/') || req.path.startsWith('/api/driver') || req.path.startsWith('/admin') || req.path.startsWith('/pay/') || req.path.startsWith('/quote/') || req.path.startsWith('/contract/') || req.path.startsWith('/cal/')) res.setHeader('Cache-Control', 'no-store');
+  if (req.path.startsWith('/d/') || req.path.startsWith('/api/driver') || req.path.startsWith('/admin') || req.path.startsWith('/pay/') || req.path.startsWith('/quote/') || req.path.startsWith('/contract/') || req.path.startsWith('/cal/') || req.path.startsWith('/r/')) res.setHeader('Cache-Control', 'no-store');
   if (req.path.startsWith('/d/') || req.path.startsWith('/quote/') || req.path.startsWith('/pay/') || req.path.startsWith('/contract/')) res.setHeader('Referrer-Policy', 'no-referrer'); // tokens live in the URL
   next();
 });
@@ -57,6 +57,7 @@ app.get('/d/:token', page('driver.html'));
 app.get('/quote/:token', page('quote.html'));
 app.get('/contract/:token', page('contract.html'));
 app.get('/pay/:token', page('pay.html'));
+app.get('/r/:token', page('rfq-reply.html'));
 app.use((req, res) => res.status(404).sendFile(path.join(PUB, '404.html')));
 app.use((err, req, res, next) => { console.error(err); res.status(err.status || 500).json({ error: err.status && err.status < 500 ? err.message : 'Server error' }); });
 

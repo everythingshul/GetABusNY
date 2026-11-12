@@ -128,7 +128,12 @@ try {
   r = await api('POST', '/api/admin/vendors', { name: 'Hudson Coach Lines', email: 'dispatch@hudson.test', contact_name: 'Pat' }); const v = r.body;
   r = await api('POST', '/api/admin/rfqs', { trip_id: trip.id, vendor_ids: [v.id], message: 'Need best rate' }); ok(r, 'rfq'); step('RFQ sent to vendor');
   const rfq = (await api('GET', '/api/admin/rfqs')).body[0];
-  assert.equal((await api('GET', `/api/public/rfq/${rfq.token}`)).status, 404); assert.equal((await fetch(base + `/v/${rfq.token}`)).status, 404); step('no operator portal exists');
+  assert.equal((await fetch(base + `/v/${rfq.token}`)).status, 404); step('no operator portal or login exists');
+  { const tk = (await api('GET', '/api/admin/rfqs')).body[0].token; const g = await fetch(`${base}/api/public/rfq/${tk}`); const gj = await g.json(); assert.equal(g.status, 200); assert.deepEqual(Object.keys(gj).sort(), ['answered', 'open', 'ref']);
+    { const bg = await fetch(`${base}/api/public/rfq/bogus`); assert.equal(bg.status, 404, 'bogus ' + bg.status); }
+    const bad = await fetch(`${base}/api/public/rfq/${tk}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ price: 0 }) }); assert.equal(bad.status, 400);
+    const p = await fetch(`${base}/api/public/rfq/${tk}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ price: 1850, notes: 'via link' }) }); assert.equal(p.status, 200);
+    const row = (await api('GET', '/api/admin/rfqs')).body[0]; assert.equal(row.price_cents, 185000); assert.equal(row.status, 'responded'); assert.equal((await fetch(`${base}/r/${tk}`)).status, 200); step('operator reply link records price and notes'); }
   r = await api('POST', `/api/admin/rfqs/${rfq.id}/reply`, { price: 1900, vehicle: '56 pax MCI', notes: 'Fuel incl. (phone)' }); ok(r, 'record reply'); assert.equal((await api('GET', '/api/admin/rfqs')).body[0].price_cents, 190000);
   r = await api('POST', `/api/admin/rfqs/${rfq.id}/accept`); ok(r, 'accept rfq'); const t2 = (await api('GET', `/api/admin/trips/${trip.id}`)).body; assert.equal(t2.vendor_cost_cents, 190000); step('vendor price accepted -> cost on trip');
   // followups

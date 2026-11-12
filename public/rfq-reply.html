@@ -1,0 +1,12 @@
+<!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send your price</title><meta name="robots" content="noindex"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main"><section><div class="wrap narrow" style="padding-top:40px"><h1>Send your price</h1>
+<p class="muted" id="ref">Loading...</p>
+<form id="f" class="card" hidden><label>Your price ($)<input id="price" type="number" min="1" step="0.01" required inputmode="decimal"></label>
+<label>Notes (vehicle you would send, what is included, or that you cannot do it)<textarea id="notes" rows="5" maxlength="1000"></textarea></label>
+<div id="err" class="alert err" hidden></div><button class="btn btn-lime" id="go">Send</button></form>
+<div id="done" class="alert ok" hidden><b>Thank you.</b> We received your reply. You can use this link again to change it until we decide.</div>
+<div id="bad" class="alert err" hidden></div></div></section></main><div id="ftr"></div>
+<script type="module">import {boot} from '/js/site.js';boot('/');
+const tok=location.pathname.split('/').pop(),$=s=>document.querySelector(s),api=`/api/public/rfq/${tok}`;
+fetch(api).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error);$('#ref').textContent='Request '+j.ref;if(j.open)$('#f').hidden=false;else{$('#bad').hidden=false;$('#bad').textContent='This request has already been awarded or closed. Please call us.';}}).catch(e=>{$('#ref').textContent='';$('#bad').hidden=false;$('#bad').textContent=e.message;});
+$('#f').onsubmit=async e=>{e.preventDefault();$('#err').hidden=true;const r=await fetch(api,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({price:$('#price').value,notes:$('#notes').value})});const j=await r.json();if(!r.ok){$('#err').hidden=false;$('#err').textContent=j.error;return;}$('#f').hidden=true;$('#done').hidden=false;};
+</script></body></html>

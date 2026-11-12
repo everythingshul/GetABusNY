@@ -29,6 +29,25 @@ pub.get('/fleet', (req, res) => {
   res.json(all('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE active=1 ORDER BY sort,capacity DESC').map((v) => ({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) })));
 });
 
+// Operator reply link: records a price and notes on one request. It shows nothing else and has no login.
+const rfqByToken = (t) => one("SELECT r.*, v.name vendor_name FROM rfqs r LEFT JOIN vendors v ON v.id=r.vendor_id WHERE r.token=?", String(t || ''));
+pub.get('/rfq/:token', limit('rfqg', 60, 3600000), (req, res) => {
+  const r = rfqByToken(req.params.token); if (!r) return fail(res, 404, 'This link is not valid.');
+  res.json({ ref: r.ref, open: ['sent', 'responded', 'declined'].includes(r.status), answered: r.status !== 'sent' });
+});
+pub.post('/rfq/:token', limit('rfqp', 20, 3600000), (req, res) => {
+  const r = rfqByToken(req.params.token); if (!r) return fail(res, 404, 'This link is not valid.');
+  if (!['sent', 'responded', 'declined'].includes(r.status)) return fail(res, 409, 'This request has already been awarded or closed. Please call us.');
+  const b = req.body || {};
+  const price = Math.round(Number(b.price) * 100);
+  if (!Number.isFinite(price) || price <= 0 || price > 100000000) return fail(res, 400, 'Enter your price.');
+  const notes = String(b.notes || '').slice(0, 1000);
+  update('rfqs', r.id, { status: 'responded', price_cents: price, response_notes: notes, responded_at: now() });
+  log('operator', 'rfq.reply_link', 'rfq', r.id, r.vendor_name);
+  notifyOwner(`Operator reply ${r.ref}`, `${r.vendor_name || 'An operator'} quoted ${money(price)} for ${r.ref}.${notes ? `\nNotes: ${notes}` : ''}`, 'general').catch(() => {});
+  res.json({ ok: true });
+});
+
 pub.post('/request', limit('req', 8, 3600000), (req, res) => {
   const b = req.body || {};
   if (b.website) return res.json({ ok: true, ref: 'REQ-0000' }); // honeypot
