@@ -12,12 +12,15 @@ import { chatPublicRouter } from './src/chesky.js';
 import { registerPublicBanner } from './src/banner.js';
 import { staffCalendar, driverCalendar } from './src/extras.js';
 import { one, run, getSetting } from './src/db.js';
+import compression from 'compression';
+import { mountSeo } from './src/seo.js';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(__dir, 'public');
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+app.use(compression());
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -43,22 +46,11 @@ app.get('/healthz', (req, res) => { one('SELECT 1 x'); res.json({ ok: true }); }
 // Calendar subscriptions (add by URL in Google Calendar / Apple Calendar / Outlook)
 app.get('/cal/driver/:token.ics', (req, res) => { const d = one('SELECT * FROM drivers WHERE token=? AND active=1', req.params.token); if (!d) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(driverCalendar(d)); });
 app.get('/cal/:token.ics', (req, res) => { if (req.params.token !== getSetting('cal_token')) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(staffCalendar()); });
+mountSeo(app, PUB);
 app.use('/uploads', express.static(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), { maxAge: '7d' }));
-app.use(express.static(PUB, { extensions: ['html'], maxAge: '1h' }));
+app.use(express.static(PUB, { extensions: ['html'], maxAge: '1h', index: false }));
 
 const page = (f) => (req, res) => res.sendFile(path.join(PUB, f));
-// Vehicle page with Open Graph tags, so WhatsApp, texts and email show a proper link preview
-app.get('/bus/:id', (req, res) => {
-  const v = one('SELECT id,name,category,capacity,description,image FROM vehicles WHERE id=? AND active=1', req.params.id);
-  let html; try { html = fs.readFileSync(path.join(PUB, 'bus.html'), 'utf8'); } catch { return res.status(404).sendFile(path.join(PUB, '404.html')); }
-  const base = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  const e = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-  const title = v ? `${v.name}, seats ${v.capacity} | ${getSetting('business_name')}` : getSetting('business_name');
-  const desc = v ? `${v.category}. ${v.description || ''} Request a quote from ${getSetting('business_name')}.`.trim() : '';
-  const img = v?.image ? (v.image.startsWith('http') ? v.image : base + v.image) : `${base}/img/logo.png`;
-  const tags = `<meta property="og:type" content="website"><meta property="og:title" content="${e(title)}"><meta property="og:description" content="${e(desc)}"><meta property="og:url" content="${e(`${base}/bus/${req.params.id}`)}"><meta property="og:image" content="${e(img)}"><meta name="twitter:card" content="summary_large_image">`;
-  res.status(v ? 200 : 404).type('html').send(html.replace('<!--OG-->', tags).replace(/<title>[^<]*<\/title>/, `<title>${e(title)}</title>`));
-});
 app.get('/admin', page('admin/index.html'));
 app.get('/driver', page('driver.html'));
 app.get('/d/:token', page('driver.html'));

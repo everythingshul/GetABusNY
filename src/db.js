@@ -186,18 +186,19 @@ export const parse = (s, d = null) => { try { return s ? JSON.parse(s) : d; } ca
 if (!getSetting('cal_token')) setSetting('cal_token', crypto.randomBytes(18).toString('base64url'));
 
 if (!one('SELECT 1 x FROM vehicles LIMIT 1')) {
+  // Names, seats and amenities come from the old fleet pages (fleet-getabusny.blogspot.com). Edit them in the admin.
   const seed = [
-    ['56 Seater Coach Bus', 'Coach Bus', 56, 'Full-size motorcoach for long-distance trips, school and church groups, tours and corporate travel.', 'Restroom (select units),Reclining seats,Overhead storage,Luggage bay,A/C,PA system'],
-    ['50 Seater Setra Party Bus', 'Party Bus', 50, 'Large Setra party coach with a lounge feel for big nights out and group celebrations.', 'LED lighting,Sound system,Dance floor,Wet bar,A/C'],
-    ['45 Seater Freightliner Party Bus', 'Party Bus', 45, 'Freightliner party bus with perimeter seating and an open floor.', 'LED lighting,Sound system,Dance floor,A/C'],
-    ['37 Seater Freightliner Party Bus', 'Party Bus', 37, 'Mid-size party bus that fits most weddings, proms and birthdays.', 'LED lighting,Sound system,Dance floor,A/C'],
-    ['34 Seater Party Bus (Unit 696)', 'Party Bus', 34, 'Party bus for medium groups.', 'LED lighting,Sound system,A/C'],
-    ['34 Seater Party Bus (Unit 699)', 'Party Bus', 34, 'Party bus for medium groups.', 'LED lighting,Sound system,A/C'],
-    ['33 Seater Ford F550 Party Bus', 'Party Bus', 33, 'Ford F550 party bus that is easier to park and maneuver in the city.', 'LED lighting,Sound system,A/C'],
-    ['40 Seater Mardi Gras Trolley', 'Trolley', 40, 'Open, classic trolley styling. Popular for weddings and wine tours.', 'Wood-look interior,Sound system,A/C'],
-    ['30 Seater Trolley (White)', 'Trolley', 30, 'White trolley for weddings, tours and downtown shuttles.', 'Sound system,A/C'],
-    ['34 Seater Dolly Trolley', 'Trolley', 34, 'Dolly-style trolley for tours, weddings and events.', 'Sound system,A/C'],
-    ['26 Seater Transformer Hummer', 'Limo', 26, 'Hummer stretch limo with a full party interior.', 'Fiber-optic lighting,Sound system,Bar area'],
+    ['56 Seater Coach Bus', 'Coach Bus', 56, 'Coach seating 56 with Wi-Fi, outlets and underbelly storage for luggage.', 'Wi-Fi,Outlets,DVD,Underbelly storage'],
+    ['50 Seater Setra Party Bus', 'Party Bus', 50, 'Mercedes-styled Setra party coach with a white diamond-stitched interior, two booths and a restroom.', 'Mercedes styling,USB and charging stations,2 large flat TVs,Chrome and white ceiling,RGB and fiber optic lighting,White interior with diamond stitching,High end sound system,Coolers,Two booths,Wi-Fi,Restroom'],
+    ['45 Seater Freightliner Party Bus', 'Party Bus', 45, 'Freightliner party bus with couch seating, two bars and a restroom.', 'Couch seating,Wood floor,Chrome ceiling,Two bars,Fiber optic lighting,RGB lighting,Two large TVs (front and back wall),Level 5 sound system,Bluetooth,Removable pole,Bathroom'],
+    ['37 Seater Freightliner Party Bus', 'Party Bus', 37, 'Freightliner party bus with luxury perimeter seating and a restroom.', 'Luxury perimeter seating,Level 3 sound system,Fiber optic and RGB lighting,Restroom'],
+    ['34 Seater Party Bus 696', 'Party Bus', 34, 'Party bus with three bars, hardwood floors and a restroom.', 'State of the art sound system,LCD TV screen,Neon and fiber optic and LED lighting,Textured mirrored ceiling,Hardwood floors,Three bars,Bathroom,Aux capability'],
+    ['34 Seater Party Bus 699', 'Party Bus', 34, 'Party bus with two bars, hardwood floors and a restroom.', 'State of the art sound system,LCD TV screen,Neon and fiber optic and LED lighting,Textured mirrored ceiling,Hardwood floors,Two bars,Bathroom,Bluetooth and aux capability'],
+    ['33 Seater Ford F550 Party Bus', 'Party Bus', 33, 'Ford F550 party bus with perimeter seating, two 50 inch smart TVs and a surround sound system.', 'Perimeter seating,Wood floors,Chrome ceiling,Two 50 inch smart TVs,Fiber optic and RGB lighting,High end surround sound system,iPod hookup,Removable pole,Chrome wheels'],
+    ['40 Seater Mardi Gras Trolley', 'Trolley', 40, 'Trolley seating up to 40 with heating and air conditioning.', 'Heating,Air conditioning'],
+    ['30 Seater Trolley White', 'Trolley', 30, 'White trolley seating up to 30 with heating, air conditioning and Bluetooth.', 'Heating,Air conditioning,Bluetooth'],
+    ['Dolly 34 Seater Trolley', 'Trolley', 34, 'Trolley seating up to 34 with heating and air conditioning.', 'Heating,Air conditioning'],
+    ['26 Seater Transformer Hummer', 'Limo', 26, 'White Hummer limo for 26 with a black and white interior and a VIP section.', 'White exterior,Black and white interior,VIP section'],
   ];
   seed.forEach(([name, category, capacity, description, features], i) => insert('vehicles', { name, category, capacity, description, features, active: 1, sort: (i + 1) * 10, created_at: now(), updated_at: now() }));
 }
