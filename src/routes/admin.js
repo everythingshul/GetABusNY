@@ -328,6 +328,24 @@ admin.post('/payments/:id/release', wrap(async (req) => {
 }));
 
 // ---------- sent messages: every email and text, exactly as the customer saw it ----------
+// Email check: shows which provider and sender are in use, recent failures, and sends a test with the provider's exact answer.
+function emailSender() { return process.env.EMAIL_FROM || getSettingSafe('email_from') || `${getSettingSafe('business_name')} <${getSettingSafe('email')}>`; }
+admin.get('/email/health', wrap(() => {
+  const provider = process.env.BREVO_API_KEY ? 'Brevo' : process.env.RESEND_API_KEY ? 'Resend' : '';
+  const from = emailSender(); const addr = (/<(.+)>/.exec(from)?.[1] || from).trim().toLowerCase();
+  const freeMail = /@(gmail|yahoo|outlook|hotmail|aol|icloud|live|msn)\./.test(addr);
+  const warnings = [];
+  if (!provider) warnings.push('No email service is connected. Add BREVO_API_KEY (or RESEND_API_KEY) on the server. Until then nothing is sent; messages are only logged.');
+  if (provider === 'Brevo' && freeMail) warnings.push(`Emails are being sent from ${addr}. Brevo does not deliver from free mail addresses like Gmail. Set EMAIL_FROM on the server to an address on your own domain, such as "Get A Bus NY <office@getabusny.com>", and authenticate that domain in Brevo (Senders, Domains and Dedicated IPs).`);
+  const failed = all("SELECT id,to_addr,subject,error,created_at FROM outbox WHERE status='failed' ORDER BY id DESC LIMIT 5");
+  const notSent = one("SELECT COUNT(*) c FROM outbox WHERE status='logged'").c;
+  return { provider, from, warnings, failed, not_sent: notSent };
+}));
+admin.post('/email/test', limit('emailtest', 10, 3600000), wrap(async (req) => {
+  const to = String(req.body?.to || '').trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw bad('Enter a valid email address.');
+  const r = await sendEmail(to, 'Test email from Get A Bus NY', emailShell('Test email', '<p>If you can read this, email sending works.</p>'), { kind: 'test' });
+  return { ok: r.ok && r.status === 'sent', status: r.status, error: r.error || (r.status === 'logged' ? 'No email service is connected, so nothing was sent.' : null) };
+}));
 admin.get('/messages-sent', wrap((req) => {
   const q = `%${String(req.query.q || '').trim()}%`; const lim = Math.min(Number(req.query.limit) || 200, 500);
   const type = req.query.type || 'all';
