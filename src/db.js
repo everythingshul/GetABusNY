@@ -33,12 +33,22 @@ CREATE TABLE IF NOT EXISTS bot_sessions(id TEXT PRIMARY KEY, scope TEXT, message
 `);
 
 export const now = () => new Date().toISOString();
+db.exec(`CREATE TABLE IF NOT EXISTS sms_log(id INTEGER PRIMARY KEY, to_phone TEXT, body TEXT, kind TEXT, status TEXT, error TEXT, customer_id INTEGER, trip_id INTEGER, send_after TEXT, created_at TEXT, sent_at TEXT)`);
 
 // ---- additive migrations (safe to run every boot) ----
 function addCol(table, col, def) {
   const have = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   if (!have) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 }
+addCol('users', 'phone', 'TEXT');
+addCol('users', 'notify_prefs', 'TEXT');
+addCol('customers', 'sms_types', 'TEXT');
+addCol('sms_log', 'direction', "TEXT DEFAULT 'out'");
+addCol('sms_log', 'provider_id', 'TEXT');
+addCol('outbox', 'kind', 'TEXT');
+addCol('outbox', 'from_addr', 'TEXT');
+addCol('outbox', 'provider', 'TEXT');
+addCol('outbox', 'attachments', 'TEXT');
 addCol('trips', 'itinerary', "TEXT DEFAULT '[]'");
 addCol('trips', 'purpose', 'TEXT');
 addCol('trips', 'review_sent_at', 'TEXT');
@@ -112,6 +122,11 @@ export const DEFAULT_SETTINGS = {
   chesky_extra: '',
   // v2
   google_review_url: '',
+  sms_own_number: '',
+  bus_height_cm: '370',
+  bus_width_cm: '260',
+  bus_length_cm: '1370',
+  bus_weight_kg: '18000',
   sms_enabled: '1',
   sms_quiet_start: 'Fri 14:00',
   sms_quiet_end: 'Sat 21:30',

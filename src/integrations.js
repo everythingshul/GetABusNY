@@ -1,6 +1,6 @@
 // Outbound integrations: email (Resend), SMS (Twilio), Stripe (REST), all optional.
 import crypto from 'node:crypto';
-import { run, now, getSetting } from './db.js';
+import { run, now, getSetting, all, one, insert, update } from './db.js';
 
 export const env = (k, d = '') => process.env[k] ?? d;
 export const BASE_URL = () => env('BASE_URL', `http://localhost:${env('PORT', '3000')}`).replace(/\/$/, '');
@@ -10,7 +10,8 @@ export const status = () => ({
   email: !!(env('BREVO_API_KEY') || env('RESEND_API_KEY')),
   email_provider: env('BREVO_API_KEY') ? 'Brevo' : env('RESEND_API_KEY') ? 'Resend' : '',
   maps: !!env('GOOGLE_MAPS_API_KEY'),
-  sms: !!(env('TWILIO_SID') && env('TWILIO_TOKEN') && env('TWILIO_FROM')),
+  sms: !!(env('SMS_API_BASE') && env('SMS_API_KEY')),
+  here: !!env('HERE_API_KEY'),
   chesky: !!env('CHESKY_API_KEY'),
 });
 
@@ -35,7 +36,7 @@ function parseFrom(from) {
   return m ? { name: m[1].trim().replace(/^"|"$/g, ''), email: m[2].trim() } : { name: getSetting('business_name'), email: from.trim() };
 }
 /** attachments: [{ filename, content: Buffer, type }] */
-export async function sendEmail(to, subject, html, { replyTo, attachments = [] } = {}) {
+export async function sendEmail(to, subject, html, { replyTo, attachments = [], kind } = {}) {
   if (!to) return { ok: false, error: 'no recipient' };
   const from = getSetting('email_from') || env('EMAIL_FROM') || `${getSetting('business_name')} <onboarding@resend.dev>`;
   const reply = replyTo || getSetting('email') || undefined;
@@ -56,23 +57,67 @@ export async function sendEmail(to, subject, html, { replyTo, attachments = [] }
       if (r.ok) st = 'sent'; else { st = 'failed'; err = (await r.text()).slice(0, 300); }
     }
   } catch (e) { st = 'failed'; err = e.message; }
-  run('INSERT INTO outbox(to_addr,subject,html,status,error,created_at) VALUES(?,?,?,?,?,?)', to, subject, html, st, err, now());
+  run('INSERT INTO outbox(to_addr,subject,html,status,error,created_at,kind,from_addr,provider,attachments) VALUES(?,?,?,?,?,?,?,?,?,?)', to, subject, html, st, err, now(), kind || 'customer', from, env('BREVO_API_KEY') ? 'Brevo' : env('RESEND_API_KEY') ? 'Resend' : 'not sent (no provider)', attachments.map((a) => a.filename).join(', ') || null);
   return { ok: st !== 'failed', status: st, error: err };
 }
 
-export async function sendSMS(to, body) {
-  if (!status().sms) return { ok: false, error: 'SMS not configured' };
-  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env('TWILIO_SID')}/Messages.json`, {
-    method: 'POST',
-    headers: { Authorization: 'Basic ' + Buffer.from(`${env('TWILIO_SID')}:${env('TWILIO_TOKEN')}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ To: to, From: env('TWILIO_FROM'), Body: body }),
-  });
-  return r.ok ? { ok: true } : { ok: false, error: (await r.text()).slice(0, 200) };
+// ---------- Text messages: SimpleSender REST API ----------
+// POST {SMS_API_BASE}/v1/messages/send  { to: <10 digits>, message }  with a Bearer key.
+// The account has one dedicated sending number, so there is no "from". A 2xx counts as accepted.
+export const smsConfigured = () => !!(env('SMS_API_BASE') && env('SMS_API_KEY'));
+const tenDigits = (p) => String(p || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+export async function smsRaw(to, body) {
+  if (!smsConfigured()) return { ok: false, error: 'SMS not configured' };
+  try {
+    const r = await fetch(`${env('SMS_API_BASE').replace(/\/$/, '')}/v1/messages/send`, {
+      method: 'POST', headers: { Authorization: `Bearer ${env('SMS_API_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: tenDigits(to), message: body }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j?.status === 'failed' || j?.success === false || j?.error) return { ok: false, error: String(j?.error || j?.message || `SMS send failed (${r.status})`).slice(0, 200) };
+    return { ok: true, id: j?.id != null ? String(j.id) : j?.message_id || null };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+/** Send and record in the sent-messages log. meta: { kind, customer_id, trip_id } */
+export async function sendSMS(to, body, meta = {}) {
+  const id = insert('sms_log', { to_phone: to, body: String(body).slice(0, 1000), kind: meta.kind || 'manual', status: 'sending', customer_id: meta.customer_id || null, trip_id: meta.trip_id || null, direction: 'out', created_at: now() });
+  const r = await smsRaw(to, body);
+  update('sms_log', id, { status: r.ok ? 'sent' : 'failed', error: r.error || null, provider_id: r.id || null, sent_at: now() });
+  return r;
 }
 
-export async function notifyOwner(subject, text) {
-  const to = getSetting('notify_email') || getSetting('email');
-  return sendEmail(to, subject, emailShell(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`, { label: 'Open admin', url: `${BASE_URL()}/admin` }));
+// ---------- Admin notifications: each admin picks events, by email and/or text ----------
+export const NOTIFY_EVENTS = [
+  { key: 'new_lead', label: 'New quote request', email: true, sms: false },
+  { key: 'quote_accepted', label: 'Quote accepted and signed', email: true, sms: false },
+  { key: 'quote_declined', label: 'Quote declined', email: true, sms: false },
+  { key: 'contract_signed', label: 'Agreement signed', email: true, sms: false },
+  { key: 'payment', label: 'Payment received', email: true, sms: false },
+  { key: 'hold', label: 'Card hold placed', email: true, sms: false },
+  { key: 'payment_failed', label: 'Card payment failed', email: true, sms: false },
+  { key: 'chargeback', label: 'Chargeback opened', email: true, sms: false },
+  { key: 'vendor_reply', label: 'Vendor replied to a price request', email: true, sms: false },
+  { key: 'message', label: 'Contact form or quote question', email: true, sms: false },
+  { key: 'chat', label: 'Website chat needs a person', email: true, sms: false },
+  { key: 'sms_reply', label: 'Customer replied to a text', email: false, sms: false },
+  { key: 'driver_status', label: 'Driver started, arrived or finished a trip', email: false, sms: false },
+  { key: 'general', label: 'Other alerts', email: true, sms: false },
+];
+export function adminPrefs(u) {
+  let saved = {}; try { saved = JSON.parse(u.notify_prefs || '{}'); } catch {}
+  return Object.fromEntries(NOTIFY_EVENTS.map((e) => [e.key, { email: saved[e.key]?.email ?? e.email, sms: saved[e.key]?.sms ?? e.sms }]));
+}
+export async function notifyOwner(subject, text, event = 'general') {
+  const users = all('SELECT * FROM users');
+  const sent = new Set();
+  const html = emailShell(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`, { label: 'Open admin', url: `${BASE_URL()}/admin` });
+  for (const u of users) {
+    const p = adminPrefs(u)[event] || adminPrefs(u).general;
+    if (p.email && u.email) { sent.add(u.email.toLowerCase()); await sendEmail(u.email, subject, html, { kind: 'admin_alert' }); }
+    if (p.sms && u.phone) await sendSMS(u.phone, `${subject}. ${String(text).replace(/\s+/g, ' ').slice(0, 220)} ${BASE_URL()}/admin`, { kind: 'admin_alert' });
+  }
+  const extra = getSetting('notify_email');
+  if (extra && !sent.has(extra.toLowerCase())) await sendEmail(extra, subject, html, { kind: 'admin_alert' });
 }
 
 // ---------- Stripe (REST, no SDK) ----------
@@ -146,20 +191,50 @@ export async function placeDetails(placeId, sessionToken) {
   const j = await r.json();
   return { place_id: j.id, address: j.formattedAddress, lat: j.location?.latitude, lng: j.location?.longitude };
 }
-/** Driving distance/time through an ordered list of stops (to help staff price manually — never prices anything itself). */
-export async function routeEstimate(stops) {
-  if (!MAPS()) throw new Error('Google Maps is not configured');
+/**
+ * Drive distance and time through an ordered list of stops. Never prices anything.
+ * Buses (coach, party bus, trolley, double decker) use HERE "privateBus" routing, which avoids roads closed to buses
+ * (parkways, low bridges, weight limits) using the vehicle size from Settings. Limos, sprinters and cars use normal car routing.
+ * Without a HERE key it falls back to Google, which is NOT bus aware, and says so.
+ */
+const hereCoord = async (s) => {
+  if (s.lat && s.lng) return `${s.lat},${s.lng}`;
+  const r = await fetch(`https://geocode.search.hereapi.com/v1/geocode?limit=1&q=${encodeURIComponent(s.address)}&apiKey=${env('HERE_API_KEY')}`);
+  const j = r.ok ? await r.json() : null;
+  const p = j?.items?.[0]?.position;
+  if (!p) throw new Error(`Could not find "${s.address}" on the map. Pick it from the address suggestions.`);
+  return `${p.lat},${p.lng}`;
+};
+export async function routeEstimate(stops, { bus = true, departAtUtc } = {}) {
   const pts = stops.filter((s) => s.address || (s.lat && s.lng));
-  if (pts.length < 2) throw new Error('Need at least two stops');
+  if (pts.length < 2) throw new Error('Add at least two stops first.');
+  if (env('HERE_API_KEY')) {
+    const co = [];
+    for (const p of pts) co.push(await hereCoord(p));
+    const q = new URLSearchParams({ transportMode: bus ? 'privateBus' : 'car', origin: co[0], destination: co[co.length - 1], return: 'summary', apiKey: env('HERE_API_KEY') });
+    co.slice(1, -1).forEach((c) => q.append('via', c));
+    if (departAtUtc) q.set('departureTime', departAtUtc);
+    if (bus) {
+      q.set('vehicle[height]', getSetting('bus_height_cm') || '370'); q.set('vehicle[width]', getSetting('bus_width_cm') || '260');
+      q.set('vehicle[length]', getSetting('bus_length_cm') || '1370'); q.set('vehicle[grossWeight]', getSetting('bus_weight_kg') || '18000');
+    }
+    const r = await fetch(`https://router.hereapi.com/v8/routes?${q}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.routes?.[0]) throw new Error(j.title || j.error_description || 'No route found for a bus between these stops.');
+    const secs = j.routes[0].sections;
+    const legs = secs.map((sec, i) => ({ from: pts[i].address, to: pts[i + 1].address, miles: Math.round((sec.summary.length / 1609.344) * 10) / 10, minutes: Math.round(sec.summary.duration / 60) }));
+    return { provider: 'HERE', bus_aware: bus, mode: bus ? 'bus' : 'car', miles: Math.round(legs.reduce((a, l) => a + l.miles, 0) * 10) / 10, minutes: legs.reduce((a, l) => a + l.minutes, 0), legs };
+  }
+  if (!MAPS()) throw new Error('Routing is not configured. Add HERE_API_KEY (bus routing) or GOOGLE_MAPS_API_KEY.');
   const wp = (s) => (s.lat && s.lng ? { location: { latLng: { latitude: s.lat, longitude: s.lng } } } : { address: s.address });
   const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST', headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': MAPS(), 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.duration' },
     body: JSON.stringify({ origin: wp(pts[0]), destination: wp(pts[pts.length - 1]), intermediates: pts.slice(1, -1).map(wp), travelMode: 'DRIVE' }),
   });
   if (!r.ok) throw new Error('Route lookup failed');
-  const j = await r.json();
-  const rt = j.routes?.[0];
+  const rt = (await r.json()).routes?.[0];
   if (!rt) throw new Error('No route found');
-  const secs = (d) => Number(String(d || '0s').replace('s', ''));
-  return { miles: Math.round((rt.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(secs(rt.duration) / 60), legs: (rt.legs || []).map((l) => ({ miles: Math.round((l.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(secs(l.duration) / 60) })) };
+  const sec = (d) => Number(String(d || '0s').replace('s', ''));
+  const legs = (rt.legs || []).map((l, i) => ({ from: pts[i].address, to: pts[i + 1].address, miles: Math.round((l.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(sec(l.duration) / 60) }));
+  return { provider: 'Google', bus_aware: false, mode: 'car', miles: Math.round((rt.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(sec(rt.duration) / 60), legs, warning: 'This route is for a car. It may use parkways or roads that buses are not allowed on. Add a HERE key for bus-safe routing.' };
 }

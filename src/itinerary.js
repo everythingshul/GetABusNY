@@ -78,3 +78,26 @@ export function billableLines(it, { purpose } = {}) {
   lines.push({ desc: 'Overtime / extra hours (if any)', qty: 0, unit_cents: 0 });
   return lines;
 }
+
+const BUS_CATEGORIES = new Set(['Coach Bus', 'Party Bus', 'Trolley', 'Executive Coach', 'Double Decker', 'Other']);
+export const isBusCategory = (cat) => !cat || BUS_CATEGORIES.has(cat);
+
+const p2 = (n) => String(n).padStart(2, '0');
+const fmtNaive = (ms) => { const d = new Date(ms); return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}T${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
+const toMs = (t) => Date.parse(t.slice(0, 16) + ':00Z');
+/** Walk the route: arrival at each stop = previous departure + drive time; a stop with a set time holds the bus until then. */
+export function planTimes(it, legs) {
+  const stops = it.filter((x) => x.address || x.lat);
+  if (!stops.length || !stops[0].time) return null;
+  let dep = toMs(stops[0].time);
+  const out = [{ arrive: fmtNaive(dep), depart: fmtNaive(dep + (stops[0].wait_min || 0) * 60000), late: false }];
+  dep += (stops[0].wait_min || 0) * 60000;
+  for (let i = 1; i < stops.length; i++) {
+    const arrive = dep + (legs[i - 1]?.minutes || 0) * 60000;
+    const set = stops[i].time ? toMs(stops[i].time) : null;
+    const leave = Math.max(arrive, set || 0) + (stops[i].wait_min || 0) * 60000;
+    out.push({ arrive: fmtNaive(arrive), depart: fmtNaive(leave), late: !!(set && arrive > set) });
+    dep = leave;
+  }
+  return out;
+}

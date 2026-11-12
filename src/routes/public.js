@@ -1,7 +1,7 @@
 import express from 'express';
 import { all, one, run, update, insert, now, getSetting, getJSON, parse, log } from '../db.js';
 import { limit } from '../auth.js';
-import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased } from '../services.js';
+import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, SMS_GROUPS, cleanSmsTypes, handleInboundText } from '../services.js';
 import { createCheckout, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
 import fs from 'node:fs';
 import { placesAutocomplete, placeDetails } from '../integrations.js';
@@ -15,7 +15,7 @@ pub.get('/config', (req, res) => {
   res.json({
     business_name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address'),
     service_area: getSetting('service_area'), hours: getJSON('hours', []), socials: getJSON('socials', {}),
-    chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1',
+    chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1', sms_groups: SMS_GROUPS,
   });
 });
 
@@ -34,7 +34,7 @@ pub.post('/contact', limit('contact', 6, 3600000), (req, res) => {
   if (b.website) return res.json({ ok: true });
   if (!b.name || !b.body || (!b.email && !b.phone)) return fail(res, 400, 'Please include your name, a message, and an email or phone number.');
   const id = insert('messages', { name: String(b.name).slice(0, 120), email: String(b.email || '').slice(0, 200), phone: String(b.phone || '').slice(0, 40), subject: String(b.subject || '').slice(0, 200), body: String(b.body).slice(0, 5000), created_at: now() });
-  notifyOwner(`New message from ${b.name}`, `${b.subject || ''}\n\n${b.body}\n\n${b.email || ''} ${b.phone || ''}`).catch(() => {});
+  notifyOwner(`New message from ${b.name}`, `${b.subject || ''}\n\n${b.body}\n\n${b.email || ''} ${b.phone || ''}`, 'message').catch(() => {});
   res.json({ ok: true, id });
 });
 
@@ -70,7 +70,7 @@ pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
     if (k) await signContract(k, b, { ip: req.ip, ua: req.headers['user-agent'] });
     const r = acceptQuote(q.id, 'customer');
     if (k) { update('contracts', k.id, { trip_id: r.trip_id }); }
-    if (b.sms_optin && q.customer_id) run('UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE id=? AND sms_optin=0', now(), q.customer_id);
+    if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE id=? AND sms_optin=0', now(), q.customer_id); if (cleanSmsTypes(b.sms_types)) update('customers', q.customer_id, { sms_types: cleanSmsTypes(b.sms_types) }); }
     res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE id=?', r.invoice_id)?.token });
   } catch (e) { fail(res, e.status || 500, e.message); }
 });
@@ -79,7 +79,7 @@ pub.post('/quote/:token/decline', limit('qd', 10, 3600000), (req, res) => {
   if (!q || q.status !== 'sent') return fail(res, 400, 'Cannot decline this quote.');
   update('quotes', q.id, { status: 'declined', declined_at: now(), updated_at: now() });
   if (q.request_id) update('requests', q.request_id, { status: 'lost', updated_at: now() });
-  notifyOwner(`Quote ${q.number} declined`, String(req.body?.reason || 'No reason given').slice(0, 1000)).catch(() => {});
+  notifyOwner(`Quote ${q.number} declined`, String(req.body?.reason || 'No reason given').slice(0, 1000), 'quote_declined').catch(() => {});
   log('customer', 'quote.declined', 'quote', q.id);
   res.json({ ok: true });
 });
@@ -88,7 +88,7 @@ pub.post('/quote/:token/question', limit('qq', 6, 3600000), (req, res) => {
   if (!q || !req.body?.message) return fail(res, 400, 'Missing message');
   const c = one('SELECT * FROM customers WHERE id=?', q.customer_id) || {};
   insert('messages', { name: c.name, email: c.email, phone: c.phone, subject: `Question about quote ${q.number}`, body: String(req.body.message).slice(0, 3000), created_at: now() });
-  notifyOwner(`Question on quote ${q.number}`, `${c.name}: ${req.body.message}`).catch(() => {});
+  notifyOwner(`Question on quote ${q.number}`, `${c.name}: ${req.body.message}`, 'message').catch(() => {});
   res.json({ ok: true });
 });
 
@@ -157,11 +157,11 @@ export const stripeWebhook = (req, res) => {
       if (row) markReleased(row, o.cancellation_reason === 'automatic' ? 'expired' : 'released');
     } else if (ev.type === 'payment_intent.payment_failed') {
       const iid = Number(o.metadata?.invoice_id);
-      if (iid) { log('stripe', 'payment.failed', 'invoice', iid, o.last_payment_error?.message || 'declined'); notifyOwner('A card payment failed', `Invoice ${o.metadata?.invoice_number || iid}: ${o.last_payment_error?.message || 'the card was declined'}.`).catch(() => {}); }
+      if (iid) { log('stripe', 'payment.failed', 'invoice', iid, o.last_payment_error?.message || 'declined'); notifyOwner('A card payment failed', `Invoice ${o.metadata?.invoice_number || iid}: ${o.last_payment_error?.message || 'the card was declined'}.`, 'payment_failed').catch(() => {}); }
     } else if (ev.type === 'charge.dispute.created') {
       const p = one('SELECT * FROM payments WHERE stripe_pi=? LIMIT 1', o.payment_intent);
       log('stripe', 'payment.dispute', 'invoice', p?.invoice_id ?? null, `${money(o.amount)} ${o.reason || ''}`);
-      notifyOwner('Chargeback opened', `A customer disputed ${money(o.amount)} (${o.reason || 'no reason given'}). Reply with evidence in your Stripe dashboard before ${o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000).toDateString() : 'the deadline'}. Signed agreement and trip records are in the admin.`).catch(() => {});
+      notifyOwner('Chargeback opened', `A customer disputed ${money(o.amount)} (${o.reason || 'no reason given'}). Reply with evidence in your Stripe dashboard before ${o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000).toDateString() : 'the deadline'}. Signed agreement and trip records are in the admin.`, 'chargeback').catch(() => {});
     } else if (ev.type === 'charge.refunded') {
       const p = one("SELECT * FROM payments WHERE stripe_pi=? AND amount_cents>0 AND status='succeeded'", o.payment_intent);
       for (const rf of o.refunds?.data || []) {
@@ -195,7 +195,7 @@ pub.post('/rfq/:token', limit('rfq', 20, 3600000), (req, res) => {
   }
   const v = one('SELECT name FROM vendors WHERE id=?', r.vendor_id);
   log('vendor', 'rfq.' + (b.action === 'decline' ? 'declined' : 'responded'), 'rfq', r.id, v?.name);
-  notifyOwner(`${v?.name} ${b.action === 'decline' ? 'declined' : 'quoted'} ${r.ref}`, b.action === 'decline' ? 'Declined.' : `Price: $${b.price}\nVehicle: ${b.vehicle || ''}\n${b.notes || ''}`).catch(() => {});
+  notifyOwner(`${v?.name} ${b.action === 'decline' ? 'declined' : 'quoted'} ${r.ref}`, b.action === 'decline' ? 'Declined.' : `Price: $${b.price}\nVehicle: ${b.vehicle || ''}\n${b.notes || ''}`, 'vendor_reply').catch(() => {});
   res.json({ ok: true });
 });
 
@@ -241,4 +241,14 @@ pub.get('/trip-ics/:slug', (req, res) => {
 pub.post('/t', limit('beacon', 300, 600000), (req, res) => {
   try { trackView({ path: req.body?.p, ref: req.body?.r, sid: req.body?.s, ua: req.headers['user-agent'], country: req.headers['cf-ipcountry'] }); } catch {}
   res.status(204).end();
+});
+
+// ----- optional inbound text webhook (SimpleSender polling is the default; use this if they add webhooks) -----
+pub.post('/sms-inbound', (req, res) => {
+  const secret = env('SMS_WEBHOOK_SECRET');
+  if (!secret || (req.headers['x-webhook-secret'] || req.query.secret) !== secret) return res.status(403).json({ error: 'forbidden' });
+  const { from, body, id } = req.body || {};
+  if (!from || typeof body !== 'string') return fail(res, 400, 'from and body required');
+  handleInboundText(String(from), body, id ? String(id) : null);
+  res.json({ ok: true });
 });

@@ -1,6 +1,6 @@
 // Business logic shared by public, admin, driver and bot routes.
 import { db, all, one, run, insert, update, tx, now, token, nextNumber, totals, parse, getSetting, log } from './db.js';
-import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS } from './integrations.js';
+import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
 import { normItinerary, fromLegacy, summarize, itineraryText, KINDS, mapsDirUrl } from './itinerary.js';
 
 // ---------- time helpers (trip times are "naive" local times in the business timezone) ----------
@@ -52,6 +52,7 @@ export function createRequest(d, source = 'website') {
   const phone = String(d.phone || '').trim().slice(0, 40);
   if (!name || (!email && !phone)) throw Object.assign(new Error('Name and an email or phone number are required.'), { status: 400 });
   const customer_id = ensureCustomer({ name, email, phone, company: d.company, sms_optin: !!d.sms_optin && !!phone });
+  if (d.sms_optin && phone && cleanSmsTypes(d.sms_types)) update('customers', customer_id, { sms_types: cleanSmsTypes(d.sms_types) });
   let itinerary = normItinerary(d.itinerary);
   if (!itinerary.length) itinerary = fromLegacy(d);
   else {
@@ -70,7 +71,7 @@ export function createRequest(d, source = 'website') {
   log(source, 'request.created', 'request', id, `${name} ${details.depart_at || ''}`);
   const veh = details.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', details.vehicle_id)?.name : 'No preference';
   notifyOwner(`New quote request ${ref} — ${name}`,
-    `${name}\n${email} ${phone}${d.sms_optin ? ' (OK to text)' : ''}\n\nPurpose: ${details.purpose || '—'}\nDepart: ${fmtWhen(details.depart_at)}\nReturn: ${fmtWhen(details.return_at)}\nPassengers: ${details.passengers || '?'}\nVehicle: ${veh}\n\nItinerary:\n${itineraryText(itinerary) || '—'}\n\n${details.comments || ''}`).catch(() => {});
+    `${name}\n${email} ${phone}${d.sms_optin ? ' (OK to text)' : ''}\n\nPurpose: ${details.purpose || '—'}\nDepart: ${fmtWhen(details.depart_at)}\nReturn: ${fmtWhen(details.return_at)}\nPassengers: ${details.passengers || '?'}\nVehicle: ${veh}\n\nItinerary:\n${itineraryText(itinerary) || '—'}\n\n${details.comments || ''}`, 'new_lead').catch(() => {});
   if (email) {
     sendEmail(email, `We got your request (${ref})`, emailShell(`Thanks, ${name.split(' ')[0]} — we have your request`,
       `<p>Your reference number is <b>${ref}</b>. We'll send your quote during business hours, usually the same day.</p>
@@ -152,7 +153,7 @@ export function acceptQuote(id, actor = 'customer') {
   log(actor, 'quote.accepted', 'quote', id, `trip ${out.tripId}`);
   scheduleTripFollowups(out.tripId);
   sendInvoice(out.invId, actor).catch(() => {});
-  notifyOwner(`Quote ${q.number} accepted`, `${customerOf(q.customer_id).name} accepted ${q.number} (${money(q.total_cents)}). Trip and invoice created.`).catch(() => {});
+  notifyOwner(`Quote ${q.number} accepted`, `${customerOf(q.customer_id).name} accepted ${q.number} (${money(q.total_cents)}). Trip and invoice created.`, 'quote_accepted').catch(() => {});
   return { trip_id: out.tripId, invoice_id: out.invId };
 }
 
@@ -209,7 +210,7 @@ function afterPayment(invoice_id, amount_cents, method, actor) {
   log(actor, 'payment.recorded', 'invoice', invoice_id, `${money(amount_cents)} ${method}`);
   if (c.email) sendEmail(c.email, `Payment received — ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
   textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
-  notifyOwner(`Payment ${money(amount_cents)} — ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`).catch(() => {});
+  notifyOwner(`Payment ${money(amount_cents)} — ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
 }
 
 // ---------- card authorizations (holds): authorize -> capture (full or partial) or release ----------
@@ -218,7 +219,7 @@ export function recordAuthorization(invoice_id, { amount_cents, stripe_pi }) {
   const id = insert('payments', { invoice_id, amount_cents, method: 'card_auth', reference: stripe_pi, stripe_pi, status: 'authorized', note: 'Card hold (not charged yet)', created_at: now() });
   const i = one('SELECT * FROM invoices WHERE id=?', invoice_id);
   log('stripe', 'payment.authorized', 'invoice', invoice_id, money(amount_cents));
-  notifyOwner(`Card hold ${money(amount_cents)} — ${i.number}`, `${customerOf(i.customer_id).name} authorized ${money(amount_cents)}. Capture or release it from the invoice. Holds usually expire after about 7 days.`).catch(() => {});
+  notifyOwner(`Card hold ${money(amount_cents)} — ${i.number}`, `${customerOf(i.customer_id).name} authorized ${money(amount_cents)}. Capture or release it from the invoice. Holds usually expire after about 7 days.`, 'hold').catch(() => {});
   return id;
 }
 export function markCaptured(row, captured_cents, actor = 'stripe') {
@@ -244,7 +245,7 @@ export function tripDetail(id) {
 export async function sendDriverLink(driver_id, via = 'email') {
   const d = one('SELECT * FROM drivers WHERE id=?', driver_id);
   const url = link.driver(d);
-  if (via === 'sms') return sendSMS(d.phone, `Get A Bus NY driver portal (no password needed): ${url}`);
+  if (via === 'sms') return sendSMS(d.phone, `Get A Bus NY driver portal (no password needed): ${url}`, { kind: 'driver_link' });
   return sendEmail(d.email, 'Your Get A Bus NY driver portal link', emailShell('Your driver portal', `<p>Hi ${esc(d.name.split(' ')[0])}, this link shows your assigned trips and customer contact info on the day of the trip. No password needed — don't share it.</p>`, { label: 'Open driver portal', url }));
 }
 export async function sendTripConfirmation(trip_id) {
@@ -369,6 +370,7 @@ export async function runFollowups() {
       } catch (e) { update('followups', f.id, { status: 'failed', done_at: now(), result: e.message }); }
     }
     await flushSMS();
+    await syncInboundSms();
     // mark overdue invoices
     // (status stays sent/partial; "overdue" is derived from due_date in queries)
   } finally { running = false; }
@@ -440,21 +442,27 @@ function quietEndsAt() { // first real moment after the quiet window ends
   for (let i = 0; i < 400 && inQuietWindow(nowLocalMs() + (t - Date.now())); i++) t += 15 * 60000;
   return new Date(t);
 }
+export const SMS_GROUPS = { quotes: 'Quote updates', payments: 'Payment receipts', reminders: 'Trip reminders', driver: 'Driver on the way or arrived', reviews: 'Review request after the trip' };
+const KIND_GROUP = { request_received: 'quotes', quote_sent: 'quotes', payment: 'payments', trip_reminder: 'reminders', driver_en_route: 'driver', driver_arrived: 'driver', review_request: 'reviews' };
+export const cleanSmsTypes = (t) => { const a = Array.isArray(t) ? t.filter((x) => SMS_GROUPS[x]) : null; return a && a.length ? a : null; };
 export async function textCustomer(customer_id, body, kind, { trip_id, force = false, override = false } = {}) {
   const c = customerOf(customer_id);
   if (!c.id || !c.phone) return { ok: false, error: 'no phone' };
   if (!override && !c.sms_optin) return { ok: false, error: 'customer has not opted in to texts' };
+  const group = KIND_GROUP[kind];
+  const chosen = parse(c.sms_types, null);
+  if (!override && group && Array.isArray(chosen) && !chosen.includes(group)) return { ok: false, error: 'customer chose not to get this kind of text' };
   if (getSetting('sms_enabled') !== '1') return { ok: false, error: 'texts are turned off' };
   const to = toE164(c.phone); if (!to) return { ok: false, error: 'invalid phone number' };
   const defer = !force && inQuietWindow();
-  const id = insert('sms_log', { to_phone: to, body: String(body).slice(0, 600), kind, status: defer ? 'queued' : 'sending', customer_id, trip_id: trip_id || null, send_after: defer ? quietEndsAt().toISOString() : null, created_at: now() });
+  const id = insert('sms_log', { to_phone: to, body: String(body).slice(0, 1000), kind, status: defer ? 'queued' : 'sending', customer_id, trip_id: trip_id || null, direction: 'out', send_after: defer ? quietEndsAt().toISOString() : null, created_at: now() });
   if (defer) return { ok: true, queued: true };
   return deliverSMS(id);
 }
 async function deliverSMS(id) {
   const m = one('SELECT * FROM sms_log WHERE id=?', id);
-  const r = await sendSMS(m.to_phone, m.body);
-  update('sms_log', id, { status: r.ok ? 'sent' : 'failed', error: r.error || null, sent_at: now() });
+  const r = await smsRaw(m.to_phone, m.body);
+  update('sms_log', id, { status: r.ok ? 'sent' : 'failed', error: r.error || null, provider_id: r.id || null, sent_at: now() });
   return r;
 }
 export async function flushSMS() {
@@ -462,6 +470,49 @@ export async function flushSMS() {
     if (!customerOf(m.customer_id).sms_optin) { update('sms_log', m.id, { status: 'skipped', error: 'opted out' }); continue; }
     await deliverSMS(m.id);
   }
+}
+
+/** A customer texted us. STOP / START change their opt-in; anything else alerts the admins. */
+export function handleInboundText(phone, body, provider_id) {
+  const ten = String(phone || '').replace(/\D/g, '').slice(-10);
+  if (provider_id && one('SELECT 1 x FROM sms_log WHERE provider_id=? AND direction=?', provider_id, 'in')) return false;
+  const cust = ten ? one("SELECT * FROM customers WHERE replace(replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ?", `%${ten}`) : null;
+  insert('sms_log', { to_phone: phone, body: String(body).slice(0, 1000), kind: 'reply', status: 'received', customer_id: cust?.id || null, direction: 'in', provider_id: provider_id || null, created_at: now(), sent_at: now() });
+  const word = String(body || '').trim().toUpperCase();
+  if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(word)) {
+    if (cust) { update('customers', cust.id, { sms_optin: 0 }); log('customer', 'sms.opt_out', 'customer', cust.id); }
+    if (smsConfigured()) smsRaw(phone, 'You are unsubscribed and will not get more texts from us.').catch(() => {});
+    return true;
+  }
+  if (['START', 'YES', 'UNSTOP'].includes(word)) {
+    if (cust) { update('customers', cust.id, { sms_optin: 1, sms_optin_at: now() }); log('customer', 'sms.opt_in', 'customer', cust.id); }
+    return true;
+  }
+  notifyOwner(`Text from ${cust?.name || phone}`, String(body), 'sms_reply').catch(() => {});
+  return true;
+}
+
+let lastSync = 0;
+/** SimpleSender has no inbound webhook, so poll its message list every couple of minutes. */
+export async function syncInboundSms() {
+  if (!smsConfigured() || Date.now() - lastSync < 120000) return 0;
+  lastSync = Date.now();
+  const own = String(getSetting('sms_own_number') || '').replace(/\D/g, '').slice(-10);
+  if (!own) return 0;
+  let n = 0;
+  try {
+    const r = await fetch(`${env('SMS_API_BASE').replace(/\/$/, '')}/v1/messages`, { headers: { Authorization: `Bearer ${env('SMS_API_KEY')}` } });
+    if (!r.ok) return 0;
+    const d = await r.json().catch(() => ({}));
+    for (const m of Array.isArray(d.messages) ? d.messages : []) {
+      const to = String(m.to ?? m.To ?? m.destination ?? m.recipient ?? '').replace(/\D/g, '').slice(-10);
+      if (to !== own) continue; // only messages addressed to our number are inbound
+      const from = m.from ?? m.sender ?? m.phone ?? m.msisdn ?? m.source, text = m.body ?? m.text ?? m.message ?? m.content;
+      if (!from || typeof text !== 'string') continue;
+      if (handleInboundText(String(from), text, m.id != null ? String(m.id) : m.message_id || m.sid || null)) n++;
+    }
+  } catch (e) { console.error('sms sync', e.message); }
+  return n;
 }
 
 // ---------- review requests ----------

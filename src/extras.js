@@ -95,7 +95,7 @@ export async function signContract(k, { name, signature, agree }, { ip, ua }) {
   log('customer', 'contract.signed', 'contract', k.id, `${name} from ${ip}`);
   const att = [{ filename: `${getSetting('business_name')} agreement ${k.number}.pdf`, content: pdf }];
   if (c.email) sendEmail(c.email, `Signed agreement ${k.number}`, emailShell('Agreement signed', `<p>Thank you, ${esc(name)}. Your signed copy is attached. Keep it for your records.</p>`), { attachments: att }).catch(() => {});
-  notifyOwner(`Contract ${k.number} signed`, `${name} signed ${k.number} (${money(k.total_cents)}).`).catch(() => {});
+  notifyOwner(`Contract ${k.number} signed`, `${name} signed ${k.number} (${money(k.total_cents)}).`, 'contract_signed').catch(() => {});
   return { pdf_file: pdfFile };
 }
 

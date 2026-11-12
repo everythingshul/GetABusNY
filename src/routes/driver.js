@@ -4,6 +4,7 @@ import express from 'express';
 import { all, one, update, insert, now, getSetting, log } from '../db.js';
 import { limit } from '../auth.js';
 import { naiveMs, nowLocalMs, textCustomer } from '../services.js';
+import { notifyOwner } from '../integrations.js';
 import { normItinerary, mapsDirUrl, mapsPlaceUrl, KINDS } from '../itinerary.js';
 import { parse } from '../db.js';
 
@@ -56,6 +57,7 @@ driver.post('/:token/trips/:id/status', (req, res) => {
   update('trips', t.id, { driver_status: st, driver_status_at: now(), ...(st === 'completed' ? { status: 'completed' } : t.status === 'confirmed' || t.status === 'booked' ? { status: 'in_progress' } : {}), updated_at: now() });
   insert('trip_events', { trip_id: t.id, status: st, note, at: now() });
   log(`driver:${req.driver.name}`, `trip.${st}`, 'trip', t.id, note);
+  if (['en_route', 'arrived', 'completed'].includes(st)) notifyOwner(`Driver ${req.driver.name}: ${st.replace('_', ' ')}`, `${t.ref} ${t.title || ''}`.trim(), 'driver_status').catch(() => {});
   if (st === 'en_route' || st === 'arrived') {
     const dr = req.driver;
     textCustomer(t.customer_id, st === 'en_route'

@@ -8,10 +8,10 @@ import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '.
 import * as S from '../services.js';
 import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
-import { normItinerary, summarize, billableLines, mapsDirUrl } from '../itinerary.js';
+import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
-import { routeEstimate } from '../integrations.js';
+import { routeEstimate, NOTIFY_EVENTS, adminPrefs } from '../integrations.js';
 
 export const admin = express.Router();
 const wrap = (fn) => async (req, res) => { try { res.json(await fn(req, res)); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message }); else { console.error(e); res.status(500).json({ error: e.message || 'Server error' }); } } };
@@ -34,7 +34,7 @@ admin.post('/password', wrap((req) => {
   update('users', u.id, { pass_hash: hashPassword(req.body.next) });
   return { ok: true };
 }));
-admin.get('/users', wrap(() => all('SELECT id,email,name,role,created_at FROM users')));
+admin.get('/users', wrap(() => all('SELECT id,email,name,phone,role,created_at FROM users')));
 admin.post('/users', wrap((req) => {
   const { email, name, password } = req.body || {};
   if (!email || String(password || '').length < 10) throw bad('Email and a 10+ character password are required');
@@ -68,7 +68,7 @@ admin.post('/upload', express.raw({ type: 'image/*', limit: '8mb' }), wrap((req)
 // ---------- generic CRUD ----------
 const J = (...f) => f; // readability
 const RES = {
-  customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin'), sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
+  customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin', 'sms_types'), sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
   vehicles: { fields: J('name', 'category', 'capacity', 'description', 'features', 'image', 'hourly_cents', 'min_hours', 'active', 'sort'), sel: 'SELECT t.* FROM vehicles t', search: ['t.name', 't.category'], order: 't.sort, t.name', del: () => true },
   drivers: { fields: J('name', 'phone', 'email', 'vendor_id', 'active', 'notes'), sel: 'SELECT t.*, v.name vendor_name FROM drivers t LEFT JOIN vendors v ON v.id=t.vendor_id', search: ['t.name', 't.phone'], order: 't.name COLLATE NOCASE', del: () => true, create: (o) => ({ ...o, token: token(24) }), extra: (r) => ({ ...r, portal_url: `${process.env.BASE_URL || ''}/d/${r.token}` }) },
   vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
@@ -223,7 +223,14 @@ admin.use('/chesky', chatAdminRouter());
 
 // ---------- itinerary helpers (pricing is always entered by hand) ----------
 admin.post('/itinerary/lines', wrap((req) => billableLines(normItinerary(req.body?.itinerary), { purpose: req.body?.purpose })));
-admin.post('/route-estimate', wrap(async (req) => routeEstimate(normItinerary(req.body?.itinerary).filter((x) => x.kind !== 'start' || true))));
+admin.post('/route-estimate', wrap(async (req) => {
+  const it = normItinerary(req.body?.itinerary);
+  const cat = req.body?.vehicle_id ? one('SELECT category FROM vehicles WHERE id=?', req.body.vehicle_id)?.category : null;
+  const bus = isBusCategory(cat);
+  const first = it.find((x) => x.time);
+  const r = await routeEstimate(it, { bus, departAtUtc: first ? S.localToDate(first.time).toISOString() : undefined });
+  return { ...r, vehicle_category: cat || null, stops: planTimes(it, r.legs) };
+}));
 
 // ---------- contracts / e-signature ----------
 admin.get('/contracts', wrap(() => all("SELECT k.id,k.number,k.status,k.total_cents,k.signer_name,k.signed_at,k.sent_at,k.created_at,k.trip_id,c.name customer_name, t.ref trip_ref FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id LEFT JOIN trips t ON t.id=k.trip_id ORDER BY k.id DESC LIMIT 300")));
@@ -297,4 +304,67 @@ admin.post('/payments/:id/release', wrap(async (req) => {
   await cancelPayment(p.stripe_pi);
   markReleased(p, 'released', req.user.email);
   return { ok: true };
+}));
+
+// ---------- sent messages: every email and text, exactly as the customer saw it ----------
+admin.get('/messages-sent', wrap((req) => {
+  const q = `%${String(req.query.q || '').trim()}%`; const lim = Math.min(Number(req.query.limit) || 200, 500);
+  const type = req.query.type || 'all';
+  const mails = type === 'sms' ? [] : all("SELECT id, created_at at, to_addr to_, subject title, status, error, kind, provider FROM outbox WHERE (to_addr LIKE ? OR subject LIKE ?) ORDER BY id DESC LIMIT ?", q, q, lim).map((m) => ({ type: 'email', id: m.id, at: m.at, to: m.to_, title: m.title, status: m.status, error: m.error, kind: m.kind || 'customer', provider: m.provider }));
+  const texts = type === 'email' ? [] : all("SELECT m.id, m.created_at at, m.to_phone, m.body, m.status, m.error, m.kind, m.direction, c.name cn FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id WHERE (m.to_phone LIKE ? OR m.body LIKE ? OR c.name LIKE ?) ORDER BY m.id DESC LIMIT ?", q, q, q, lim).map((m) => ({ type: 'sms', id: m.id, at: m.at, to: m.cn ? `${m.cn} (${m.to_phone})` : m.to_phone, title: m.body, status: m.status, error: m.error, kind: m.kind, direction: m.direction }));
+  return [...mails, ...texts].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, lim);
+}));
+admin.get('/messages-sent/email/:id', wrap((req) => { const m = one('SELECT * FROM outbox WHERE id=?', req.params.id); if (!m) throw bad('Not found', 404); return m; }));
+admin.get('/messages-sent/sms/:id', wrap((req) => { const m = one('SELECT m.*, c.name customer_name FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id WHERE m.id=?', req.params.id); if (!m) throw bad('Not found', 404); return m; }));
+admin.post('/messages-sent/email/:id/resend', wrap(async (req) => {
+  const m = one('SELECT * FROM outbox WHERE id=?', req.params.id); if (!m) throw bad('Not found', 404);
+  return sendEmail(m.to_addr, m.subject, m.html, { kind: m.kind });
+}));
+
+// small allowlist sanitizer for the rich-text composer
+const ALLOWED = new Set(['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h3', 'h4', 'blockquote', 'div', 'span', 'hr']);
+export function cleanHtml(html) {
+  return String(html || '').slice(0, 60000)
+    .replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<\/?([a-z0-9]+)([^>]*)>/gi, (m, tag, attrs) => {
+      tag = tag.toLowerCase(); if (!ALLOWED.has(tag)) return '';
+      if (m.startsWith('</')) return `</${tag}>`;
+      if (tag === 'a') { const h = /href\s*=\s*"(https?:\/\/[^"]+|mailto:[^"]+)"/i.exec(attrs); return h ? `<a href="${h[1].replace(/"/g, '&quot;')}" target="_blank" rel="noopener">` : '<a>'; }
+      return `<${tag}>`;
+    });
+}
+admin.post('/messages/email', wrap(async (req) => {
+  const { to, subject, html, entity_type, entity_id } = req.body || {};
+  if (!to || !subject || !html) throw bad('Recipient, subject and message are required');
+  const clean = cleanHtml(html);
+  const r = await sendEmail(to, subject, emailShell(subject, clean), { kind: 'staff' });
+  insert('followups', { entity_type: entity_type || 'general', entity_id: entity_id || null, kind: 'manual_email', channel: 'email', to_email: to, subject, body: clean, due_at: now(), status: r.ok ? 'sent' : 'failed', auto: 0, result: r.error || r.status, created_at: now(), done_at: now() });
+  return r;
+}));
+
+// ---------- notification choices (each admin picks events, by email and/or text) ----------
+admin.get('/notify-events', wrap(() => NOTIFY_EVENTS.map(({ key, label }) => ({ key, label }))));
+admin.get('/users/:id/notify', wrap((req) => { const u = one('SELECT id,email,name,phone,notify_prefs FROM users WHERE id=?', req.params.id); if (!u) throw bad('Not found', 404); return { id: u.id, name: u.name, email: u.email, phone: u.phone || '', prefs: adminPrefs(u) }; }));
+admin.put('/users/:id/notify', wrap((req) => {
+  const u = one('SELECT id FROM users WHERE id=?', req.params.id); if (!u) throw bad('Not found', 404);
+  const prefs = {}; for (const e of NOTIFY_EVENTS) { const p = req.body?.prefs?.[e.key]; if (p) prefs[e.key] = { email: !!p.email, sms: !!p.sms }; }
+  update('users', u.id, { phone: String(req.body?.phone || '').replace(/[^+\d\s()-]/g, '').slice(0, 30), notify_prefs: JSON.stringify(prefs) });
+  log(req.user.email, 'notify.updated', 'user', u.id);
+  return { ok: true };
+}));
+admin.post('/users/:id/notify-test', wrap(async (req) => {
+  const u = one('SELECT * FROM users WHERE id=?', req.params.id); if (!u) throw bad('Not found', 404);
+  const out = {};
+  if (u.email) out.email = await sendEmail(u.email, 'Test alert from Get A Bus NY', emailShell('Test alert', '<p>If you can read this, email alerts reach you.</p>'), { kind: 'admin_alert' });
+  if (u.phone) out.sms = await sendSMS(u.phone, 'Get A Bus NY test alert: texts reach you.', { kind: 'admin_alert' });
+  return out;
+}));
+
+// ---------- double-booking check ----------
+admin.get('/trips/conflicts', wrap((req) => {
+  const { id = 0, driver_id, vehicle_id, from, to } = req.query;
+  if (!from) return [];
+  const start = S.naiveMs(from), end = S.naiveMs(to || from) + 3600000;
+  const clash = (col, val) => (val ? all(`SELECT t.id, t.ref, t.depart_at, t.return_at, c.name customer_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id WHERE t.${col}=? AND t.id<>? AND t.status NOT IN ('cancelled','completed') AND t.depart_at IS NOT NULL`, val, id).filter((t) => S.naiveMs(t.depart_at) < end && S.naiveMs(t.return_at || t.depart_at) + 3600000 > start) : []);
+  return [...clash('driver_id', driver_id).map((t) => ({ ...t, what: 'driver' })), ...clash('vehicle_id', vehicle_id).map((t) => ({ ...t, what: 'vehicle' }))];
 }));

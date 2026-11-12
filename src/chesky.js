@@ -221,7 +221,7 @@ export async function adminAssistant({ message, session_id, userId }) {
 // ---------- public router ----------
 const getConv = (id) => (/^[A-Za-z0-9_-]{10,40}$/.test(id || '') ? one('SELECT * FROM chat_conversations WHERE id=?', id) : null);
 const msgOut = (m) => ({ id: m.id, from: m.from_role, text: m.text, ts: m.created_at });
-const note = (conv, text, isNew) => notifyOwner(`${isNew ? 'New chat request' : 'New chat message'} from ${oneLine(conv.name || conv.email, 80)}`, `${text}\n\nFrom ${conv.email}${conv.page ? ` on ${conv.page}` : ''}\nReply in admin: ${BASE_URL()}/admin#/chesky`).catch(() => {});
+const note = (conv, text, isNew) => notifyOwner(`${isNew ? 'New chat request' : 'New chat message'} from ${oneLine(conv.name || conv.email, 80)}`, `${text}\n\nFrom ${conv.email}${conv.page ? ` on ${conv.page}` : ''}\nReply in admin: ${BASE_URL()}/admin#/chesky`, 'chat').catch(() => {});
 
 export function chatPublicRouter() {
   const r = express.Router();
@@ -237,7 +237,7 @@ export function chatPublicRouter() {
       if (learned) return res.json({ reply: learned.entry.answer, offTopic: false, entryId: learned.entry.id });
       const out = await ask(question, transcript);
       if (out.offTopic) bumpUnanswered(question);
-      if (out.forwardToTeam) { const id = insertMessage(question); notifyOwner('Message forwarded by Chesky', `${question}\n\nRelayed by Chesky, no reply address given. (inbox #${id})`).catch(() => {}); }
+      if (out.forwardToTeam) { const id = insertMessage(question); notifyOwner('Message forwarded by Chesky', `${question}\n\nRelayed by Chesky, no reply address given. (inbox #${id})`, 'message').catch(() => {}); }
       res.json({ reply: out.reply, offTopic: !!out.offTopic, entryId: 'ai', submitted: out.submitted || null });
     } catch (e) { next(e); }
   });

@@ -10,7 +10,6 @@ import { runFollowups, inQuietWindow } from './src/services.js';
 import { chatPublicRouter } from './src/chesky.js';
 import { staffCalendar, driverCalendar } from './src/extras.js';
 import { one, run, getSetting } from './src/db.js';
-import crypto from 'node:crypto';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(__dir, 'public');
@@ -30,25 +29,6 @@ app.use((req, res, next) => {
 // Stripe needs the raw body for signature verification
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhook);
 app.use(express.json({ limit: '200kb' }));
-
-// Twilio inbound texts (STOP / START). Validates X-Twilio-Signature when TWILIO_TOKEN is set.
-app.post('/api/twilio/sms', express.urlencoded({ extended: false, limit: '20kb' }), (req, res) => {
-  const tok = process.env.TWILIO_TOKEN;
-  if (tok) {
-    const url = `${(process.env.BASE_URL || '').replace(/\/$/, '')}/api/twilio/sms`;
-    const data = url + Object.keys(req.body).sort().map((k) => k + req.body[k]).join('');
-    const sig = crypto.createHmac('sha1', tok).update(data).digest('base64');
-    if (sig !== req.headers['x-twilio-signature']) return res.status(403).end();
-  }
-  const word = String(req.body.Body || '').trim().toUpperCase();
-  const from = String(req.body.From || '');
-  const digits = from.replace(/\D/g, '').slice(-10);
-  let reply = '';
-  if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(word)) { run("UPDATE customers SET sms_optin=0 WHERE replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')','') LIKE ?", `%${digits}`); reply = 'You are unsubscribed and will not get more texts from us.'; }
-  else if (['START', 'YES', 'UNSTOP'].includes(word)) { run("UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')','') LIKE ?", new Date().toISOString(), `%${digits}`); reply = 'You are subscribed to trip updates. Reply STOP anytime to opt out.'; }
-  else if (word === 'HELP') reply = `${getSetting('business_name')}: call ${getSetting('phone')}. Reply STOP to opt out.`;
-  res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response>${reply ? `<Message>${reply}</Message>` : ''}</Response>`);
-});
 
 app.use('/api/public/chesky', chatPublicRouter());
 app.use('/api/public', pub);
