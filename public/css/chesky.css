@@ -40,3 +40,40 @@
 .chesky-handoff-head{display:flex;justify-content:space-between;align-items:center;font:600 .95rem 'Outfit',sans-serif}.chesky-handoff-head button{background:none;border:0;font-size:1.3rem;cursor:pointer;color:#5a6e7d}
 @media(max-width:520px){.chesky-panel{right:8px;left:8px;bottom:86px;width:auto;max-width:none;height:calc(100vh - 106px)}}
 @media print{#chesky-root{display:none}}
+
+/* photos and voice notes */
+.chesky-form{align-items:flex-end}
+.chesky-form .chesky-icon-btn{flex:none;width:40px;height:40px;border:1.5px solid var(--c-line);background:#fff;color:var(--c-blue-d);border-radius:10px;display:grid;place-items:center;cursor:pointer;padding:0}
+.chesky-form .chesky-icon-btn:hover,.chesky-form .chesky-icon-btn:focus-visible{border-color:var(--c-blue);background:#e3f1fa;outline:none}
+.chesky-form .chesky-icon-btn svg{width:20px;height:20px}
+.chesky-tray{display:flex;gap:6px;flex-wrap:wrap;padding:0 2px 8px}
+.chesky-tray[hidden]{display:none}
+.chesky-chip-att{display:flex;align-items:center;gap:8px;background:#e3f1fa;border:1.5px solid #b7d9ee;border-radius:10px;padding:4px 6px 4px 4px;font-size:.8rem;font-weight:600;color:var(--c-ink)}
+.chesky-chip-att img{width:36px;height:36px;object-fit:cover;border-radius:6px}
+.chesky-chip-att button{border:0;background:none;color:#5a6e7d;cursor:pointer;padding:2px;display:grid;place-items:center}
+.chesky-chip-att button svg{width:16px;height:16px}
+.chesky-att-play{width:30px;height:30px;border-radius:50%!important;background:var(--c-blue)!important;color:#fff!important}
+.chesky-att-play svg{width:14px!important;height:14px!important}
+.chesky-sent-photo{display:block;max-width:100%;max-height:200px;border-radius:10px;margin-bottom:6px}
+.chesky-voice{display:flex;align-items:center;gap:8px;min-width:190px}
+.chesky-vp-btn{flex:none;width:34px;height:34px;border-radius:50%;border:0;background:var(--c-lime);color:var(--c-navy);display:grid;place-items:center;cursor:pointer;padding:0}
+.from-visitor .chesky-vp-btn{background:#fff;color:var(--c-blue-d)}
+.chesky-vp-btn svg{width:16px;height:16px}
+.chesky-vp-wave{flex:1;height:26px;display:flex;align-items:center;gap:2px}
+.chesky-vp-wave i{flex:1;min-width:2px;border-radius:2px;background:currentColor;opacity:.35}
+.chesky-vp-wave i.on{opacity:1}
+.chesky-vp-dur{font-size:.75rem;font-variant-numeric:tabular-nums;opacity:.85}
+.chesky-voice-transcript{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.12);font-size:.85rem;font-style:italic;opacity:.92}
+.from-visitor .chesky-voice-transcript{border-top-color:rgba(255,255,255,.35)}
+.chesky-rec{display:flex;align-items:center;gap:10px;padding:6px 2px}
+.chesky-rec-dot{width:12px;height:12px;border-radius:50%;background:var(--c-red);animation:chesky-rec 1s ease-in-out infinite}
+@keyframes chesky-rec{50%{opacity:.3}}
+.chesky-rec-time{font:700 1rem 'Outfit',sans-serif;font-variant-numeric:tabular-nums;min-width:38px}
+.chesky-rec-meter{flex:1;height:30px;display:flex;align-items:center;gap:3px}
+.chesky-rec-meter i{flex:1;height:20%;background:var(--c-blue);border-radius:2px;transition:height .1s}
+.chesky-rec button{border-radius:10px;font:700 .85rem 'Outfit',sans-serif;cursor:pointer;min-height:40px;padding:0 12px;display:flex;align-items:center;gap:6px}
+.chesky-rec-cancel{background:#fff;border:1.5px solid var(--c-line);color:#5a6e7d}
+.chesky-rec-done{background:var(--c-lime);border:0;color:var(--c-navy)}
+.chesky-rec-done svg{width:16px;height:16px}
+@media (prefers-reduced-motion:reduce){.chesky-rec-dot{animation:none}.chesky-rec-meter i{transition:none}}
+

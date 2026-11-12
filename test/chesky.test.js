@@ -1,4 +1,5 @@
-// Chesky checks: taught answers, unanswered log, handoff, rate limit, AI loop (mocked), no-key fallback. No network.
+// Chesky checks: taught answers, unanswered log, handoff, rate limit, AI loop (mocked), no-key fallback,
+// voice notes and photos (validation, transcription mocked, image block sent to Claude, voice files and access control). No network.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,10 +7,11 @@ import assert from 'node:assert/strict';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gab-ch-'));
 process.env.DB_PATH = path.join(dir, 't.db');
+process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = 'z'.repeat(32);
-delete process.env.CHESKY_API_KEY; delete process.env.RESEND_API_KEY;
+delete process.env.CHESKY_API_KEY; delete process.env.RESEND_API_KEY; delete process.env.OPENAI_API_KEY;
 const { default: express } = await import('express');
-const { chatPublicRouter, chatAdminRouter, execTool } = await import('../src/chesky.js');
+const { chatPublicRouter, chatAdminRouter, execTool, checkMedia, sniffImage, sniffAudio, setTranscriber } = await import('../src/chesky.js');
 const { all, one } = await import('../src/db.js');
 
 const app = express();
@@ -75,6 +77,87 @@ try {
   r = await call('POST', '/p/send', { id: cid, text: 'more' }); assert.equal(r.status, 409); ok('closed conversation rejects messages');
   r = await call('GET', '/p/poll?id=doesnotexist123'); assert.equal(r.status, 404); ok('bad conversation id → 404');
   r = await call('DELETE', `/a/${cid}`); assert.equal(one('SELECT COUNT(*) c FROM chat_messages WHERE conversation_id=?', cid).c, 0); ok('delete cascades messages');
+
+  // ---------- photos and voice notes ----------
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 2)]);
+  const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.alloc(32)]);
+  const webm = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(400, 3)]);
+  const m4a = Buffer.concat([Buffer.alloc(4), Buffer.from('ftypM4A '), Buffer.alloc(400, 4)]);
+  const raw = async (url, buf, type) => { const r = await realFetch(base + url, { method: 'POST', headers: { 'content-type': type }, body: buf }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+
+  assert.equal(sniffImage(png), 'image/png'); assert.equal(sniffImage(jpg), 'image/jpeg'); assert.equal(sniffImage(webp), 'image/webp');
+  assert.equal(sniffImage(Buffer.from('GIF89a......................')), null); assert.equal(sniffImage(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')), null); ok('image magic bytes: png, jpg, webp accepted; gif and svg refused');
+  assert.ok(checkMedia('image', 'image/png', png).mime); assert.ok(checkMedia('image', 'image/jpeg', jpg).mime); assert.ok(checkMedia('image', 'image/webp', webp).mime);
+  assert.ok(checkMedia('image', 'image/jpeg', png).error, 'png bytes claimed as jpeg');
+  assert.ok(checkMedia('image', 'image/svg+xml', png).error); assert.ok(checkMedia('image', 'image/gif', png).error);
+  assert.ok(checkMedia('image', 'image/png', Buffer.concat([png, Buffer.alloc(6 * 1024 * 1024)])).error); ok('photo checks: type, mismatch, and 6MB cap');
+  assert.equal(sniffAudio(webm), 'audio/webm'); assert.equal(sniffAudio(m4a), 'audio/mp4');
+  assert.ok(checkMedia('voice', 'audio/webm;codecs=opus', webm).mime); assert.ok(checkMedia('voice', 'audio/mp4', m4a).mime);
+  assert.ok(checkMedia('voice', 'audio/webm', Buffer.alloc(50)).error, 'too short'); assert.ok(checkMedia('voice', 'audio/webm', m4a).error, 'mismatch');
+  assert.ok(checkMedia('voice', 'audio/mpeg', webm).error); assert.ok(checkMedia('voice', 'audio/webm', Buffer.concat([webm, Buffer.alloc(3 * 1024 * 1024)])).error); ok('voice checks: type, mismatch, too short, size cap');
+
+  // upload endpoint
+  r = await raw('/p/media?kind=image', png, 'image/png'); assert.equal(r.status, 200); assert.ok(r.body.id); const imgId = r.body.id;
+  assert.equal((await raw('/p/media?kind=image', png, 'image/jpeg')).status, 400);
+  assert.equal((await raw('/p/media', png, 'image/png')).status, 400);
+  assert.equal((await raw('/p/media?kind=voice', png, 'image/png')).status, 400);
+  assert.equal((await raw('/p/media?kind=image', Buffer.from('hello'), 'text/plain')).status, 400); ok('upload endpoint accepts real files and rejects bad ones');
+
+  // photo reaches Claude as an image block (and is not written to disk)
+  process.env.CHESKY_API_KEY = 'sk-test';
+  const seen2 = [];
+  globalThis.fetch = async (url, opts) => {
+    if (!String(url).includes('api.anthropic.com')) return realFetch(url, opts);
+    const b = JSON.parse(opts.body); seen2.push(b);
+    return new Response(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tr', name: 'respond', input: { reply: 'I can read the schedule: pickups at 7:00 and 7:20. Is that right?', offTopic: false, forwardToTeam: false } }] }));
+  };
+  r = await call('POST', '/p/ask', { question: 'do you run on shabbos', image_id: imgId });
+  assert.equal(r.status, 200); assert.match(r.body.reply, /read the schedule/);
+  const lastUser = seen2.at(-1).messages.at(-1).content;
+  assert.ok(Array.isArray(lastUser)); assert.equal(lastUser[0].type, 'image'); assert.equal(lastUser[0].source.type, 'base64'); assert.equal(lastUser[0].source.media_type, 'image/png'); assert.equal(lastUser[0].source.data, png.toString('base64'));
+  assert.equal(lastUser[1].type, 'text'); assert.match(lastUser[1].text, /shabbos/); ok('image sent to Claude as a base64 image block (taught-answer shortcut skipped)');
+  assert.match(seen2[0].system, /trip schedule/); assert.match(seen2[0].system, /Never identify, describe or comment on people/); assert.match(seen2[0].system, /Never give prices/); assert.match(seen2[0].system, /The visitor just sent an image/); ok('system prompt: read schedules, confirm before quoting, ignore people, no prices');
+  r = await call('POST', '/p/ask', { question: 'again', image_id: imgId }); assert.equal(r.status, 400); ok('an upload can only be used once');
+  const vdir = path.join(dir, 'chat-voice');
+  assert.ok(!fs.existsSync(vdir) || fs.readdirSync(vdir).length === 0); ok('AI photos are never saved to disk');
+
+  // voice note in the AI chat: transcribed, merged into the question
+  setTranscriber(async () => 'I need a bus for forty people to camp on Sunday');
+  r = await raw('/p/media?kind=voice&dur=4.2&peaks=10,40,70,30', webm, 'audio/webm;codecs=opus'); assert.equal(r.status, 200); const vId = r.body.id;
+  r = await call('POST', '/p/ask', { question: '', voice_id: vId });
+  assert.equal(r.status, 200); assert.equal(r.body.voiceTranscript, 'I need a bus for forty people to camp on Sunday');
+  const vUser = seen2.at(-1).messages.at(-1).content; assert.equal(typeof vUser, 'string'); assert.match(vUser, /forty people to camp/); assert.match(seen2.at(-1).system, /voice note/i); ok('voice note transcribed and sent to Claude as text');
+  r = await raw('/p/media?kind=voice', webm, 'audio/webm'); const typedAndVoice = await call('POST', '/p/ask', { question: 'Also a stop at the Ohel.', voice_id: r.body.id });
+  assert.match(seen2.at(-1).messages.at(-1).content, /Also a stop at the Ohel\.\nI need a bus/); ok('typed text and voice transcript are combined');
+  setTranscriber(async () => '   ');
+  r = await raw('/p/media?kind=voice', webm, 'audio/webm'); r = await call('POST', '/p/ask', { question: '', voice_id: r.body.id });
+  assert.equal(r.status, 200); assert.match(r.body.reply, /couldn't make out/); ok('silent recording gets a friendly retry message');
+  setTranscriber(null);
+  r = await raw('/p/media?kind=voice', webm, 'audio/webm'); r = await call('POST', '/p/ask', { question: '', voice_id: r.body.id });
+  assert.equal(r.status, 503); assert.match(r.body.error, /type/i); ok('no OPENAI_API_KEY: polite message asking them to type');
+  globalThis.fetch = realFetch; delete process.env.CHESKY_API_KEY;
+
+  // voice note to a person: saved as a file, transcript shown, served only with the conversation id
+  setTranscriber(async () => 'Please call me back about Sunday');
+  r = await call('POST', '/p/handoff', { name: 'Leah', email: 'leah@example.com', message: 'Hello, quick question' }); const hc = r.body.id;
+  r = await raw('/p/media?kind=voice&dur=6&peaks=20,50,80', webm, 'audio/webm'); r = await call('POST', '/p/send', { id: hc, voice_id: r.body.id });
+  assert.equal(r.status, 200); assert.equal(r.body.transcript, 'Please call me back about Sunday'); const vmsgId = r.body.lastId;
+  const files = fs.readdirSync(vdir); assert.equal(files.length, 1); assert.match(files[0], /^voice-[0-9a-f]{32}\.webm$/); assert.ok(!fs.existsSync(path.join(dir, 'uploads'))); ok('voice note saved with an unguessable file name, outside the public uploads folder');
+  r = await call('GET', `/p/poll?id=${hc}&after=0`); const vm = r.body.messages.find((m) => m.id === vmsgId);
+  assert.equal(vm.text, 'Please call me back about Sunday'); assert.equal(vm.voice.dur, 6); assert.deepEqual(vm.voice.peaks, [20, 50, 80]); assert.equal(vm.voice.url, `/api/public/chesky/voice/${hc}/${vmsgId}`); ok('poll returns the voice note with transcript, duration and waveform');
+  let vr = await realFetch(`${base}/p/voice/${hc}/${vmsgId}`); assert.equal(vr.status, 200); assert.match(vr.headers.get('content-type'), /audio\/webm/); assert.ok(Buffer.from(await vr.arrayBuffer()).equals(webm)); ok('voice file served to someone holding the conversation id');
+  r = await call('POST', '/p/handoff', { name: 'Other', email: 'other@example.com', message: 'another chat' }); const other = r.body.id;
+  assert.equal((await realFetch(`${base}/p/voice/${other}/${vmsgId}`)).status, 404); assert.equal((await realFetch(`${base}/p/voice/doesnotexist12345/${vmsgId}`)).status, 404); assert.equal((await realFetch(`${base}/p/voice/${hc}/99999`)).status, 404); ok('voice route refuses the wrong conversation, unknown ids and unknown messages');
+  r = await call('GET', `/a/${hc}`); const am = r.body.messages.find((m) => m.id === vmsgId); assert.equal(am.voice.url, `/api/admin/chesky/${hc}/voice/${vmsgId}`); assert.equal(am.text, 'Please call me back about Sunday');
+  vr = await realFetch(`${base}/a/${hc}/voice/${vmsgId}`); assert.equal(vr.status, 200); r = await call('GET', '/a'); assert.equal(r.body.conversations.find((c) => c.id === hc).last, 'Please call me back about Sunday'); ok('admin sees the voice note, its transcript and can play the file');
+  setTranscriber(async () => { throw new Error('whisper down'); });
+  r = await raw('/p/media?kind=voice', webm, 'audio/webm'); r = await call('POST', '/p/send', { id: hc, voice_id: r.body.id }); assert.equal(r.status, 200); assert.equal(r.body.transcript, ''); ok('transcription failure never blocks sending the recording');
+  assert.equal((await call('POST', '/p/send', { id: hc, voice_id: 'mnotreal' })).status, 400); ok('expired or unknown voice id is rejected');
+  setTranscriber(async () => 'Voice only first message');
+  r = await raw('/p/media?kind=voice', webm, 'audio/webm'); r = await call('POST', '/p/handoff', { email: 'voice@example.com', voice_id: r.body.id }); assert.equal(r.status, 200); ok('a conversation can start with just a voice note');
+  const before = fs.readdirSync(vdir).length; await call('DELETE', `/a/${hc}`); assert.ok(fs.readdirSync(vdir).length < before); ok('deleting a conversation deletes its voice files');
+  setTranscriber(null);
 
   // admin assistant fallback
   const { adminAssistant } = await import('../src/chesky.js');
