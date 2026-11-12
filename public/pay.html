@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Pay Invoice | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
+<style>table.inv{width:100%;border-collapse:collapse}table.inv th{text-align:left;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);padding:8px 0;border-bottom:2px solid var(--line)}table.inv td{padding:10px 0;border-bottom:1px solid var(--line);vertical-align:top}table.inv .r{text-align:right;white-space:nowrap}.tot td{border:0;padding:4px 0}.big td{font:700 1.2rem var(--head)}
+.badge{display:inline-block;padding:4px 12px;border-radius:20px;font:600 .8rem var(--head);letter-spacing:.06em;text-transform:uppercase}.b-paid{background:#e6f5ec;color:#17623a}.b-due{background:var(--blue-l);color:var(--blue-d)}.b-over{background:#fdecea;color:#8a2a1f}.b-part{background:#fff4de;color:#8a5a0a}
+.opt-pay{display:grid;gap:10px;margin:14px 0}.opt-pay label{display:flex;gap:12px;align-items:center;border:1.5px solid var(--line);border-radius:10px;padding:13px 14px;cursor:pointer;margin:0;font-weight:500}.opt-pay input{width:auto;min-height:0}.opt-pay label:has(input:checked){border-color:var(--blue);background:var(--blue-l)}.opt-pay b{margin-left:auto}</style></head><body><div id="hdr"></div><main id="main">
+<section style="padding-top:40px"><div class="wrap narrow">
+
+<div id="lookup" hidden><div class="eyebrow">Invoice payment</div><h1 style="font-size:clamp(2rem,4.5vw,2.8rem)">Pay your invoice</h1>
+<p class="muted">Use the secure link from your invoice email, or find your invoice below.</p>
+<form class="card" id="lf"><div class="row"><div class="field"><label for="ln">Invoice number</label><input id="ln" placeholder="INV-1001" required></div><div class="field"><label for="le">Email on the invoice</label><input type="email" id="le" required></div></div><div id="lerr" class="alert err" hidden></div><button class="btn btn-blue">Find my invoice</button></form>
+<p class="hint">Can't find it? Call us and we'll resend it.</p></div>
+
+<div id="view" hidden>
+<div id="paidmsg" class="alert ok" hidden><b>Thank you!</b> Your payment is being processed. You'll get a receipt by email shortly.</div>
+<div class="card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start"><div><div class="eyebrow" style="margin:0">Invoice</div><h1 style="font-size:2rem;margin:0" id="num"></h1><p class="muted" id="ttl" style="margin:4px 0 0"></p></div><div style="text-align:right"><span class="badge" id="badge"></span><p class="muted" style="margin:8px 0 0;font-size:.9rem" id="due"></p></div></div>
+<div id="trip" class="muted" style="margin:18px 0 0;font-size:.93rem"></div>
+<table class="inv" style="margin-top:20px"><thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody id="items"></tbody></table>
+<table class="inv" style="margin-top:8px"><tbody class="tot" id="tots"></tbody></table>
+<div id="pays" style="margin-top:14px"></div>
+<div id="notes" class="muted" style="margin-top:14px;font-size:.93rem"></div></div>
+
+<div class="card noprint" id="paybox" style="margin-top:20px"><h3>Pay securely by card</h3>
+<form id="pf"><div class="opt-pay" id="opts"></div><div id="cust" class="field" hidden><label for="ca">Amount (USD)</label><input id="ca" type="number" step="0.01" min="1" placeholder="0.00"></div><div id="perr" class="alert err" hidden></div>
+<button class="btn btn-lime" id="pb" style="width:100%;font-size:1.1rem">Pay now</button><p class="hint center" style="margin-top:10px">Payments are processed by Stripe. We never see or store your card number.</p></form></div>
+<p class="center noprint" style="margin-top:16px"><button class="btn btn-line btn-sm" onclick="print()">Print / save PDF</button></p>
+<p class="muted center noprint" id="contact" style="font-size:.9rem"></p>
+</div>
+<div id="nf" class="card center" hidden><h2>Invoice not found</h2><p class="muted">This link may be wrong or expired. <a href="/pay">Look up your invoice</a> or call us.</p></div>
+</div></section>
+</main><div id="ftr"></div>
+<script type="module">
+import {boot,api,$,esc,money,fmtWhen} from '/js/site.js';
+await boot('/pay');
+const tok=location.pathname.split('/')[2];
+if(!tok){$('#lookup').hidden=false;
+ $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').hidden=true;try{const r=await api('/invoice-lookup',{body:{number:$('#ln').value,email:$('#le').value}});location.href='/pay/'+r.token;}catch(x){$('#lerr').textContent=x.message;$('#lerr').hidden=false;}};
+}else{
+ try{const i=await api('/invoice/'+tok);$('#view').hidden=false;
+  if(new URLSearchParams(location.search).get('paid'))$('#paidmsg').hidden=false;
+  $('#num').textContent=i.number;$('#ttl').textContent=(i.title||'')+(i.customer_name?` · ${i.customer_name}`:'');
+  const paid=i.status==='paid'||i.balance_cents<=0;
+  const b=$('#badge');if(i.status==='void'){b.textContent='Void';b.className='badge b-over';}else if(paid){b.textContent='Paid';b.className='badge b-paid';}else if(i.overdue){b.textContent='Past due';b.className='badge b-over';}else if(i.status==='partial'){b.textContent='Partially paid';b.className='badge b-part';}else{b.textContent='Payment due';b.className='badge b-due';}
+  $('#due').textContent=i.due_date?'Due '+fmtWhen(i.due_date):'';
+  if(i.trip)$('#trip').innerHTML=`<b>Trip:</b> ${esc(i.trip.pickup||'')} → ${esc(i.trip.dropoff||'')} · ${fmtWhen(i.trip.depart_at)}${i.trip.passengers?` · ${i.trip.passengers} passengers`:''}`;
+  $('#items').innerHTML=i.items.map(x=>`<tr><td>${esc(x.desc)}</td><td class="r">${x.qty}</td><td class="r">${money(x.unit_cents)}</td><td class="r">${money(x.qty*x.unit_cents)}</td></tr>`).join('');
+  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(i.subtotal_cents)}</td></tr>${i.tax_cents?`<tr><td colspan="3" class="r">Tax (${i.tax_rate}%)</td><td class="r">${money(i.tax_cents)}</td></tr>`:''}<tr><td colspan="3" class="r">Total</td><td class="r">${money(i.total_cents)}</td></tr>${i.paid_cents?`<tr><td colspan="3" class="r">Paid</td><td class="r">−${money(i.paid_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Balance due</td><td class="r">${money(i.balance_cents)}</td></tr>`;
+  if(i.payments.length)$('#pays').innerHTML='<b style="font-size:.9rem">Payments received</b>'+i.payments.map(p=>`<div class="muted" style="font-size:.9rem">${fmtWhen(p.created_at.slice(0,10))} · ${esc(p.method)} · ${money(p.amount_cents)}</div>`).join('');
+  $('#notes').textContent=i.notes||'';
+  $('#contact').innerHTML=`Questions about this invoice? ${esc(i.business.phone)} · ${esc(i.business.email)}`;
+  if(paid||i.status==='void'||!i.payments_enabled){ if(paid||i.status==='void')$('#paybox').hidden=true; else {$('#pf').innerHTML='<div class="alert info">Online card payment is not available right now. Please call us to pay.</div>';} }
+  else{
+   const opts=[];if(i.deposit_due_cents&&i.deposit_due_cents<i.balance_cents)opts.push(['deposit',`Pay deposit`,i.deposit_due_cents]);
+   opts.push(['full','Pay full balance',i.balance_cents]);opts.push(['custom','Pay a different amount',null]);
+   $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}</b></label>`).join('');
+   const sync=()=>{const m=document.querySelector('input[name=m]:checked').value;$('#cust').hidden=m!=='custom';};document.addEventListener('change',sync);
+   $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const m=document.querySelector('input[name=m]:checked').value;const body={mode:m};if(m==='custom')body.amount_cents=Math.round(parseFloat($('#ca').value||0)*100);
+    const btn=$('#pb');btn.disabled=true;btn.textContent='Redirecting to secure checkout…';
+    try{const r=await api(`/invoice/${tok}/pay`,{body});location.href=r.url;}catch(x){$('#perr').textContent=x.message;$('#perr').hidden=false;btn.disabled=false;btn.textContent='Pay now';}};
+  }
+ }catch(x){$('#nf').hidden=false;}
+}
+</script></body></html>

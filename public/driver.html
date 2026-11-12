@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#0d1b26"><title>Driver Portal | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
+<style>
+body{background:#eef3f7;padding-bottom:40px}
+.dh{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:10}
+.dh img{height:30px;background:#fff;padding:4px 8px;border-radius:6px}.dh small{display:block;color:#9db2c1}
+.dw{max-width:640px;margin:0 auto;padding:16px}
+.trip{background:#fff;border-radius:16px;box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden;border:1px solid var(--line)}
+.trip.live{border:2px solid var(--lime)}
+.th{padding:16px 16px 10px}.th .when{font:700 1.25rem var(--head)}.th .ref{color:var(--ink-2);font-size:.85rem}
+.sec{padding:12px 16px;border-top:1px solid var(--line)}
+.sec h4{font:600 .75rem var(--head);text-transform:uppercase;letter-spacing:.1em;color:var(--ink-2);margin:0 0 6px}
+.addr{font-weight:600;font-size:1.05rem}.addr a{text-decoration:none;color:var(--blue)}
+.cust{display:grid;gap:10px}
+.callbtn{display:flex;align-items:center;gap:12px;background:var(--lime);color:#0d1b26;border-radius:12px;padding:14px 16px;text-decoration:none;font-weight:700;font-size:1.1rem;min-height:58px}
+.callbtn small{display:block;font-weight:500;font-size:.8rem;opacity:.8}
+.callbtn.alt{background:var(--blue-l);color:var(--blue-d)}
+.lock{background:#fff7e0;border-radius:10px;padding:12px;color:#7a5a08;font-size:.93rem}
+.steps{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.steps button{min-height:54px;border-radius:11px;border:2px solid var(--line);background:#fff;font:600 .95rem var(--head);cursor:pointer}
+.steps button.done{background:var(--lime-l);border-color:var(--lime);color:var(--lime-d)}
+.steps button.cur{background:var(--blue);color:#fff;border-color:var(--blue)}
+.steps button:disabled{opacity:.5}
+.pillx{display:inline-block;font:600 .72rem var(--head);padding:3px 10px;border-radius:20px;background:var(--blue-l);color:var(--blue-d);text-transform:uppercase;letter-spacing:.06em}
+.tl{list-style:none;margin:0;padding:0}.tl li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.tl li:last-child{border:0}.tl li>b{flex:none;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:.85rem}.mut{color:var(--ink-2);font-size:.9rem}.empty{text-align:center;padding:50px 20px;color:var(--ink-2)}
+</style></head><body>
+<div class="dh"><img src="/img/logo.png" alt="Get A Bus NY"><div style="text-align:right"><b id="who"></b><small id="clock"></small></div></div>
+<div class="dw" id="app"><div class="empty">Loading…</div></div>
+<script type="module">
+import {$,esc,fmtWhen} from '/js/site.js';
+const parts=location.pathname.split('/');let tok=parts[1]==='d'?parts[2]:null;
+try{if(tok)localStorage.gabDriver=tok;else tok=localStorage.gabDriver;}catch{}
+const app=$('#app');
+if(!tok){app.innerHTML=`<div class="card"><h2>Driver portal</h2><p>Open the personal link dispatch sent you (by text or email). It signs you in automatically — no password. Once opened, this page remembers you on this phone.</p><p class="muted">Lost your link? Call dispatch.</p></div>`;}
+else{
+const tel=(p)=>'tel:'+String(p||'').replace(/[^+\d]/g,'');
+const sms=(p)=>'sms:'+String(p||'').replace(/[^+\d]/g,'');
+const map=(a)=>'https://maps.google.com/?q='+encodeURIComponent(a||'');
+const FLOW=[['acknowledged','Got it'],['en_route','En route'],['arrived','Arrived'],['picked_up','Group on board'],['dropped_off','Dropped off'],['completed','Trip complete']];
+async function load(){
+ const r=await fetch('/api/driver/'+tok);
+ if(!r.ok){try{localStorage.removeItem('gabDriver')}catch{};app.innerHTML=`<div class="card"><h2>Link not valid</h2><p>This link has expired or was replaced. Ask dispatch for a new one.</p></div>`;return;}
+ const d=await r.json();$('#who').textContent=d.driver.name;
+ if(!d.trips.length){app.innerHTML=`<div class="empty"><h3>No upcoming trips</h3><p>When dispatch assigns you a trip it shows up here.</p><a class="callbtn alt" href="${tel(d.dispatch.phone)}">Call dispatch<small>${esc(d.dispatch.phone)}</small></a></div>`;return;}
+ app.innerHTML=d.trips.map(t=>{
+  const idx=FLOW.findIndex(f=>f[0]===t.driver_status);
+  return `<article class="trip ${t.contact_unlocked?'live':''}"><div class="th"><span class="pillx">${esc((t.driver_status||t.status).replace('_',' '))}</span><div class="when">${fmtWhen(t.depart_at)}</div><div class="ref">${esc(t.ref)} · ${esc(t.title||'')}</div></div>
+  <div class="sec"><h4>Route · ${t.itinerary.length||2} stops</h4>${t.route_url?`<a class="callbtn alt" style="margin-bottom:10px" href="${t.route_url}" target="_blank" rel="noopener">🧭 Open full route in Maps</a>`:''}
+   ${t.itinerary.length?`<ol class="tl">${t.itinerary.map((x,i)=>`<li><b>${i+1}</b><div><span class="pillx">${esc(x.label)}</span> ${x.time?`<b style="background:none;color:inherit;display:inline;width:auto;height:auto">${fmtWhen(x.time)}</b>`:''}<div class="addr"><a href="${x.map}" target="_blank" rel="noopener">${esc(x.address)}</a></div>${x.wait_min?`<div class="mut">Wait ${x.wait_min} min</div>`:''}${x.pax?`<div class="mut">${x.pax} passengers</div>`:''}${x.note?`<div class="mut">${esc(x.note)}</div>`:''}${x.contact_phone?`<a href="${tel(x.contact_phone)}">📞 ${esc(x.contact_name||'Contact')} ${esc(x.contact_phone)}</a>`:''}</div></li>`).join('')}</ol>`:`<div class="addr"><a href="${map(t.pickup)}">📍 ${esc(t.pickup||'TBD')}</a></div><div class="addr" style="margin-top:6px"><a href="${map(t.dropoff)}">🏁 ${esc(t.dropoff||'TBD')}</a></div>`}</div>
+  <div class="sec"><h4>Trip</h4>Return: <b>${fmtWhen(t.return_at)}</b><br>Passengers: <b>${t.passengers||'—'}</b>${t.vehicle?`<br>Vehicle: <b>${esc(t.vehicle)}</b>`:''}</div>
+  ${t.notes||t.driver_notes?`<div class="sec"><h4>Notes</h4>${esc(t.driver_notes||'')} ${esc(t.notes||'')}</div>`:''}
+  <div class="sec"><h4>Customer contact</h4>${t.contact_unlocked?`<div class="cust"><div><b style="font-size:1.1rem">${esc(t.contact.name||'')}</b></div>
+   ${t.contact.phone?`<a class="callbtn" href="${tel(t.contact.phone)}">📞 Call customer<small>${esc(t.contact.phone)}</small></a><a class="callbtn alt" href="${sms(t.contact.phone)}">💬 Text customer</a>`:''}
+   ${t.contact.onsite_name||t.contact.onsite_phone?`<div class="muted">On-site contact: <b>${esc(t.contact.onsite_name||'')}</b></div>${t.contact.onsite_phone?`<a class="callbtn alt" href="${tel(t.contact.onsite_phone)}">📞 Call on-site contact<small>${esc(t.contact.onsite_phone)}</small></a>`:''}`:''}
+   ${t.contact.email?`<div class="muted">${esc(t.contact.email)}</div>`:''}</div>`:`<div class="lock">🔒 Customer contact info unlocks ${t.unlocks_in_hours?`in about ${t.unlocks_in_hours} hour${t.unlocks_in_hours>1?'s':''}`:'soon'} (24 hours before the trip). Call dispatch if you need it sooner.</div>`}</div>
+  ${t.contact_unlocked?`<div class="sec"><h4>Update status</h4><div class="steps">${FLOW.map((f,i)=>`<button data-t="${t.id}" data-s="${f[0]}" class="${i<=idx?'done':i===idx+1?'cur':''}">${i<=idx?'✓ ':''}${f[1]}</button>`).join('')}</div>
+   <div style="display:flex;gap:8px;margin-top:12px"><input id="n${t.id}" placeholder="Add a note for dispatch…" style="flex:1"><button class="btn btn-line btn-sm" data-note="${t.id}">Send</button></div></div>`:''}
+  <div class="sec"><a class="callbtn alt" href="${tel(t.dispatch_phone)}">☎ Call dispatch<small>${esc(t.dispatch_phone)}</small></a></div></article>`;}).join('');
+}
+app.addEventListener('click',async e=>{
+ const b=e.target.closest('button[data-s]');
+ if(b){b.disabled=true;await fetch(`/api/driver/${tok}/trips/${b.dataset.t}/status`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:b.dataset.s})});load();return;}
+ const n=e.target.closest('button[data-note]');
+ if(n){const i=$('#n'+n.dataset.note);if(!i.value.trim())return;n.disabled=true;await fetch(`/api/driver/${tok}/trips/${n.dataset.note}/note`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:i.value})});i.value='';n.disabled=false;n.textContent='Sent ✓';setTimeout(()=>n.textContent='Send',1500);}
+});
+const tick=()=>{$('#clock').textContent=new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});};tick();setInterval(tick,30000);
+load();setInterval(load,120000);
+}
+</script></body></html>

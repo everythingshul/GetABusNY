@@ -1,0 +1,37 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contact &amp; Hours | Get A Bus NY</title><meta name="description" content="Call, email or message Get A Bus NY. Business hours and social links."><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
+<section><div class="wrap"><div class="eyebrow">Contact</div><h1 style="font-size:clamp(2rem,4.5vw,3rem)">Talk to a person</h1>
+<div class="grid-2" style="margin-top:26px;align-items:start">
+<div>
+<div class="card" style="margin-bottom:20px"><h3>Contact info</h3>
+<p style="margin:0 0 8px"><b>Phone</b><br><a id="tel" style="font:600 1.4rem var(--head);text-decoration:none"></a></p>
+<p style="margin:0 0 8px"><b>Email</b><br><a id="mail"></a></p>
+<p id="addr" style="margin:0 0 8px" hidden></p>
+<p style="margin:0"><b>Service area</b><br><span id="area"></span></p>
+<div class="socials" id="soc" style="margin-top:16px"></div></div>
+<div class="card"><h3>Hours of operation</h3><p class="hint" style="margin-top:0"><span class="open-dot" id="dot"></span><span id="now"></span></p><table class="hours" id="hrs"></table><p class="hint">All times Eastern. Need a quote outside these hours? Send a request any time and we'll reply when we open.</p></div>
+</div>
+<form class="card" id="f" novalidate><h3>Send us a message</h3>
+<p class="muted">For a trip quote, use the <a href="/book">quote request form</a> — it gets you an answer faster.</p>
+<input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+<div class="row"><div class="field"><label for="n">Name *</label><input id="n" required autocomplete="name"></div><div class="field"><label for="s">Subject</label><input id="s"></div></div>
+<div class="row"><div class="field"><label for="e">Email</label><input type="email" id="e" autocomplete="email"></div><div class="field"><label for="p">Phone</label><input type="tel" id="p" autocomplete="tel"></div></div>
+<div class="field"><label for="b">Message *</label><textarea id="b" required></textarea><p class="hint">Include an email or phone number so we can reply.</p></div>
+<div id="m" class="alert" hidden></div><button class="btn btn-blue" id="go">Send message</button></form>
+</div></div></section>
+</main><div id="ftr"></div>
+<script type="module">
+import {boot,api,$,esc,socialLinks,openNow} from '/js/site.js';
+const c=await boot('/contact');
+$('#tel').href='tel:'+c.phone.replace(/[^+\d]/g,'');$('#tel').textContent=c.phone;
+$('#mail').href='mailto:'+c.email;$('#mail').textContent=c.email;$('#area').textContent=c.service_area;
+if(c.address){$('#addr').hidden=false;$('#addr').innerHTML='<b>Address</b><br>'+esc(c.address);}
+$('#soc').innerHTML=socialLinks(c.socials);
+const today=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'long'}).format(new Date());
+$('#hrs').innerHTML=c.hours.map(h=>`<tr class="${h.day===today?'today':''}"><td>${h.day}</td><td>${h.open?`${esc(h.open)} – ${esc(h.close)}`:'<span class="closed">Closed</span>'}</td></tr>`).join('');
+const o=openNow(c.hours);$('#now').textContent=o.text;$('#dot').classList.toggle('on',o.open);
+$('#f').onsubmit=async e=>{e.preventDefault();const m=$('#m');m.hidden=true;
+ if(!$('#n').value.trim()||!$('#b').value.trim()||(!$('#e').value.trim()&&!$('#p').value.trim())){m.className='alert err';m.textContent='Please add your name, a message, and an email or phone number.';m.hidden=false;return;}
+ const b=$('#go');b.disabled=true;
+ try{await api('/contact',{body:{website:e.target.website.value,name:$('#n').value,subject:$('#s').value,email:$('#e').value,phone:$('#p').value,body:$('#b').value}});m.className='alert ok';m.textContent='Thanks. We got your message and will reply during business hours.';m.hidden=false;e.target.reset();}
+ catch(x){m.className='alert err';m.textContent=x.message;m.hidden=false;}b.disabled=false;};
+</script></body></html>

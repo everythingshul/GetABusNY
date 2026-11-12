@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/admin/admin.css"></head><body>
+<div id="login" hidden><form id="lf"><img src="/img/logo.png" alt="Get A Bus NY"><h2>Sign in</h2><label>Email<input type="email" id="le" required autocomplete="username"></label><label>Password<input type="password" id="lp" required autocomplete="current-password"></label><div id="lerr" class="err" hidden></div><button class="btn primary">Sign in</button></form></div>
+<div id="shell" hidden>
+<aside id="side"><a class="brand" href="#/dashboard"><img src="/img/logo.png" alt="Get A Bus NY"></a><nav id="nav"></nav><div class="sidefoot"><a href="/" target="_blank">View site ↗</a><a href="#" id="logout">Sign out</a></div></aside>
+<div id="main"><header id="bar"><button id="menu" aria-label="Menu">☰</button><h1 id="title"></h1><div id="barx"></div></header><div id="view"></div></div>
+</div>
+<div id="toasts"></div>
+<button id="ches-btn" hidden>Ask Chesky</button>
+<div id="ches" hidden><header><b>Chesky</b><small>Back-office assistant</small><button id="ches-x" aria-label="Close">×</button></header><div id="ches-m"></div><form id="ches-f"><input id="ches-i" placeholder="e.g. who owes us money?" autocomplete="off"><button class="btn primary sm">Send</button></form></div>
+<script type="module" src="/admin/admin.js"></script></body></html>

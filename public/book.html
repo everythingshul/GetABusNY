@@ -1,0 +1,95 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request a Quote | Get A Bus NY</title><meta name="description" content="Tell us your dates, times, pickups and stops for your camp trip, Shabbaton, Kehila trip or Kivrei Tzadikim trip. Vehicle choice is optional. We send a quote, usually the same business day."><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
+<section style="padding-top:40px"><div class="wrap"><div class="eyebrow">Request a quote</div><h1 style="font-size:clamp(2rem,4.5vw,3rem)">Tell us about your trip</h1>
+<p class="muted" style="max-width:44em">No payment now. List every pickup, stop and drop-off in order and we will quote the whole route, usually the same business day. Questions? Call <a id="ph" href="#"></a>. Our office is closed Shabbos; requests sent then are answered Sunday.</p>
+<div class="book-grid">
+<form id="f" class="card" novalidate>
+<input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+<div class="fieldset"><h3><i>1</i>What kind of trip?</h3>
+<div class="row"><div class="field"><label for="pur">Trip purpose *</label><select id="pur"></select></div>
+<div class="field"><label>Trip type *</label><div class="seg" role="radiogroup" aria-label="Trip type">
+<label><input type="radio" name="trip_type" value="round_trip" checked><span>Round trip</span></label>
+<label><input type="radio" name="trip_type" value="one_way"><span>One way</span></label>
+<label><input type="radio" name="trip_type" value="hourly"><span>By the hour</span></label>
+<label><input type="radio" name="trip_type" value="multi_day"><span>Multi-day</span></label></div></div></div></div>
+
+<div class="fieldset"><h3><i>2</i>Dates &amp; times</h3>
+<div class="row"><div class="field"><label for="dd">Departure date *</label><input type="date" id="dd" required></div><div class="field"><label for="dt">First pickup time *</label><input type="time" id="dt" required></div></div>
+<div class="row" id="retrow"><div class="field"><label for="rd"><span id="rl">Return date</span> *</label><input type="date" id="rd"></div><div class="field"><label for="rt">Return pickup time *</label><input type="time" id="rt"></div></div>
+<p class="hint">Times are local to the pickup location. Friday or erev Yom Tov trip? Tell us your latest arrival time in the notes below.</p></div>
+
+<div class="fieldset"><h3><i>3</i>Route: pickups, stops &amp; drop-offs</h3>
+<div id="itn"></div></div>
+
+<div class="fieldset"><h3><i>4</i>Group &amp; vehicle</h3>
+<div class="row"><div class="field"><label for="px">Number of passengers *</label><input type="number" id="px" min="1" max="500" required></div>
+<div class="field"><label for="vh">Vehicle <span class="opt">(optional)</span></label><select id="vh"><option value="">Not sure, recommend one</option></select></div></div>
+<div id="recbox" class="alert info" hidden></div></div>
+
+<div class="fieldset"><h3><i>5</i>Your details</h3>
+<div class="row"><div class="field"><label for="nm">Full name *</label><input id="nm" required autocomplete="name"></div><div class="field"><label for="co">Organization <span class="opt">(camp, shul, yeshiva… optional)</span></label><input id="co" autocomplete="organization"></div></div>
+<div class="row"><div class="field"><label for="em">Email *</label><input type="email" id="em" required autocomplete="email"></div><div class="field"><label for="ph2">Phone *</label><input type="tel" id="ph2" required autocomplete="tel"></div></div>
+<label id="smsrow" style="display:none;font-weight:400;margin:-4px 0 14px"><input type="checkbox" id="sms" style="width:auto;min-height:0;display:inline;margin-right:8px">Text me trip updates (quote ready, driver on the way). Message and data rates may apply. Reply STOP anytime to opt out.</label>
+<div class="field"><label for="cm">Anything else we should know? <span class="opt">(optional)</span></label><textarea id="cm" placeholder="Luggage or equipment, wheelchair access, candle-lighting deadline, kosher food on board, budget…"></textarea></div>
+<div class="field"><label for="rf">Who recommended us? <span class="opt">(optional)</span></label><input id="rf"></div></div>
+<div id="err" class="alert err" role="alert" hidden></div>
+<button class="btn btn-lime" id="go" style="width:100%;font-size:1.1rem">Send my request</button>
+<p class="hint center" style="margin-top:10px">By submitting you agree to be contacted about this request. See our <a href="/terms">terms</a> and <a href="/privacy">privacy policy</a>.</p>
+</form>
+
+<aside class="sticky"><div class="card sum"><h3 style="margin-bottom:4px">Your request</h3><dl id="sum" style="margin:0"></dl></div>
+<div class="card" style="margin-top:16px"><h3>What happens next</h3><ol style="padding-left:18px;margin:0" class="muted"><li>We check availability with our operators.</li><li>You get an itemized quote by email: every pickup and stop is listed.</li><li>Accept and sign online, then pay a deposit to book.</li></ol></div></aside></div></div></section>
+
+<section id="done" hidden><div class="wrap narrow center"><div class="card" style="padding:44px 28px"><div class="ic" style="width:56px;height:56px;margin:0 auto 14px;border-radius:50%;background:var(--lime-l);color:var(--lime-d);display:grid;place-items:center" data-icon="check"></div><h1 style="font-size:2rem">Request received</h1><p>Your reference is <b id="ref"></b>. We sent a confirmation to <b id="to"></b>.</p><p class="muted">We'll email your quote, usually the same business day. Need it sooner? Call <a class="phl" href="#"></a>.</p><a class="btn btn-blue" href="/">Back to home</a></div></div></section>
+</main><div id="ftr"></div>
+<script type="module">
+import {boot,api,$,esc,fmtWhen} from '/js/site.js';
+import {itineraryEditor,KIND_LABELS} from '/js/itinerary.js';
+import {fillIcons} from '/js/icons.js';
+const c=await boot('/book');
+const tel=c.phone.replace(/[^+\d]/g,'');$('#ph').href='tel:'+tel;$('#ph').textContent=c.phone;
+$('#pur').innerHTML='<option value="">Select…</option>'+(c.purposes||[]).map(p=>`<option>${esc(p)}</option>`).join('');
+if(c.sms)$('#smsrow').style.display='block';
+const fl=await api('/fleet');
+$('#vh').insertAdjacentHTML('beforeend',fl.map(v=>`<option value="${v.id}">${esc(v.name)}, seats ${v.capacity}</option>`).join(''));
+const q=new URLSearchParams(location.search);
+const today=new Date().toISOString().slice(0,10);$('#dd').min=$('#rd').min=today;
+if(q.get('vehicle'))$('#vh').value=q.get('vehicle');
+if(q.get('date'))$('#dd').value=q.get('date');
+if(q.get('pax'))$('#px').value=q.get('pax');
+if(q.get('purpose'))$('#pur').value=q.get('purpose');
+if(q.get('type')){const r=document.querySelector(`input[name=trip_type][value="${q.get('type')}"]`);if(r)r.checked=true;}
+const type=()=>document.querySelector('input[name=trip_type]:checked').value;
+const ed=itineraryEditor($('#itn'),{roundTrip:type()==='round_trip'});
+function layout(){const t=type();$('#retrow').hidden=t==='one_way';$('#rl').textContent=t==='multi_day'?'Last day':t==='hourly'?'End date':'Return date';$('#rd').required=$('#rt').required=t!=='one_way';ed.setRoundTrip(t==='round_trip'||t==='multi_day');}
+function recommend(){const n=+$('#px').value;const b=$('#recbox');if(!n){b.hidden=true;return;}
+ const fits=fl.filter(v=>v.capacity>=n).sort((a,b)=>a.capacity-b.capacity);b.hidden=false;
+ if(!fits.length)b.textContent=`${n} passengers is more than one vehicle seats. We'll quote two or more buses.`;
+ else b.innerHTML=`Smallest vehicle that fits ${n}: <b>${esc(fits[0].name)}</b> (seats ${fits[0].capacity}). Leave the vehicle on "recommend one" and we'll confirm the best match.`;
+ const sel=+$('#vh').value;if(sel){const v=fl.find(x=>x.id===sel);if(v&&v.capacity<n)b.innerHTML=`<b>${esc(v.name)}</b> seats ${v.capacity}, fewer than ${n}. Pick a larger vehicle or leave it blank.`;}}
+function summary(){const dep=$('#dd').value?($('#dd').value+'T'+($('#dt').value||'')):'';const ret=$('#rd').value?($('#rd').value+'T'+($('#rt').value||'')):'';
+ const f=(s)=>s?fmtWhen(s.endsWith('T')?s.slice(0,10):s):'—';const v=fl.find(x=>x.id===+$('#vh').value);
+ const stops=ed.get();
+ $('#sum').innerHTML=`<dt>Trip</dt><dd>${esc($('#pur').value||'—')} · ${esc(type().replace('_',' '))}</dd><dt>Departure</dt><dd>${f(dep)}</dd>${type()==='one_way'?'':`<dt>Return</dt><dd>${f(ret)}</dd>`}<dt>Route</dt><dd style="font-weight:500">${stops.length?stops.map((s,i)=>`${i+1}. <span class="muted">${esc(KIND_LABELS[s.kind])}</span> ${esc(s.address)}`).join('<br>'):'—'}</dd><dt>Passengers</dt><dd>${esc($('#px').value||'—')}</dd><dt>Vehicle</dt><dd>${v?esc(v.name):'We\'ll recommend'}</dd>`;}
+const upd=()=>{recommend();summary();};
+document.addEventListener('input',upd);document.addEventListener('change',e=>{if(e.target.name==='trip_type')layout();upd();});ed.onChange(summary);
+layout();upd();
+$('#f').onsubmit=async e=>{e.preventDefault();const err=$('#err');err.hidden=true;
+ const bad=(m,id)=>{err.textContent=m;err.hidden=false;if(id)$('#'+id)?.focus();};
+ const need=[['pur','trip purpose'],['dd','departure date'],['dt','first pickup time'],['px','passenger count'],['nm','your name'],['em','email'],['ph2','phone number']];
+ if(type()!=='one_way')need.push(['rd','return date'],['rt','return time']);
+ for(const [id,l] of need){if(!$('#'+id).value.trim())return bad(`Please enter your ${l}.`,id);}
+ if(!/^\S+@\S+\.\S+$/.test($('#em').value))return bad('That email address does not look right.','em');
+ let it=ed.get();
+ if(!it.some(x=>x.kind==='pickup'))return bad('Add at least one pickup address.');
+ if(!it.some(x=>x.kind==='dropoff'))return bad('Add a destination (a drop-off).');
+ const dep=`${$('#dd').value}T${$('#dt').value}`,ret=type()==='one_way'?null:`${$('#rd').value}T${$('#rt').value}`;
+ if(ret&&ret<dep)return bad('Return must be after departure.','rd');
+ if(type()==='one_way')it=it.filter(x=>x.kind!=='return_pickup');
+ const fp=it.find(x=>x.kind==='pickup');fp.time=dep;const rp=it.find(x=>x.kind==='return_pickup');if(rp&&ret)rp.time=ret;
+ const b=$('#go');b.disabled=true;b.textContent='Sending…';
+ try{const r=await api('/request',{body:{website:e.target.website.value,trip_type:type(),purpose:$('#pur').value,depart_at:dep,return_at:ret,itinerary:it,passengers:+$('#px').value,vehicle_id:$('#vh').value||null,name:$('#nm').value,company:$('#co').value,email:$('#em').value,phone:$('#ph2').value,sms_optin:$('#sms').checked,comments:$('#cm').value,referred_by:$('#rf').value}});
+  $('#ref').textContent=r.ref;$('#to').textContent=$('#em').value;document.querySelectorAll('.phl').forEach(a=>{a.href='tel:'+tel;a.textContent=c.phone});
+  document.querySelector('section').hidden=true;$('#done').hidden=false;fillIcons();window.scrollTo({top:0,behavior:'smooth'});
+ }catch(x){bad(x.message);b.disabled=false;b.textContent='Send my request';}};
+</script></body></html>

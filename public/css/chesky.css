@@ -1,0 +1,42 @@
+/* Chesky widget — Get A Bus NY brand (lime #94bf33, blue #0078c0, navy #0d1b26) */
+#chesky-root{--c-lime:#94bf33;--c-blue:#0078c0;--c-blue-d:#005b94;--c-navy:#0d1b26;--c-ink:#10222f;--c-line:#dbe5ec;--c-bg:#f5f8fa;--c-red:#c0392b;font-family:'Inter',system-ui,sans-serif}
+.chesky-fab{position:fixed;right:20px;bottom:20px;width:62px;height:62px;border-radius:50%;border:0;padding:3px;background:linear-gradient(135deg,var(--c-navy),#17344a);box-shadow:0 12px 28px -8px rgba(13,27,38,.55);cursor:pointer;z-index:1000;display:flex;align-items:center;justify-content:center;transition:transform .25s cubic-bezier(.34,1.56,.64,1)}
+.chesky-fab::before{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--c-lime);opacity:.6;animation:chesky-pulse 2.8s ease-out infinite}
+.chesky-fab:hover{transform:translateY(-3px) scale(1.04)}
+.chesky-fab img{width:100%;height:100%;border-radius:50%;display:block}
+.chesky-close-ico{display:none;color:#fff;font-size:28px;line-height:1}
+.chesky-fab.open::before,.chesky-fab.open img{display:none}.chesky-fab.open .chesky-close-ico{display:block}
+@keyframes chesky-pulse{0%{transform:scale(1);opacity:.6}70%{transform:scale(1.2);opacity:0}100%{opacity:0}}
+.chesky-unread{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--c-red);color:#fff;font:700 11px/20px 'Inter',sans-serif;text-align:center;box-shadow:0 0 0 2px #fff}
+.chesky-panel{position:fixed;right:20px;bottom:94px;width:380px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 118px);background:#fff;border:1px solid var(--c-line);border-radius:16px;box-shadow:0 20px 60px rgba(13,27,38,.35);z-index:1000;display:flex;flex-direction:column;overflow:hidden}
+.chesky-panel[hidden]{display:none}
+.chesky-head{background:var(--c-navy);color:#fff;padding:12px 14px;display:flex;gap:10px;align-items:center}
+.chesky-head img{width:38px;height:38px;border-radius:50%;border:2px solid var(--c-lime)}
+.chesky-head div{flex:1;min-width:0}.chesky-head b{display:block;font:600 1rem 'Outfit',sans-serif}.chesky-head small{display:block;color:#9db2c1;font-size:.72rem;line-height:1.25}
+.chesky-head button{background:none;border:0;color:#cfe0ec;font-size:1.3rem;cursor:pointer;padding:4px 6px;line-height:1}.chesky-head button:hover{color:var(--c-lime)}
+.chesky-log{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--c-bg)}
+.chesky-msg{display:flex;flex-direction:column;max-width:88%}.chesky-msg.from-visitor{align-self:flex-end;align-items:flex-end}.chesky-msg.from-bot,.chesky-msg.from-admin{align-self:flex-start}
+.chesky-msg-who{font-size:.7rem;font-weight:600;color:#5a6e7d;margin:0 0 2px 4px}
+.chesky-bubble{padding:9px 13px;border-radius:14px;font-size:.92rem;line-height:1.45;white-space:pre-wrap;word-wrap:break-word}
+.from-visitor .chesky-bubble{background:var(--c-blue);color:#fff;border-bottom-right-radius:4px}
+.from-bot .chesky-bubble{background:#fff;border:1px solid var(--c-line);color:var(--c-ink);border-bottom-left-radius:4px}
+.from-admin .chesky-bubble{background:#eef6d9;border:1px solid #cfe39a;color:var(--c-ink);border-bottom-left-radius:4px}
+.chesky-typing{display:flex;gap:4px;padding:12px 14px;background:#fff;border:1px solid var(--c-line);border-radius:14px}
+.chesky-typing span{width:7px;height:7px;border-radius:50%;background:#9db2c1;animation:chesky-dot 1.2s infinite}.chesky-typing span:nth-child(2){animation-delay:.2s}.chesky-typing span:nth-child(3){animation-delay:.4s}
+@keyframes chesky-dot{0%,60%,100%{opacity:.3;transform:none}30%{opacity:1;transform:translateY(-3px)}}
+.chesky-fb{display:flex;gap:4px;margin:3px 0 0 4px}.chesky-fb button{background:none;border:0;color:#9db2c1;cursor:pointer;padding:2px}.chesky-fb svg{width:15px;height:15px;display:block}.chesky-fb button:hover{color:var(--c-blue)}.chesky-fb button.picked{color:var(--c-lime)}
+.chesky-chips{display:flex;flex-wrap:wrap;gap:6px}
+.chesky-chip{background:#fff;border:1.5px solid var(--c-line);color:var(--c-blue-d);border-radius:20px;padding:6px 12px;font:600 .82rem 'Inter',sans-serif;cursor:pointer;text-decoration:none}.chesky-chip:hover{border-color:var(--c-blue);background:#e3f1fa}
+.chesky-link{background:none;border:0;color:var(--c-blue);font:600 .82rem 'Inter',sans-serif;cursor:pointer;text-decoration:underline}
+.chesky-foot{border-top:1px solid var(--c-line);background:#fff;padding:8px 10px 6px}
+.chesky-form{display:flex;gap:8px;align-items:flex-end}
+.chesky-form textarea,.chesky-handoff input,.chesky-handoff textarea{flex:1;width:100%;font:inherit;font-size:.92rem;color:var(--c-ink);border:1.5px solid var(--c-line);border-radius:10px;padding:9px 11px;resize:none;max-height:110px}
+.chesky-form textarea:focus,.chesky-handoff input:focus,.chesky-handoff textarea:focus{outline:none;border-color:var(--c-blue);box-shadow:0 0 0 3px #e3f1fa}
+.chesky-form button,.chesky-handoff button[type=submit]{background:var(--c-lime);border:0;color:var(--c-navy);font:700 .9rem 'Outfit',sans-serif;border-radius:10px;padding:10px 16px;cursor:pointer;min-height:40px}.chesky-form button:hover,.chesky-handoff button[type=submit]:hover{background:#a3cd3f}
+.chesky-form button:disabled,.chesky-handoff button:disabled{opacity:.5;cursor:not-allowed}
+.chesky-human{text-align:center;padding:4px 0 2px}.chesky-human button{background:none;border:0;color:#5a6e7d;font-size:.78rem;cursor:pointer;text-decoration:underline}
+.chesky-note{margin:2px 4px 6px;font-size:.8rem;color:#5a6e7d}
+.chesky-handoff{display:grid;gap:8px;padding:4px 2px 6px}.chesky-handoff label{display:grid;gap:3px;font-size:.78rem;font-weight:600;color:#33475a}
+.chesky-handoff-head{display:flex;justify-content:space-between;align-items:center;font:600 .95rem 'Outfit',sans-serif}.chesky-handoff-head button{background:none;border:0;font-size:1.3rem;cursor:pointer;color:#5a6e7d}
+@media(max-width:520px){.chesky-panel{right:8px;left:8px;bottom:86px;width:auto;max-width:none;height:calc(100vh - 106px)}}
+@media print{#chesky-root{display:none}}

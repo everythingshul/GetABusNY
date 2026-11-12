@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Your Quote | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
+<style>table.inv{width:100%;border-collapse:collapse}table.inv th{text-align:left;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);padding:8px 0;border-bottom:2px solid var(--line)}table.inv td{padding:10px 0;border-bottom:1px solid var(--line)}table.inv .r{text-align:right;white-space:nowrap}.tot td{border:0;padding:4px 0}.big td{font:700 1.25rem var(--head)}.stops{list-style:none;padding:0;margin:0}.stops li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.stops b{flex:none;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:.8rem}.stops small{display:block;color:var(--ink-2)}canvas#sig{width:100%;height:150px;border:2px dashed var(--line);border-radius:10px;background:#fff;cursor:crosshair;display:block}.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 20px;margin:18px 0}.kv dt{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2)}.kv dd{margin:2px 0 0;font-weight:600}@media(max-width:560px){.kv{grid-template-columns:1fr}}</style></head><body><div id="hdr"></div><main id="main">
+<section style="padding-top:40px"><div class="wrap narrow">
+<div id="view" hidden>
+<div id="banner" class="alert" hidden></div>
+<div class="card"><div class="eyebrow" style="margin:0">Quote</div><h1 style="font-size:2rem;margin:0" id="num"></h1><p class="muted" id="hi" style="margin:4px 0 0"></p>
+<dl class="kv" id="kv"></dl>
+<h3 style="margin-top:18px">Itinerary</h3><ol class="stops" id="stops"></ol>
+<table class="inv" style="margin-top:14px"><thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody id="items"></tbody></table>
+<table class="inv" style="margin-top:6px"><tbody class="tot" id="tots"></tbody></table>
+<div id="notes" class="muted" style="margin-top:14px"></div></div>
+<div class="card noprint" id="act" style="margin-top:20px"><h3>Ready to book?</h3><p class="muted" id="depnote"></p>
+<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-lime" id="acc">Accept &amp; sign agreement</button><button class="btn btn-line" id="q">Ask a question</button><button class="btn btn-line" id="dec">Decline</button></div>
+<form id="sf" hidden style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px"><h3>Sign to accept</h3><p class="muted" style="font-size:.93rem">Your signature confirms the itinerary and price above and the <a href="/terms" target="_blank">Terms &amp; Conditions</a>. A signed PDF copy is emailed to you.</p>
+<div class="field"><label for="nm">Type your full legal name</label><input id="nm" autocomplete="name"></div>
+<div class="field"><label>Draw your signature <button type="button" class="btn btn-line btn-sm" id="clr" style="margin-left:8px">Clear</button></label><canvas id="sig" aria-label="Signature pad"></canvas></div>
+<label style="font-weight:400;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="ag" style="width:auto;min-height:0;margin-top:5px"><span>I agree to sign electronically and be bound by this quote and the terms.</span></label>
+<label id="smsrow" style="font-weight:400;display:none;gap:10px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="sms" style="width:auto;min-height:0;margin-top:5px"><span>Text me trip updates. Message and data rates may apply. Reply STOP to opt out.</span></label>
+<div id="serr" class="alert err" hidden></div><button class="btn btn-lime" id="go">Sign &amp; accept quote</button></form>
+<form id="qf" hidden style="margin-top:16px"><div class="field"><label for="qm">Your question</label><textarea id="qm" required></textarea></div><button class="btn btn-blue btn-sm">Send</button></form><div id="msg" class="alert" hidden></div>
+<p class="hint">By accepting you agree to our <a href="/terms" target="_blank">terms &amp; conditions</a>.</p></div>
+<p class="center noprint"><button class="btn btn-line btn-sm" onclick="print()">Print / save PDF</button></p>
+</div>
+<div id="nf" class="card center" hidden><h2>Quote not found</h2><p class="muted">This link may be wrong. Please call us.</p></div>
+</div></section>
+</main><div id="ftr"></div>
+<script type="module">
+import {boot,api,$,esc,money,fmtWhen,config} from '/js/site.js';
+import {signaturePad} from '/js/sigpad.js';
+const KL={start:'Bus starts at',pickup:'Pickup',stop:'Stop',dropoff:'Drop-off',return_pickup:'Return pickup',end:'Bus ends at'};
+await boot('');
+const cfg=await config();
+const tok=location.pathname.split('/')[2];
+const say=(t,k)=>{const m=$('#msg');m.className='alert '+k;m.textContent=t;m.hidden=false;};
+try{const q=await api('/quote/'+tok);$('#view').hidden=false;
+ $('#num').textContent=q.number;$('#hi').textContent=`Prepared for ${q.customer_name||'you'} — ${q.title||''}`;
+ const t=q.trip||{};
+ $('#kv').innerHTML=`<div><dt>Departure</dt><dd>${fmtWhen(t.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmtWhen(t.return_at)}</dd></div><div><dt>Pickup</dt><dd>${esc(t.pickup||'—')}</dd></div><div><dt>Destination</dt><dd>${esc(t.dropoff||'—')}</dd></div><div><dt>Passengers</dt><dd>${t.passengers||'—'}</dd></div><div><dt>Vehicle</dt><dd>${esc(q.vehicle||'To be confirmed')}</dd></div>${q.valid_until?`<div><dt>Quote valid until</dt><dd>${fmtWhen(q.valid_until)}</dd></div>`:''}`;
+ $('#stops').innerHTML=(t.itinerary||[]).filter(x=>x.kind!=='start'&&x.kind!=='end').map((x,i)=>`<li><b>${i+1}</b><div>${esc(x.address)}<small>${KL[x.kind]||''}${x.time?' · '+fmtWhen(x.time):''}${x.wait_min?' · wait '+x.wait_min+' min':''}${x.note?' · '+esc(x.note):''}</small></div></li>`).join('')||`<li><b>1</b><div>${esc(t.pickup||'')} → ${esc(t.dropoff||'')}</div></li>`;
+ $('#items').innerHTML=q.items.filter(x=>x.qty&&x.unit_cents).map(x=>`<tr><td>${esc(x.desc)}</td><td class="r">${x.qty}</td><td class="r">${money(x.unit_cents)}</td><td class="r">${money(x.qty*x.unit_cents)}</td></tr>`).join('');
+ $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(q.subtotal_cents)}</td></tr>${q.tax_cents?`<tr><td colspan="3" class="r">Tax (${q.tax_rate}%)</td><td class="r">${money(q.tax_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Total</td><td class="r">${money(q.total_cents)}</td></tr>`;
+ $('#notes').textContent=q.notes||'';
+ $('#depnote').textContent=`Deposit to confirm: ${money(q.deposit_cents)} (${q.deposit_pct}%). The balance is due before your trip.`;
+ const b=$('#banner');
+ if(q.status==='accepted'){b.className='alert ok';b.innerHTML=`You accepted this quote. ${q.invoice_token?`<a href="/pay/${q.invoice_token}"><b>Go to your invoice →</b></a>`:''}`;b.hidden=false;$('#act').hidden=true;}
+ else if(q.status==='declined'){b.className='alert err';b.textContent='This quote was declined.';b.hidden=false;$('#act').hidden=true;}
+ else if(q.status==='expired'){b.className='alert err';b.textContent='This quote has expired. Contact us and we will refresh it.';b.hidden=false;$('#acc').disabled=true;$('#dec').hidden=true;}
+ let pad=null;if(cfg.sms)$('#smsrow').style.display='flex';
+ $('#acc').onclick=()=>{$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
+ $('#clr').onclick=()=>pad&&pad.clear();
+ $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.hidden=true;const sig=pad&&pad.get();
+  if(!$('#nm').value.trim()||!sig||!$('#ag').checked){er.textContent='Type your name, draw your signature and check the box.';er.hidden=false;return;}
+  const g=$('#go');g.disabled=true;g.textContent='Signing…';
+  try{const r=await api(`/quote/${tok}/accept`,{body:{name:$('#nm').value,signature:sig,agree:true,sms_optin:$('#sms').checked}});location.href='/pay/'+r.invoice_token;}catch(x){er.textContent=x.message;er.hidden=false;g.disabled=false;g.textContent='Sign & accept quote';}};
+ $('#dec').onclick=async()=>{const why=prompt('Sorry it did not work out. Anything we could do better? (optional)');if(why===null)return;try{await api(`/quote/${tok}/decline`,{body:{reason:why}});location.reload();}catch(e){say(e.message,'err');}};
+ $('#q').onclick=()=>{$('#qf').hidden=!$('#qf').hidden;};
+ $('#qf').onsubmit=async e=>{e.preventDefault();try{await api(`/quote/${tok}/question`,{body:{message:$('#qm').value}});say('Sent. We will reply by email or phone.','ok');$('#qf').hidden=true;}catch(x){say(x.message,'err');}};
+}catch(e){$('#nf').hidden=false;}
+</script></body></html>
