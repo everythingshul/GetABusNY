@@ -60,7 +60,7 @@ export function seedAdmin() {
   const generated = !pw;
   if (!pw) pw = crypto.randomBytes(9).toString('base64url');
   insert('users', { email, name: 'Admin', pass_hash: hashPassword(pw), role: 'admin', created_at: now() });
-  console.log(`\n  First-run admin created:\n    email:    ${email}\n    password: ${pw}${generated ? '   (generated — change it in Settings)' : ''}\n`);
+  console.log(generated ? `\n  First-run admin created:\n    email:    ${email}\n    password: ${pw}   (generated — change it in Settings)\n` : `\n  First-run admin created for ${email} (password from ADMIN_PASSWORD)\n`);
 }
 
 // tiny in-memory rate limiter
