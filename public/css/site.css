@@ -261,3 +261,10 @@ footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding-top:16px
   .cta-band{padding:36px 0}
   .vehicle .num{font-size:1.9rem}
 }
+
+.areas{background:#fff;border-bottom:1px solid var(--line)}
+.area-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:20px 28px;margin-top:18px}
+.area-col h3{font-size:1rem;margin:0 0 8px;color:var(--ink-2)}
+.area-col ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.area-col a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg,#f5f8fa);color:var(--ink);text-decoration:none;font-weight:600}
+.area-col a:hover{border-color:var(--blue,#1a6fb5);color:var(--blue,#1a6fb5)}

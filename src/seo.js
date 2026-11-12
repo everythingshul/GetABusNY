@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { all, one, getSetting } from './db.js';
 import { TRIPS } from './trips-content.js';
+import { AREAS } from './areas-content.js';
 
 const esc = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const jsonLd = (o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`;
@@ -31,7 +32,7 @@ function orgSchema(base) {
   const o = {
     '@context': 'https://schema.org', '@type': 'TravelAgency', '@id': `${base}/#business`, name: biz(), url: base + '/', logo: `${base}/img/logo.png`, image: `${base}/img/logo.png`,
     description: 'Charter bus, party bus and trolley rentals for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and simchos.',
-    foundingDate: '2016', areaServed: getSetting('service_area') || 'New York',
+    foundingDate: '2016', areaServed: AREAS.map((a) => ({ '@type': 'Place', name: a.name.replace(/^the /, '') })),
     openingHoursSpecification: days.map(([a, b, o1, c1]) => ({ '@type': 'OpeningHoursSpecification', dayOfWeek: dayList(a, b), opens: o1, closes: c1 })),
   };
   if (phone) o.telephone = phone;
@@ -102,7 +103,7 @@ export function mountSeo(app, PUB) {
   });
   app.get('/sitemap.xml', (req, res) => {
     const b = baseUrl(req), day = new Date().toISOString().slice(0, 10);
-    const urls = [['/', 1.0], ['/fleet', 0.9], ['/book', 0.9], ...TRIPS.map((t) => ['/trips/' + t.slug, 0.8]), ['/about', 0.6], ['/contact', 0.7], ...vehicleList().map((v) => ['/bus/' + v.id, 0.7]), ['/terms', 0.3], ['/privacy', 0.3]];
+    const urls = [['/', 1.0], ['/fleet', 0.9], ['/book', 0.9], ...TRIPS.map((t) => ['/trips/' + t.slug, 0.8]), ...AREAS.map((a) => ['/areas/' + a.slug, 0.7]), ['/about', 0.6], ['/contact', 0.7], ...vehicleList().map((v) => ['/bus/' + v.id, 0.7]), ['/terms', 0.3], ['/privacy', 0.3]];
     res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(([p, pr]) => `<url><loc>${esc(b + (p === '/' ? '/' : p))}</loc><lastmod>${day}</lastmod><priority>${pr}</priority></url>`).join('\n')}\n</urlset>\n`);
   });
   app.get('/site.webmanifest', (req, res) => {
@@ -121,7 +122,7 @@ export function mountSeo(app, PUB) {
       if (route === '/') {
         const list = vehicleList(base);
         extra += jsonLd(orgSchema(base)) + jsonLd({ '@context': 'https://schema.org', '@type': 'WebSite', url: base + '/', name: biz() });
-        html = html.replace(/<\/body>/i, `${fleetNoscript(list)}<nav aria-label="Trip types" class="seo-links"><ul>${TRIPS.map((t) => `<li><a href="/trips/${t.slug}">${esc(t.name)}</a></li>`).join('')}</ul></nav></body>`);
+        html = html.replace(/<\/body>/i, `${fleetNoscript(list)}</body>`);
       } else if (route === '/fleet') {
         const list = vehicleList(base);
         extra += crumb(base, [['Home', '/'], ['Fleet', '/fleet']]) + jsonLd({ '@context': 'https://schema.org', '@type': 'ItemList', name: 'Fleet', itemListElement: list.map((v, i) => ({ '@type': 'ListItem', position: i + 1, url: `${base}/bus/${v.id}`, name: v.name })) });
@@ -138,21 +139,24 @@ export function mountSeo(app, PUB) {
 
   // 6. Trip-type landing pages (content in trips-content.js, shell in public/trip.html)
   app.get('/trips', (req, res) => res.redirect(301, '/#trips'));
-  app.get('/trips/:slug', (req, res, next) => {
-    const t = TRIPS.find((x) => x.slug === req.params.slug); if (!t) return next();
+  app.get('/areas', (req, res) => res.redirect(301, '/#areas'));
+  const landing = (kind, list, otherLabel) => (req, res, next) => {
+    const t = list.find((x) => x.slug === req.params.slug); if (!t) return next();
     let html; try { html = read('trip.html'); } catch { return next(); }
-    const base = baseUrl(req), route = '/trips/' + t.slug, title = `${t.title} | ${biz()}`;
-    const others = TRIPS.filter((x) => x.slug !== t.slug);
+    const base = baseUrl(req), route = `/${kind}/` + t.slug, title = `${t.title} | ${biz()}`;
+    const others = list.filter((x) => x.slug !== t.slug);
     const body = `<h1>${esc(t.h1)}</h1><p class="lead">${esc(t.lead)}</p>${t.sections.map((s) => `<h2>${esc(s.h)}</h2>${s.p.map((p) => `<p>${esc(p)}</p>`).join('')}`).join('')}`
       + `<h2>Common questions</h2>${t.faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('')}`
-      + `<p><a class="btn primary" href="/book?trip=${encodeURIComponent(t.slug)}">Request a quote</a> <a class="btn" href="/fleet">See the fleet</a></p>`
-      + `<h2>Other trips we run</h2><ul>${others.map((x) => `<li><a href="/trips/${x.slug}">${esc(x.name)}</a></li>`).join('')}</ul>`;
+      + `<p><a class="btn btn-lime" href="/book">Request a quote</a> <a class="btn" href="/fleet">See the fleet</a></p>`
+      + `<h2>${otherLabel}</h2><ul>${others.map((x) => `<li><a href="/${kind}/${x.slug}">${esc(x.name)}</a></li>`).join('')}</ul>`;
     const extra = crumb(base, [['Home', '/'], [t.name, route]])
-      + jsonLd({ '@context': 'https://schema.org', '@type': 'Service', name: t.name, serviceType: 'Charter bus rental', provider: { '@id': `${base}/#business` }, areaServed: getSetting('service_area') || 'New York', description: t.desc })
+      + jsonLd({ '@context': 'https://schema.org', '@type': 'Service', name: t.h1, serviceType: 'Charter bus rental', provider: { '@id': `${base}/#business` }, areaServed: kind === 'areas' ? { '@type': 'Place', name: t.name.replace(/^the /, '') } : AREAS.map((a) => ({ '@type': 'Place', name: a.name.replace(/^the /, '') })), description: t.desc })
       + jsonLd({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: t.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) });
     html = html.replace('<!--TRIP-->', body);
     res.type('html').send(inject(html, headFor(req, route, { title, desc: t.desc }, extra), title));
-  });
+  };
+  app.get('/trips/:slug', landing('trips', TRIPS, 'Other trips we run'));
+  app.get('/areas/:slug', landing('areas', AREAS, 'Other places we cover'));
 
   // 7. Vehicle pages
   app.get('/bus/:id', (req, res) => {

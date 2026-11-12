@@ -20,14 +20,14 @@ try {
   assert.match(home, new RegExp(`<link rel="canonical" href="${base}/">`)); assert.match(home, /og:title/); assert.match(home, /twitter:card/);
   const ld = [...home.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
   const org = ld.find((x) => x['@type'] === 'TravelAgency'); assert.ok(org && org.openingHoursSpecification.length === 2); assert.equal(org.foundingDate, '2016');
-  assert.match(home, /href="\/trips\/camp-trips"/); assert.match(home, /href="\/bus\/1"/);
+  assert.match(home, /href="\/trips\/camp-trips"/); for (const a of ['boro-park', 'williamsburg', 'flatbush', 'monsey', 'lakewood', 'linden', 'jackson', 'toms-river', 'monroe', 'catskills', 'jersey-city', 'manhattan', 'new-square', 'cleveland', 'chicago', 'indiana', 'michigan']) { assert.match(home, new RegExp(`href="/areas/${a}"`), a); const ar = await get('/areas/' + a); assert.equal(ar.status, 200, a); const at = await ar.text(); assert.match(at, /FAQPage/); assert.ok(!at.includes('<!--TRIP-->')); } assert.match(home, /href="\/bus\/1"/);
   const fleet = await (await get('/fleet')).text(); assert.match(fleet, /ItemList/); assert.match(fleet, /56 Seater Coach Bus/);
   const bus = await get('/bus/1'); const bt = await bus.text(); assert.equal(bus.status, 200); assert.match(bt, /"@type":"Product"/); assert.match(bt, /og:image/); assert.ok(!bt.includes('<!--OG-->'));
   assert.equal((await get('/bus/9999')).status, 404);
   const trip = await get('/trips/shabbatons'); const tt = await trip.text(); assert.equal(trip.status, 200); assert.match(tt, /<h1>Buses for Shabbatons<\/h1>/); assert.match(tt, /FAQPage/); assert.match(tt, /BreadcrumbList/); assert.ok(!tt.includes('<!--TRIP-->'));
   assert.equal((await get('/trips/nope')).status, 404);
   const sm = await (await get('/sitemap.xml')).text();
-  for (const p of ['/', '/fleet', '/book', '/contact', '/trips/camp-trips', '/bus/1']) assert.ok(sm.includes(`<loc>${base}${p}</loc>`), p);
+  for (const p of ['/', '/fleet', '/book', '/contact', '/trips/camp-trips', '/areas/boro-park', '/areas/michigan', '/bus/1']) assert.ok(sm.includes(`<loc>${base}${p}</loc>`), p);
   assert.ok(!sm.includes('/admin') && !sm.includes('/pay'));
   const rb = await (await get('/robots.txt')).text(); assert.match(rb, /Disallow: \/admin/); assert.match(rb, /Sitemap: .*\/sitemap\.xml/);
   assert.equal((await get('/quote/abc')).headers.get('x-robots-tag'), 'noindex, nofollow');
