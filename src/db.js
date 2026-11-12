@@ -46,10 +46,16 @@ addCol('vendors', 'insurance_expires', 'TEXT');
 addCol('vendors', 'dot_number', 'TEXT');
 addCol('vendors', 'mc_number', 'TEXT');
 addCol('vendors', 'coi_file', 'TEXT');
+addCol('vendors', 'fmcsa_checked_at', 'TEXT');
+addCol('vendors', 'fmcsa_status', 'TEXT');
+addCol('vendors', 'insurance_verified_at', 'TEXT');
+addCol('vendors', 'insurance_verified_by', 'TEXT');
+addCol('vendors', 'insurance_verify_note', 'TEXT');
 addCol('quotes', 'revision', 'INTEGER DEFAULT 1');
 db.exec(`CREATE TABLE IF NOT EXISTS quote_revisions(id INTEGER PRIMARY KEY, quote_id INTEGER, revision INTEGER, changed_at TEXT, changed_by TEXT, reason TEXT, changes TEXT, total_before INTEGER, total_after INTEGER, snapshot TEXT, sent_at TEXT)`);
 addCol('invoices', 'gratuity_cents', 'INTEGER DEFAULT 0');
 for (const c of ['stripe_customer_id', 'card_pm', 'card_brand', 'card_last4', 'card_exp', 'card_consent_at', 'card_consent_text']) addCol('customers', c, 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS banner_images(id INTEGER PRIMARY KEY, file TEXT, mime TEXT, name TEXT, sort INTEGER DEFAULT 100, active INTEGER DEFAULT 1, created_at TEXT)`);
 addCol('users', 'phone', 'TEXT');
 addCol('users', 'notify_prefs', 'TEXT');
 addCol('customers', 'sms_types', 'TEXT');
@@ -133,8 +139,7 @@ export const DEFAULT_SETTINGS = {
   // v2
   google_review_url: '',
   sms_own_number: '',
-  gratuity_suggest: '1',
-  gratuity_presets: '10,15,20',
+  banner_seconds: '6',
   sms_quiet_mode: 'zmanim',
   candle_mins: '18',
   havdalah_mins: '50',

@@ -8,12 +8,13 @@ import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '.
 import * as S from '../services.js';
 import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
+import { bannerAdminRouter } from '../banner.js';
 import { chargeInvoice, removeCard, cardOf } from '../cards.js';
 import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
-import { routeEstimate, NOTIFY_EVENTS, adminPrefs } from '../integrations.js';
+import { routeEstimate, NOTIFY_EVENTS, adminPrefs, fmcsaLookup, saferLinks } from '../integrations.js';
 
 export const admin = express.Router();
 const wrap = (fn) => async (req, res) => { try { res.json(await fn(req, res)); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message }); else { console.error(e); res.status(500).json({ error: e.message || 'Server error' }); } } };
@@ -210,6 +211,20 @@ admin.post('/rfqs', wrap(async (req) => {
   if (!(request_id || trip_id) || !Array.isArray(vendor_ids) || !vendor_ids.length) throw bad('Choose a trip/request and at least one vendor');
   return { sent: await S.sendRFQs({ request_id, trip_id, vendor_ids, message }) };
 }));
+// Operators answer by email or phone. Staff record what they said; there is no operator portal.
+admin.post('/rfqs/:id/reply', wrap((req) => {
+  const r = one('SELECT * FROM rfqs WHERE id=?', req.params.id); if (!r) throw bad('Not found', 404);
+  if (['accepted', 'closed'].includes(r.status)) throw bad('This request was already awarded or closed.');
+  const b = req.body || {};
+  if (b.declined) update('rfqs', r.id, { status: 'declined', responded_at: now(), response_notes: String(b.notes || '').slice(0, 1000) });
+  else {
+    const price = Math.round(Number(b.price) * 100);
+    if (!Number.isFinite(price) || price <= 0) throw bad('Enter their price.');
+    update('rfqs', r.id, { status: 'responded', price_cents: price, offered_vehicle: String(b.vehicle || '').slice(0, 200), response_notes: String(b.notes || '').slice(0, 1000), responded_at: now() });
+  }
+  log(req.user.email, b.declined ? 'rfq.declined' : 'rfq.reply_recorded', 'rfq', r.id);
+  return { ok: true };
+}));
 admin.post('/rfqs/:id/accept', wrap(async (req) => { await S.acceptRFQ(Number(req.params.id)); return { ok: true }; }));
 admin.post('/rfqs/:id/close', wrap((req) => { update('rfqs', req.params.id, { status: 'closed' }); return { ok: true }; }));
 
@@ -223,6 +238,7 @@ admin.post('/followups/send', wrap(async (req) => {
   return r;
 }));
 
+admin.use('/banner', bannerAdminRouter());
 // Chesky (admin): handoff inbox, teach, assistant
 admin.use('/chesky', chatAdminRouter());
 
@@ -427,3 +443,23 @@ admin.post('/customers/:id/card-link', wrap(async (req) => {
 }));
 admin.delete('/customers/:id/card', wrap(async (req) => { await removeCard(Number(req.params.id), req.user.email); return { ok: true }; }));
 admin.post('/invoices/:id/charge-saved', wrap((req) => chargeInvoice(Number(req.params.id), req.body?.amount_cents, req.user.email)));
+
+// ---------- operator checks: FMCSA (SAFER data) and manual verification. Operators never do this themselves. ----------
+admin.get('/vendors/:id/safer', wrap((req) => {
+  const v = one('SELECT dot_number, fmcsa_checked_at, fmcsa_status, insurance_verified_at, insurance_verified_by, insurance_verify_note FROM vendors WHERE id=?', req.params.id); if (!v) throw bad('Not found', 404);
+  return { links: saferLinks(v.dot_number), configured: !!process.env.FMCSA_WEBKEY, checked_at: v.fmcsa_checked_at, status: parse(v.fmcsa_status, null), verified_at: v.insurance_verified_at, verified_by: v.insurance_verified_by, verify_note: v.insurance_verify_note };
+}));
+admin.post('/vendors/:id/fmcsa-check', wrap(async (req) => {
+  const v = one('SELECT id, dot_number FROM vendors WHERE id=?', req.params.id); if (!v) throw bad('Not found', 404);
+  const dot = String(req.body?.dot || v.dot_number || '');
+  const st = await fmcsaLookup(dot);
+  update('vendors', v.id, { dot_number: st.dot, fmcsa_checked_at: now(), fmcsa_status: st, updated_at: now() });
+  log(req.user.email, 'vendor.fmcsa_check', 'vendor', v.id, st.problems.length ? st.problems[0] : 'clear');
+  return { checked_at: now(), status: st };
+}));
+admin.post('/vendors/:id/insurance-verified', wrap((req) => {
+  const v = one('SELECT id FROM vendors WHERE id=?', req.params.id); if (!v) throw bad('Not found', 404);
+  update('vendors', v.id, { insurance_verified_at: now(), insurance_verified_by: req.user.email, insurance_verify_note: String(req.body?.note || '').slice(0, 300), updated_at: now() });
+  log(req.user.email, 'vendor.insurance_verified', 'vendor', v.id, String(req.body?.note || ''));
+  return { ok: true };
+}));

@@ -20,6 +20,11 @@ pub.get('/config', (req, res) => {
   });
 });
 
+pub.get('/vehicle/:id', (req, res) => {
+  const v = one('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE id=? AND active=1', req.params.id);
+  if (!v) return fail(res, 404, 'Vehicle not found');
+  res.json({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) });
+});
 pub.get('/fleet', (req, res) => {
   res.json(all('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE active=1 ORDER BY sort,capacity DESC').map((v) => ({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) })));
 });
@@ -102,7 +107,6 @@ const invView = (i) => {
   const depDue = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? Math.min(bal, i.deposit_cents - i.amount_paid_cents) : 0;
   return {
     number: i.number, status: i.status, title: i.title, items: parse(i.items, []), tax_rate: i.tax_rate, subtotal_cents: i.subtotal_cents, tax_cents: i.tax_cents, gratuity_cents: i.gratuity_cents || 0, total_cents: i.total_cents,
-    tip_options: getSetting('gratuity_suggest') === '1' && ['sent', 'partial'].includes(i.status) ? getSetting('gratuity_presets').split(',').map((x) => Number(x.trim())).filter((x) => x > 0 && x <= 100) : null,
     card: one('SELECT card_brand b, card_last4 l FROM customers WHERE id=? AND card_pm IS NOT NULL', i.customer_id) || null,
     paid_cents: i.amount_paid_cents, balance_cents: bal, deposit_due_cents: depDue, due_date: i.due_date, notes: i.notes, customer_name: c?.name, overdue: ['sent', 'partial'].includes(i.status) && i.due_date && i.due_date < today(),
     payments: all("SELECT amount_cents,method,created_at FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id),
@@ -121,15 +125,6 @@ pub.post('/invoice-lookup', limit('lookup', 10, 3600000), (req, res) => {
   const row = num && email ? one("SELECT i.token FROM invoices i JOIN customers c ON c.id=i.customer_id WHERE upper(i.number)=? AND lower(c.email)=? AND i.status<>'draft'", num, email) : null;
   if (!row) return fail(res, 404, 'We could not find that invoice. Check the number and the email it was sent to.');
   res.json({ token: row.token });
-});
-pub.post('/invoice/:token/gratuity', limit('tip', 30, 3600000), (req, res) => {
-  const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
-  if (!i || !['sent', 'partial'].includes(i.status)) return fail(res, 404, 'Invoice not found');
-  if (getSetting('gratuity_suggest') !== '1') return fail(res, 400, 'Gratuity is not offered on this invoice.');
-  let g = req.body?.pct != null ? Math.round((i.subtotal_cents * Number(req.body.pct)) / 100) : Math.round(Number(req.body?.amount_cents) || 0);
-  if (!Number.isFinite(g) || g < 0 || g > i.subtotal_cents) return fail(res, 400, 'That gratuity is not valid.');
-  update('invoices', i.id, { gratuity_cents: g }); recalcInvoice(i.id);
-  res.json(invView(one('SELECT * FROM invoices WHERE id=?', i.id)));
 });
 pub.post('/invoice/:token/pay', limit('pay', 20, 3600000), async (req, res) => {
   const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
@@ -159,31 +154,6 @@ export const stripeWebhook = async (req, res) => {
   try { await applyStripeEvent(ev); } catch (e) { console.error('webhook error', e); return res.status(500).send('error'); }
   res.json({ received: true });
 };
-
-// ----- vendor RFQ response (no login) -----
-pub.get('/rfq/:token', (req, res) => {
-  const r = one('SELECT * FROM rfqs WHERE token=?', req.params.token);
-  if (!r) return fail(res, 404, 'Request not found');
-  const v = one('SELECT name,contact_name FROM vendors WHERE id=?', r.vendor_id);
-  res.json({ ref: r.ref, status: r.status, vendor: v, trip: parse(r.snapshot, {}), message: r.message, price_cents: r.price_cents, offered_vehicle: r.offered_vehicle, response_notes: r.response_notes, business: getSetting('business_name') });
-});
-pub.post('/rfq/:token', limit('rfq', 20, 3600000), (req, res) => {
-  const r = one('SELECT * FROM rfqs WHERE token=?', req.params.token);
-  if (!r) return fail(res, 404, 'Request not found');
-  if (['accepted', 'closed'].includes(r.status)) return fail(res, 400, 'This request has already been awarded or closed.');
-  const b = req.body || {};
-  if (b.action === 'decline') update('rfqs', r.id, { status: 'declined', responded_at: now(), response_notes: String(b.notes || '').slice(0, 1000) });
-  else {
-    const price = Math.round(Number(b.price) * 100);
-    if (!Number.isFinite(price) || price <= 0) return fail(res, 400, 'Enter a valid price.');
-    update('rfqs', r.id, { status: 'responded', price_cents: price, offered_vehicle: String(b.vehicle || '').slice(0, 200), response_notes: String(b.notes || '').slice(0, 1000), responded_at: now() });
-  }
-  const v = one('SELECT name FROM vendors WHERE id=?', r.vendor_id);
-  log('vendor', 'rfq.' + (b.action === 'decline' ? 'declined' : 'responded'), 'rfq', r.id, v?.name);
-  notifyOwner(`${v?.name} ${b.action === 'decline' ? 'declined' : 'quoted'} ${r.ref}`, b.action === 'decline' ? 'Declined.' : `Price: $${b.price}\nVehicle: ${b.vehicle || ''}\n${b.notes || ''}`, 'vendor_reply').catch(() => {});
-  res.json({ ok: true });
-});
-
 
 // ----- Google Places (server-side proxy; address suggestions everywhere) -----
 pub.get('/places/autocomplete', limit('places', 120, 600000), async (req, res) => {

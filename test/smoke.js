@@ -58,8 +58,8 @@ try {
   r = await api('POST', `/api/public/quote/${q.token}/accept`, {}); assert.equal(r.status, 400); step('accepting without a signature is refused');
   r = await api('POST', `/api/public/quote/${q.token}/accept`, { name: 'Jane Doe', signature: makePng(), agree: true }); ok(r, 'accept'); const invTok = r.body.invoice_token; assert.ok(invTok); step('customer signed + accepted -> trip + invoice');
   r = await api('PUT', `/api/admin/quotes/${qid}`, { notes: 'sneaky' }); assert.equal(r.status, 409); step('an accepted and signed quote is locked');
-  r = await api('POST', `/api/public/invoice/${invTok}/gratuity`, { pct: 15 }); ok(r, 'tip'); assert.equal(r.body.gratuity_cents, 37500); assert.equal(r.body.total_cents, 270000 + 37500); assert.deepEqual(r.body.tip_options, [10, 15, 20]);
-  r = await api('POST', `/api/public/invoice/${invTok}/gratuity`, { pct: 150 }); assert.equal(r.status, 400); r = await api('POST', `/api/public/invoice/${invTok}/gratuity`, { amount_cents: 0 }); assert.equal(r.body.total_cents, 270000); step('customer can add gratuity (not taxed), capped and removable');
+  r = await api('POST', `/api/public/invoice/${invTok}/gratuity`, { pct: 15 }); assert.equal(r.status, 404); assert.equal((await api('GET', `/api/public/invoice/${invTok}`)).body.tip_options, undefined); step('customers cannot add gratuity (back end only)');
+  const invAdm = (await api('GET', '/api/admin/invoices')).body.find((x) => x.token === invTok); r = await api('PUT', `/api/admin/invoices/${invAdm.id}`, { gratuity_cents: 30000 }); ok(r, 'staff gratuity'); assert.equal(r.body.total_cents, 300000); assert.equal((await api('GET', `/api/public/invoice/${invTok}`)).body.gratuity_cents, 30000); r = await api('PUT', `/api/admin/invoices/${invAdm.id}`, { gratuity_cents: 0 }); assert.equal(r.body.total_cents, 270000); step('staff add gratuity on the invoice');
   const cons = (await api('GET', '/api/admin/contracts')).body; assert.equal(cons.length, 1); assert.equal(cons[0].status, 'signed'); assert.equal(cons[0].signer_name, 'Jane Doe');
   const pdf = await fetch(base + `/api/admin/contracts/${cons[0].id}/pdf`, { headers: { cookie } }); const pb = Buffer.from(await pdf.arrayBuffer()); assert.equal(pb.subarray(0, 4).toString(), '%PDF'); step('signed contract PDF generated (' + pb.length + ' bytes)');
   const tr0 = (await api('GET', '/api/admin/trips')).body[0]; assert.equal(JSON.parse(tr0.itinerary).length, 6); step('trip inherited the full itinerary');
@@ -79,6 +79,18 @@ try {
   r = await api('POST', '/api/admin/schedule-check', { depart_at: '2026-11-14T10:00', return_at: '2026-11-15T09:00', itinerary: [] }); assert.equal(r.body.issues[0].level, 'red'); assert.match(r.body.depart.havdalah, /PM$/); step('zmanim and Shabbos check');
   const vv = (await api('POST', '/api/admin/vendors', { name: 'Lapsed Lines', insurance_expires: '2020-01-01', insurance_carrier: 'Acme' })).body; assert.equal((await api('GET', `/api/admin/vendors/${vv.id}/insurance-check`)).body.today.status, 'expired'); assert.ok((await api('GET', '/api/admin/dashboard')).body.insurance.some((x) => x.name === 'Lapsed Lines')); step('operator insurance expiry shows on the dashboard');
   r = await fetch(base + `/api/admin/vendors/${vv.id}/coi`, { method: 'POST', headers: { 'content-type': 'application/pdf', cookie }, body: Buffer.from('%PDF-1.4 test certificate body') }); assert.equal(r.status, 200); const coi = await fetch(base + `/api/admin/vendors/${vv.id}/coi`, { headers: { cookie } }); assert.equal(coi.status, 200); assert.equal((await fetch(base + `/api/admin/vendors/${vv.id}/coi`)).status, 401); step('certificate of insurance stored privately');
+  // banner slideshow: admin upload, signed one-time-ish links, direct opening refused
+  const bimg = Buffer.from(makePng().split(',')[1], 'base64');
+  r = await fetch(base + '/api/admin/banner', { method: 'POST', headers: { 'content-type': 'image/png', cookie, 'x-file-name': 'one.png' }, body: bimg }); assert.equal(r.status, 200);
+  r = await fetch(base + '/api/admin/banner', { method: 'POST', headers: { 'content-type': 'image/png', cookie }, body: Buffer.from('not an image at all, just text') }); assert.equal(r.status, 400);
+  const bl = (await api('GET', '/api/public/banner')).body; assert.equal(bl.slides.length, 1); assert.equal(bl.seconds, 6); const bu = bl.slides[0].url;
+  r = await fetch(base + bu, { headers: { 'sec-fetch-dest': 'empty', 'sec-fetch-site': 'same-origin' } }); assert.equal(r.status, 200); assert.match(r.headers.get('cache-control'), /no-store/); assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal((await fetch(base + bu, { headers: { 'sec-fetch-dest': 'document' } })).status, 404); assert.equal((await fetch(base + bu, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 404);
+  assert.equal((await fetch(base + bu.replace(/s=.{22}/, 's=aaaaaaaaaaaaaaaaaaaaaa'))).status, 404); assert.equal((await fetch(base + bu.replace(/e=\d+/, 'e=1000'))).status, 404);
+  assert.equal((await fetch(base + '/banner/1.jpg')).status, 404);
+  r = await api('PUT', '/api/admin/banner/settings', { seconds: 8 }); ok(r, 'secs'); assert.equal((await api('GET', '/api/public/banner')).body.seconds, 8); r = await api('PUT', '/api/admin/banner/1', { active: false }); assert.equal((await api('GET', '/api/public/banner')).body.slides.length, 0); step('banner slideshow: private storage, signed links, direct opening refused');
+  const veh = (await api('GET', '/api/public/vehicle/1')).body; assert.ok(veh.name && Array.isArray(veh.features)); const bus = await (await fetch(base + '/bus/1')).text(); assert.ok(bus.includes('og:title') && bus.includes(veh.name.split(' ')[0])); assert.equal((await fetch(base + '/bus/9999')).status, 404); step('vehicle page has link-preview tags');
+  r = await api('POST', `/api/admin/vendors/${vv.id}/fmcsa-check`, { dot: '123456' }); assert.equal(r.status, 500); assert.match(r.body.error, /not set up/); r = await api('POST', `/api/admin/vendors/${vv.id}/insurance-verified`, { note: 'Checked certificate with Acme' }); ok(r, 'verified'); const sf = (await api('GET', `/api/admin/vendors/${vv.id}/safer`)).body; assert.ok(sf.verified_at && sf.links.snapshot.includes('safer.fmcsa.dot.gov')); step('operator checks: SAFER links and manual verification (no operator portal)');
   // card holds / partial capture / release / refunds / disputes, driven by Stripe events
   const wh = async (type, object) => { const body = JSON.stringify({ type, data: { object } }); const ts = Math.floor(Date.now() / 1000); const sg = crypto.createHmac('sha256', 'whsec_test').update(`${ts}.${body}`).digest('hex'); const x = await fetch(base + '/api/stripe/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': `t=${ts},v1=${sg}` }, body }); assert.equal(x.status, 200, type); };
   const pays = async () => (await api('GET', `/api/admin/invoices/${inv.id}/payments`)).body;
@@ -116,7 +128,8 @@ try {
   r = await api('POST', '/api/admin/vendors', { name: 'Hudson Coach Lines', email: 'dispatch@hudson.test', contact_name: 'Pat' }); const v = r.body;
   r = await api('POST', '/api/admin/rfqs', { trip_id: trip.id, vendor_ids: [v.id], message: 'Need best rate' }); ok(r, 'rfq'); step('RFQ sent to vendor');
   const rfq = (await api('GET', '/api/admin/rfqs')).body[0];
-  r = await api('POST', `/api/public/rfq/${rfq.token}`, { price: 1900, vehicle: '56 pax MCI', notes: 'Fuel incl.' }); ok(r, 'vendor reply');
+  assert.equal((await api('GET', `/api/public/rfq/${rfq.token}`)).status, 404); assert.equal((await fetch(base + `/v/${rfq.token}`)).status, 404); step('no operator portal exists');
+  r = await api('POST', `/api/admin/rfqs/${rfq.id}/reply`, { price: 1900, vehicle: '56 pax MCI', notes: 'Fuel incl. (phone)' }); ok(r, 'record reply'); assert.equal((await api('GET', '/api/admin/rfqs')).body[0].price_cents, 190000);
   r = await api('POST', `/api/admin/rfqs/${rfq.id}/accept`); ok(r, 'accept rfq'); const t2 = (await api('GET', `/api/admin/trips/${trip.id}`)).body; assert.equal(t2.vendor_cost_cents, 190000); step('vendor price accepted -> cost on trip');
   // followups
   const fu = (await api('GET', '/api/admin/followups')).body; assert.ok(fu.length >= 3); step(`follow-ups scheduled (${fu.length})`);
@@ -143,7 +156,7 @@ try {
   r = await api('PUT', `/api/admin/customers/${cust0.id}`, { sms_optin: 0 });
   r = await api('POST', `/api/admin/customers/${cust0.id}/text`, { message: 'Hello again' }); assert.equal(r.status, 400); assert.match(r.body.error, /opted in/); step('no texts after opt-out');
   r = await api('POST', '/api/public/invoice-lookup', { number: inv.number, email: 'jane@example.com' }); ok(r, 'lookup'); r = await api('POST', '/api/public/invoice-lookup', { number: inv.number, email: 'x@example.com' }); assert.equal(r.status, 404); step('invoice lookup requires matching email');
-  for (const p of ['/', '/fleet', '/book', '/about', '/contact', '/terms', '/privacy', '/pay', '/driver', '/admin', '/healthz', '/nope']) { const x = await fetch(base + p); if (p === '/nope') assert.equal(x.status, 404); else assert.equal(x.status, 200, p); }
+  for (const p of ['/', '/fleet', '/book', '/about', '/contact', '/terms', '/privacy', '/pay', '/driver', '/admin', '/healthz', '/bus/1', '/nope']) { const x = await fetch(base + p); if (p === '/nope') assert.equal(x.status, 404); else assert.equal(x.status, 200, p); }
   step('all pages served');
   console.log(`\nAll ${pass} checks passed.`);
 } catch (e) { console.error('\nFAILED:', e.message); console.error(out.split('\n').slice(-15).join('\n')); process.exitCode = 1; } finally { srv.kill(); fs.rmSync(dir, { recursive: true, force: true }); }

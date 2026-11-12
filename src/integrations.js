@@ -271,3 +271,36 @@ export async function routeEstimate(stops, { bus = true, departAtUtc } = {}) {
   const legs = (rt.legs || []).map((l, i) => ({ from: pts[i].address, to: pts[i + 1].address, miles: Math.round((l.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(sec(l.duration) / 60) }));
   return { provider: 'Google', bus_aware: false, mode: 'car', miles: Math.round((rt.distanceMeters / 1609.344) * 10) / 10, minutes: Math.round(sec(rt.duration) / 60), legs, warning: 'This route is for a car. It may use parkways or roads that buses are not allowed on. Add a HERE key for bus-safe routing.' };
 }
+
+// ---------- FMCSA (the data behind SAFER Web). Free key: mobile.fmcsa.dot.gov, QCMobile API. ----------
+// Gives operating authority, out-of-service status, safety rating and whether liability insurance is on file and for how much.
+// It does NOT give the policy expiry date, so expiry stays a manual entry taken from the certificate.
+export const saferLinks = (dot) => ({
+  snapshot: `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${encodeURIComponent(dot || '')}`,
+  insurance: `https://li-public.fmcsa.dot.gov/LIVIEW/pkg_carrquery.prc_carrlist?n_dotno=${encodeURIComponent(dot || '')}&s_prefix=MC&n_docketno=&s_legalname=&s_dbaname=&s_state=`,
+});
+export async function fmcsaLookup(dot) {
+  const key = env('FMCSA_WEBKEY');
+  if (!key) throw new Error('FMCSA lookups are not set up. Add FMCSA_WEBKEY, or use the SAFER links and enter what you see by hand.');
+  dot = String(dot || '').replace(/\D/g, '');
+  if (!dot) throw new Error('Enter the operator\'s USDOT number first.');
+  const r = await fetch(`https://mobile.fmcsa.dot.gov/qc/services/carriers/${dot}?webKey=${encodeURIComponent(key)}`);
+  if (!r.ok) throw new Error(r.status === 403 ? 'FMCSA rejected the key.' : 'FMCSA could not be reached. Try again, or use the SAFER links.');
+  const j = await r.json().catch(() => ({}));
+  const c = j?.content?.carrier;
+  if (!c) throw new Error('FMCSA has no carrier with that USDOT number.');
+  const yes = (v) => String(v || '').toUpperCase().startsWith('Y');
+  const s = {
+    name: c.legalName || c.dbaName || '', dba: c.dbaName || '', dot, allowed: yes(c.allowedToOperate), status: c.statusCode || '',
+    common_authority: c.commonAuthorityStatus || '', contract_authority: c.contractAuthorityStatus || '', broker_authority: c.brokerAuthorityStatus || '',
+    // FMCSA reports these in thousands of dollars (5000 means $5,000,000, the minimum for a bus carrying 16 or more).
+    bipd_required: (Number(c.bipdRequiredAmount) || 0) * 1000, bipd_on_file: (Number(c.bipdInsuranceOnFile) || 0) * 1000,
+    safety_rating: c.safetyRating || '', safety_rating_date: c.safetyRatingDate || '', oos_date: c.oosDate || '', power_units: c.totalPowerUnits ?? null, drivers: c.totalDrivers ?? null,
+  };
+  s.problems = [];
+  if (!s.allowed) s.problems.push('FMCSA does not show this carrier as allowed to operate.');
+  if (s.oos_date) s.problems.push(`Out of service order dated ${s.oos_date}.`);
+  if (s.bipd_required && s.bipd_on_file < s.bipd_required) s.problems.push(`Liability insurance on file ($${s.bipd_on_file.toLocaleString()}) is below the required $${s.bipd_required.toLocaleString()}.`);
+  if (/unsatisfactory/i.test(s.safety_rating)) s.problems.push('Safety rating is Unsatisfactory.');
+  return s;
+}

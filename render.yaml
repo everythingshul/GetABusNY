@@ -29,4 +29,5 @@ services:
       - { key: SMS_API_BASE, sync: false }
       - { key: SMS_API_KEY, sync: false }
       - { key: HERE_API_KEY, sync: false }
+      - { key: FMCSA_WEBKEY, sync: false }
       - { key: OPENAI_API_KEY, sync: false }

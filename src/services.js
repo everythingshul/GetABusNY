@@ -36,7 +36,6 @@ const nums = (s) => String(s || '').split(',').map((x) => Number(x.trim())).filt
 const link = {
   quote: (q) => `${BASE_URL()}/quote/${q.token}`,
   pay: (i) => `${BASE_URL()}/pay/${i.token}`,
-  vendor: (r) => `${BASE_URL()}/v/${r.token}`,
   driver: (d) => `${BASE_URL()}/d/${d.token}`,
 };
 export { link };
@@ -287,7 +286,7 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
         `<p>Hi ${esc(v.contact_name || v.name)},</p><p>We have a trip and would like your best price.</p>
          <p>${snap.purpose ? `<b>Trip:</b> ${esc(snap.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(snap.depart_at)}<br><b>Return:</b> ${fmtWhen(snap.return_at)}<br><b>Passengers:</b> ${snap.passengers || '-'}<br><b>Vehicle wanted:</b> ${esc(snap.vehicle || 'Any suitable')}</p>
          <p><b>Itinerary</b><br>${esc(itineraryText(snap.itinerary?.length ? snap.itinerary : fromLegacy(snap))).replace(/\n/g, '<br>')}</p>
-         ${message ? `<p>${esc(message)}</p>` : ''}<p>Use the button to reply with your price or decline. No login needed.</p>`, { label: 'Send my price', url: link.vendor(r) }));
+         ${message ? `<p>${esc(message)}</p>` : ''}<p>Please reply to this email with your price and the vehicle you would send, or call ${esc(getSetting('phone'))}. If you cannot do this trip, a quick reply saying so helps us plan.</p>`));
     }
     if (getSetting('fu_enabled') === '1') { const h = Number(getSetting('fu_rfq_hours')); if (h) scheduleAuto('rfq', id, 'rfq_nudge', addHours(new Date(), h)); }
     out.push({ rfq_id: id, vendor_id: vid, email: res });
@@ -359,7 +358,7 @@ function composeFollowup(f) {
     const r = one('SELECT * FROM rfqs WHERE id=?', f.entity_id);
     if (!r || r.status !== 'sent') return null;
     const v = one('SELECT * FROM vendors WHERE id=?', r.vendor_id);
-    return { to: v?.email, subject: `Reminder: quote request ${r.ref}`, html: emailShell('Still waiting on your price', `<p>We haven't heard back on this quote request. A quick price or a decline helps us plan.</p>`, { label: 'Reply now', url: link.vendor(r) }) };
+    return { to: v?.email, subject: `Reminder: quote request ${r.ref}`, html: emailShell('Still waiting on your price', `<p>We haven't heard back on quote request ${esc(r.ref)}. Please reply to this email with a price, or let us know if you cannot do the trip.</p>`) };
   }
   return null;
 }

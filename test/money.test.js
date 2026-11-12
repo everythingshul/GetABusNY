@@ -6,12 +6,16 @@ process.env.DB_PATH = path.join(os.tmpdir(), `money-${Date.now()}.db`);
 process.env.DATA_DIR = os.tmpdir();
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
 process.env.BASE_URL = 'http://localhost:1';
+process.env.FMCSA_WEBKEY = 'fmcsa_test';
 let failCharge = false;
 const stripeCalls = [];
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url), body = opts.body ? Object.fromEntries(new URLSearchParams(String(opts.body))) : {};
   stripeCalls.push({ u, body });
   const res = (o, ok = true, status = 200) => ({ ok, status, json: async () => o, text: async () => JSON.stringify(o) });
+  if (u.includes('mobile.fmcsa.dot.gov/qc/services/carriers/111')) return res({ content: { carrier: { legalName: 'HUDSON COACH LINES INC', allowedToOperate: 'Y', statusCode: 'A', commonAuthorityStatus: 'A', bipdInsuranceRequired: 'Y', bipdRequiredAmount: '5000', bipdInsuranceOnFile: '5000', safetyRating: 'Satisfactory', totalPowerUnits: 12, totalDrivers: 15 } } });
+  if (u.includes('mobile.fmcsa.dot.gov/qc/services/carriers/222')) return res({ content: { carrier: { legalName: 'RISKY BUS LLC', allowedToOperate: 'N', bipdRequiredAmount: '5000', bipdInsuranceOnFile: '1000', oosDate: '01/05/2026', safetyRating: 'Unsatisfactory' } } });
+  if (u.includes('mobile.fmcsa.dot.gov')) return res({ content: null });
   if (u.endsWith('/v1/customers')) return res({ id: 'cus_1' });
   if (u.includes('/setup_intents/')) return res({ id: 'seti_1', payment_method: 'pm_1' });
   if (u.includes('/payment_methods/pm_1/detach')) return res({ id: 'pm_1' });
@@ -66,6 +70,12 @@ assert.equal(S.insuranceStatus(day(10), day(11)).status, 'expired', 'checks a fu
 const al = S.insuranceAlerts(); assert.deepEqual(al.map((x) => x.name), ['Old Line', 'Hudson Coach']);
 assert.equal(S.checkInsuranceDaily(), 2); assert.equal(S.checkInsuranceDaily(), 0, 'one check per day');
 assert.ok(all("SELECT * FROM followups WHERE kind='insurance'").length >= 1);
+
+// --- FMCSA / SAFER data for an operator ---
+const good = await I.fmcsaLookup('111'); assert.equal(good.allowed, true); assert.equal(good.bipd_required, 5000000); assert.equal(good.bipd_on_file, 5000000); assert.deepEqual(good.problems, []);
+const bad = await I.fmcsaLookup('222'); assert.equal(bad.allowed, false); assert.ok(bad.problems.length === 4, bad.problems.join(' | ')); assert.match(bad.problems.join(' '), /below the required \$5,000,000/);
+await assert.rejects(I.fmcsaLookup('999'), /no carrier/); await assert.rejects(I.fmcsaLookup(''), /USDOT number/);
+assert.ok(I.saferLinks('111').snapshot.includes('safer.fmcsa.dot.gov') && I.saferLinks('111').insurance.includes('li-public.fmcsa.dot.gov'));
 
 // --- quote revisions ---
 const qid = insert('quotes', { number: 'Q-T1', customer_id: cid, status: 'sent', title: 'Camp', items: [{ desc: 'Charter', qty: 1, unit_cents: 200000 }], tax_rate: 0, deposit_pct: 50, subtotal_cents: 200000, total_cents: 200000, valid_until: '2099-06-01', trip: { depart_at: '2099-06-10T07:00', passengers: 40, itinerary: [{ kind: 'pickup', address: 'Shul', time: '2099-06-10T07:00' }, { kind: 'dropoff', address: 'Camp' }] }, token: 'qt1', created_at: now(), updated_at: now() });

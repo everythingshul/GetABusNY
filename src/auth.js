@@ -27,6 +27,7 @@ export function checkPassword(pw, stored) {
 }
 
 const sign = (p) => crypto.createHmac('sha256', SECRET).update(p).digest('base64url');
+export const hmac = sign;
 export function makeSession(uid) {
   const p = Buffer.from(JSON.stringify({ uid, exp: Date.now() + 14 * 86400000 })).toString('base64url');
   return `${p}.${sign(p)}`;
