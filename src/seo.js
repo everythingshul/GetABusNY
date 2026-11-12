@@ -65,11 +65,6 @@ export function inject(html, headTags, title) {
 
 const crumb = (base, items) => jsonLd({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: items.map(([name, p], i) => ({ '@type': 'ListItem', position: i + 1, name, item: base + p })) });
 
-/** Plain-HTML fleet list for crawlers and for visitors without scripts. */
-function fleetNoscript(list) {
-  return `<noscript><section><h2>Our fleet</h2><ul>${list.map((v) => `<li><a href="/bus/${v.id}">${esc(v.name)}</a>: ${esc(v.category)}, seats ${v.capacity}</li>`).join('')}</ul><p><a href="/book">Request a quote</a></p></section></noscript>`;
-}
-
 export function mountSeo(app, PUB) {
   const read = (f) => fs.readFileSync(path.join(PUB, f), 'utf8');
 
@@ -122,11 +117,9 @@ export function mountSeo(app, PUB) {
       if (route === '/') {
         const list = vehicleList(base);
         extra += jsonLd(orgSchema(base)) + jsonLd({ '@context': 'https://schema.org', '@type': 'WebSite', url: base + '/', name: biz() });
-        html = html.replace(/<\/body>/i, `${fleetNoscript(list)}</body>`);
       } else if (route === '/fleet') {
         const list = vehicleList(base);
         extra += crumb(base, [['Home', '/'], ['Fleet', '/fleet']]) + jsonLd({ '@context': 'https://schema.org', '@type': 'ItemList', name: 'Fleet', itemListElement: list.map((v, i) => ({ '@type': 'ListItem', position: i + 1, url: `${base}/bus/${v.id}`, name: v.name })) });
-        html = html.replace(/<\/body>/i, `${fleetNoscript(list)}</body>`);
       } else if (route === '/contact') {
         extra += crumb(base, [['Home', '/'], ['Contact', '/contact']]) + jsonLd(orgSchema(base));
       } else if (route === '/about' || route === '/book') {
@@ -172,7 +165,6 @@ export function mountSeo(app, PUB) {
     const extra = crumb(base, [['Home', '/'], ['Fleet', '/fleet'], [v.name, route]])
       + jsonLd({ '@context': 'https://schema.org', '@type': 'Product', name: v.name, category: v.category, description: v.description, image: img, brand: { '@type': 'Brand', name: biz() }, additionalProperty: [{ '@type': 'PropertyValue', name: 'Seats', value: v.capacity }, ...feats.slice(0, 20).map((f) => ({ '@type': 'PropertyValue', name: 'Amenity', value: String(f) }))] });
     const tags = headFor(req, route, { title, desc }, extra).replace(/(<meta property="og:image" content=")[^"]*/, `$1${esc(img)}`).replace(/(<meta name="twitter:image" content=")[^"]*/, `$1${esc(img)}`);
-    const noscript = `<noscript><h1>${esc(v.name)}</h1><p>${esc(v.category)}, seats ${v.capacity}. ${esc(v.description || '')}</p><ul>${feats.map((f) => `<li>${esc(f)}</li>`).join('')}</ul><p><a href="/book">Request a quote</a></p></noscript>`;
-    res.type('html').send(inject(html, tags, title).replace(/<\/body>/i, noscript + '</body>'));
+    res.type('html').send(inject(html, tags, title));
   });
 }
