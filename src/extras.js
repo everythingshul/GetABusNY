@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { all, one, run, insert, update, now, token, nextNumber, getSetting, parse, log, totals } from './db.js';
+import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, getSetting, parse, log, totals } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner } from './integrations.js';
 import { tripDetail, fmtWhen, fmtDate, localToDate, link, icsKey, naiveMs } from './services.js';
 import { normItinerary, fromLegacy, itineraryText, KINDS, summarize } from './itinerary.js';
@@ -58,7 +58,7 @@ export function createContract({ quote_id, trip_id }) {
   let items = q ? undefined : (() => { const inv = one('SELECT items FROM invoices WHERE trip_id=? ORDER BY id LIMIT 1', trip.id); return parse(inv?.items, []); })();
   const snap = buildSnapshot({ quote: q, trip, items });
   if (!snap.total_cents) throw Object.assign(new Error('Price the quote or trip first, the contract needs a total.'), { status: 400 });
-  const id = insert('contracts', { number: nextNumber('CON'), trip_id: trip?.id || null, quote_id: q?.id || null, customer_id: (q || trip).customer_id, token: token(), status: 'draft', body: snap, body_hash: hash(snap), total_cents: snap.total_cents, created_at: now() });
+  const id = insert('contracts', { number: randomRef('CON', 'contracts', 'number'), seq: nextSeq('contracts'), trip_id: trip?.id || null, quote_id: q?.id || null, customer_id: (q || trip).customer_id, token: token(), status: 'draft', body: snap, body_hash: hash(snap), total_cents: snap.total_cents, created_at: now() });
   return one('SELECT * FROM contracts WHERE id=?', id);
 }
 
@@ -173,9 +173,9 @@ export function icsDoc(name, events) {
 const TRIPQ = `SELECT t.*, c.name customer_name, c.phone customer_phone, v.name vehicle_name, d.name driver_name, vn.name vendor_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id LEFT JOIN vendors vn ON vn.id=t.vendor_id`;
 export const staffCalendar = () => icsDoc(`${getSetting('business_name')} dispatch`, all(`${TRIPQ} WHERE t.depart_at IS NOT NULL AND t.depart_at>=? ORDER BY t.depart_at`, new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).map((t) => vevent(t, { staff: true })));
 export const driverCalendar = (d) => icsDoc(`${d.name} - ${getSetting('business_name')} trips`, all(`${TRIPQ} WHERE t.driver_id=? AND t.status<>'cancelled' AND t.depart_at>=? ORDER BY t.depart_at`, d.id, new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)).map((t) => vevent(t, { staff: false, driverId: d.id })));
-export function customerTripIcs(id, key) {
-  if (key !== icsKey(id)) return null;
-  const t = one(`${TRIPQ} WHERE t.id=?`, id); if (!t) return null;
+export function customerTripIcs(ref, key) {
+  const t = one(`${TRIPQ} WHERE t.ref=?`, ref); if (!t) return null;
+  if (key !== icsKey(t.id)) return null;
   return icsDoc(`${getSetting('business_name')} trip`, [vevent({ ...t, driver_name: null, vendor_name: null }, { staff: false })]);
 }
 

@@ -2,6 +2,7 @@
 // with short-lived signed links. A determined person can still screenshot; this stops direct links, right click saving and sharing the URL.
 import express from 'express';
 import fs from 'node:fs';
+import { markedFile } from './watermark.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { all, one, insert, update, run, now, getSetting, log } from './db.js';
@@ -19,7 +20,7 @@ export function bannerList() {
 
 export function registerPublicBanner(app) {
   app.get('/api/public/banner', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(bannerList()); });
-  app.get('/banner/:id.jpg', (req, res) => {
+  app.get('/banner/:id.jpg', async (req, res) => {
     const id = Number(req.params.id), exp = Number(req.query.e), s = String(req.query.s || '');
     const deny = () => res.status(404).type('text/plain').send('Not found');
     if (!id || !exp || exp < Date.now() / 1000 || s.length !== 22 || !crypto.timingSafeEqual(Buffer.from(sig(id, exp)), Buffer.from(s))) return deny();
@@ -31,7 +32,7 @@ export function registerPublicBanner(app) {
     const f = row && path.join(DIR, path.basename(row.file));
     if (!f || !fs.existsSync(f)) return deny();
     res.setHeader('Content-Type', row.mime); res.setHeader('Cache-Control', 'private, no-store'); res.setHeader('X-Robots-Tag', 'noindex, noimageindex'); res.setHeader('Content-Disposition', 'inline'); res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-    res.send(fs.readFileSync(f));
+    res.send(await markedFile(f));
   });
 }
 

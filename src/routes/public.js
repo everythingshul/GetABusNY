@@ -207,8 +207,8 @@ pub.get('/contract/:token/pdf', (req, res) => {
 
 // ----- add-to-calendar for customers, and cookie-less traffic beacon -----
 pub.get('/trip-ics/:slug', (req, res) => {
-  const m = /^(\d+)-([a-f0-9]+)\.ics$/.exec(req.params.slug);
-  const ics = m && customerTripIcs(Number(m[1]), m[2]);
+  const m = /^([A-Z]+-\d+)-([a-f0-9]+)\.ics$/.exec(req.params.slug);
+  const ics = m && customerTripIcs(m[1], m[2]);
   if (!ics) return fail(res, 404, 'Not found');
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8'); res.setHeader('Content-Disposition', 'attachment; filename="trip.ics"'); res.send(ics);
 });

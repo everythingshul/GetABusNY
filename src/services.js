@@ -142,9 +142,9 @@ export function acceptQuote(id, actor = 'customer') {
   const t = parse(q.trip, {});
   const out = tx(() => {
     update('quotes', id, { status: 'accepted', accepted_at: now(), updated_at: now() });
-    const ref = nextNumber('TRIP', 1001);
+    const ref = randomRef('TRIP', 'trips', 'ref');
     const tripId = insert('trips', {
-      ref, customer_id: q.customer_id, quote_id: id, status: 'booked', title: q.title, purpose: t.purpose, itinerary: normItinerary(t.itinerary), pickup: t.pickup, dropoff: t.dropoff, stops: t.stops,
+      ref, seq: nextSeq('trips'), customer_id: q.customer_id, quote_id: id, status: 'booked', title: q.title, purpose: t.purpose, itinerary: normItinerary(t.itinerary), pickup: t.pickup, dropoff: t.dropoff, stops: t.stops,
       depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers, vehicle_id: t.vehicle_id, price_cents: q.total_cents, notes: t.notes, created_at: now(), updated_at: now(),
     });
     const deposit = Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
@@ -267,7 +267,7 @@ export async function sendTripConfirmation(trip_id) {
     `<p>Hi ${esc(t.customer.name.split(' ')[0])}, here are your trip details.</p>
      <p>${t.purpose ? `<b>Trip:</b> ${esc(t.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Vehicle:</b> ${esc(t.vehicle?.name || 'To be assigned')}</p>
      <p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(t.itinerary.filter((x) => x.kind !== 'start' && x.kind !== 'end'), fmtWhen)}
-     <p>Your driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`, { label: 'Add to my calendar', url: `${BASE_URL()}/api/public/trip-ics/${t.id}-${icsKey(t.id)}.ics` }));
+     <p>Your driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`, { label: 'Add to my calendar', url: `${BASE_URL()}/api/public/trip-ics/${t.ref}-${icsKey(t.id)}.ics` }));
 }
 
 // ---------- vendors / RFQs ----------
@@ -279,8 +279,8 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
   for (const vid of vendor_ids) {
     const v = one('SELECT * FROM vendors WHERE id=?', vid);
     if (!v) continue;
-    const ref = nextNumber('RFQ', 1001);
-    const id = insert('rfqs', { ref, request_id: request_id || null, trip_id: trip_id || null, vendor_id: vid, token: token(), status: 'sent', message, snapshot: snap, sent_at: now(), created_at: now() });
+    const ref = randomRef('RFQ', 'rfqs', 'ref');
+    const id = insert('rfqs', { ref, seq: nextSeq('rfqs'), request_id: request_id || null, trip_id: trip_id || null, vendor_id: vid, token: token(), status: 'sent', message, snapshot: snap, sent_at: now(), created_at: now() });
     const r = one('SELECT * FROM rfqs WHERE id=?', id);
     let res = { ok: false, error: 'Vendor has no email' };
     if (v.email) {

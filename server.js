@@ -14,6 +14,7 @@ import { staffCalendar, driverCalendar } from './src/extras.js';
 import { one, run, getSetting } from './src/db.js';
 import compression from 'compression';
 import { mountSeo } from './src/seo.js';
+import { markedFile, MARKABLE } from './src/watermark.js';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(__dir, 'public');
@@ -47,7 +48,17 @@ app.get('/healthz', (req, res) => { one('SELECT 1 x'); res.json({ ok: true }); }
 app.get('/cal/driver/:token.ics', (req, res) => { const d = one('SELECT * FROM drivers WHERE token=? AND active=1', req.params.token); if (!d) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(driverCalendar(d)); });
 app.get('/cal/:token.ics', (req, res) => { if (req.params.token !== getSetting('cal_token')) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(staffCalendar()); });
 mountSeo(app, PUB);
-app.use('/uploads', express.static(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), { maxAge: '7d' }));
+const UPLOADS = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+// Photos are served with the logo on them. Other file types pass straight through.
+app.get('/uploads/:name', async (req, res, next) => {
+  const name = path.basename(req.params.name), f = path.join(UPLOADS, name);
+  if (!MARKABLE.test(name) || !fs.existsSync(f)) return next();
+  try {
+    const buf = await markedFile(f);
+    res.type(path.extname(name)).setHeader('Cache-Control', 'public, max-age=604800'); res.send(buf);
+  } catch (e) { next(e); }
+});
+app.use('/uploads', express.static(UPLOADS, { maxAge: '7d' }));
 app.use(express.static(PUB, { extensions: ['html'], maxAge: '1h', index: false }));
 
 const page = (f) => (req, res) => res.sendFile(path.join(PUB, f));
