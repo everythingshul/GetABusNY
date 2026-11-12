@@ -2,8 +2,9 @@ import express from 'express';
 import { all, one, run, update, insert, now, getSetting, getJSON, parse, log } from '../db.js';
 import { limit } from '../auth.js';
 import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
-import { createCheckout, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
+import { createCheckout, stripeCustomerFor, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
 import fs from 'node:fs';
+import { applyStripeEvent } from '../stripe-events.js';
 import { placesAutocomplete, placeDetails } from '../integrations.js';
 import { contractView, signContract, createContract, contractPdfPath, customerTripIcs, trackView } from '../extras.js';
 
@@ -46,6 +47,8 @@ const quoteView = (q) => {
     number: q.number, status: expired ? 'expired' : q.status, title: q.title, items: parse(q.items, []), tax_rate: q.tax_rate, subtotal_cents: q.subtotal_cents, tax_cents: q.tax_cents, total_cents: q.total_cents,
     deposit_cents: Math.round((q.total_cents * q.deposit_pct) / 100), deposit_pct: q.deposit_pct, valid_until: q.valid_until, notes: q.notes, trip: parse(q.trip, {}), customer_name: c?.name,
     vehicle: one('SELECT name FROM vehicles WHERE id=?', parse(q.trip, {}).vehicle_id)?.name,
+    revision: q.revision || 1,
+    revisions: all('SELECT revision, changed_at, reason, changes, total_before, total_after FROM quote_revisions WHERE quote_id=? ORDER BY revision DESC LIMIT 5', q.id).map((r) => ({ ...r, changes: parse(r.changes, []).filter((c) => c.label !== 'Note to customer') })),
   };
 };
 pub.get('/quote/:token', (req, res) => {
@@ -98,7 +101,9 @@ const invView = (i) => {
   const bal = invoiceBalance(i);
   const depDue = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? Math.min(bal, i.deposit_cents - i.amount_paid_cents) : 0;
   return {
-    number: i.number, status: i.status, title: i.title, items: parse(i.items, []), tax_rate: i.tax_rate, subtotal_cents: i.subtotal_cents, tax_cents: i.tax_cents, total_cents: i.total_cents,
+    number: i.number, status: i.status, title: i.title, items: parse(i.items, []), tax_rate: i.tax_rate, subtotal_cents: i.subtotal_cents, tax_cents: i.tax_cents, gratuity_cents: i.gratuity_cents || 0, total_cents: i.total_cents,
+    tip_options: getSetting('gratuity_suggest') === '1' && ['sent', 'partial'].includes(i.status) ? getSetting('gratuity_presets').split(',').map((x) => Number(x.trim())).filter((x) => x > 0 && x <= 100) : null,
+    card: one('SELECT card_brand b, card_last4 l FROM customers WHERE id=? AND card_pm IS NOT NULL', i.customer_id) || null,
     paid_cents: i.amount_paid_cents, balance_cents: bal, deposit_due_cents: depDue, due_date: i.due_date, notes: i.notes, customer_name: c?.name, overdue: ['sent', 'partial'].includes(i.status) && i.due_date && i.due_date < today(),
     payments: all("SELECT amount_cents,method,created_at FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id),
     trip: i.trip_id ? one('SELECT pickup,dropoff,depart_at,return_at,passengers FROM trips WHERE id=?', i.trip_id) : null,
@@ -117,6 +122,15 @@ pub.post('/invoice-lookup', limit('lookup', 10, 3600000), (req, res) => {
   if (!row) return fail(res, 404, 'We could not find that invoice. Check the number and the email it was sent to.');
   res.json({ token: row.token });
 });
+pub.post('/invoice/:token/gratuity', limit('tip', 30, 3600000), (req, res) => {
+  const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
+  if (!i || !['sent', 'partial'].includes(i.status)) return fail(res, 404, 'Invoice not found');
+  if (getSetting('gratuity_suggest') !== '1') return fail(res, 400, 'Gratuity is not offered on this invoice.');
+  let g = req.body?.pct != null ? Math.round((i.subtotal_cents * Number(req.body.pct)) / 100) : Math.round(Number(req.body?.amount_cents) || 0);
+  if (!Number.isFinite(g) || g < 0 || g > i.subtotal_cents) return fail(res, 400, 'That gratuity is not valid.');
+  update('invoices', i.id, { gratuity_cents: g }); recalcInvoice(i.id);
+  res.json(invView(one('SELECT * FROM invoices WHERE id=?', i.id)));
+});
 pub.post('/invoice/:token/pay', limit('pay', 20, 3600000), async (req, res) => {
   const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
   if (!i || i.status === 'draft' || i.status === 'void') return fail(res, 404, 'Invoice not found');
@@ -129,49 +143,20 @@ pub.post('/invoice/:token/pay', limit('pay', 20, 3600000), async (req, res) => {
   if (!Number.isFinite(amount) || amount < 100 || amount > v.balance_cents) return fail(res, 400, `Enter an amount between $1.00 and ${money(v.balance_cents)}.`);
   try {
     const c = one('SELECT email FROM customers WHERE id=?', i.customer_id);
-    const s = await createCheckout({ invoice: i, amount_cents: amount, email: c?.email });
+    const saveCard = !!req.body?.save_card;
+    const cust = one('SELECT * FROM customers WHERE id=?', i.customer_id);
+    const stripeCustomer = saveCard && cust ? await stripeCustomerFor(cust) : cust?.stripe_customer_id || undefined;
+    const s = await createCheckout({ invoice: i, amount_cents: amount, email: c?.email, saveCard, stripeCustomer });
     res.json({ url: s.url });
   } catch (e) { fail(res, 502, e.message); }
 });
 
 // ----- Stripe webhook (raw body) -----
-export const stripeWebhook = (req, res) => {
+export const stripeWebhook = async (req, res) => {
   const raw = req.body instanceof Buffer ? req.body.toString('utf8') : '';
   if (!verifyStripe(raw, req.headers['stripe-signature'], env('STRIPE_WEBHOOK_SECRET'))) return res.status(400).send('bad signature');
   let ev; try { ev = JSON.parse(raw); } catch { return res.status(400).send('bad json'); }
-  try {
-    const o = ev.data?.object || {};
-    if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
-      const iid = Number(o.metadata?.invoice_id);
-      if (o.metadata?.mode === 'auth') { /* a card hold: money moves later, see payment_intent.* below */ }
-      else if (o.payment_status === 'paid' && iid && one('SELECT 1 x FROM invoices WHERE id=?', iid)) recordPayment(iid, { amount_cents: o.amount_total, method: 'card', stripe_session: o.id, stripe_pi: o.payment_intent, reference: o.payment_intent }, 'stripe');
-    } else if (ev.type === 'payment_intent.amount_capturable_updated') {
-      const iid = Number(o.metadata?.invoice_id);
-      if (o.metadata?.mode === 'auth' && iid && one('SELECT 1 x FROM invoices WHERE id=?', iid) && o.amount_capturable > 0) recordAuthorization(iid, { amount_cents: o.amount_capturable, stripe_pi: o.id });
-    } else if (ev.type === 'payment_intent.succeeded') {
-      // only card holds that were captured; normal checkout payments are recorded by checkout.session.completed
-      const row = o.metadata?.mode === 'auth' ? one("SELECT * FROM payments WHERE stripe_pi=? AND method='card_auth'", o.id) : null;
-      if (row) markCaptured(row, o.amount_received || row.amount_cents);
-    } else if (ev.type === 'payment_intent.canceled') {
-      const row = one("SELECT * FROM payments WHERE stripe_pi=? AND method='card_auth'", o.id);
-      if (row) markReleased(row, o.cancellation_reason === 'automatic' ? 'expired' : 'released');
-    } else if (ev.type === 'payment_intent.payment_failed') {
-      const iid = Number(o.metadata?.invoice_id);
-      if (iid) { log('stripe', 'payment.failed', 'invoice', iid, o.last_payment_error?.message || 'declined'); notifyOwner('A card payment failed', `Invoice ${o.metadata?.invoice_number || iid}: ${o.last_payment_error?.message || 'the card was declined'}.`, 'payment_failed').catch(() => {}); }
-    } else if (ev.type === 'charge.dispute.created') {
-      const p = one('SELECT * FROM payments WHERE stripe_pi=? LIMIT 1', o.payment_intent);
-      log('stripe', 'payment.dispute', 'invoice', p?.invoice_id ?? null, `${money(o.amount)} ${o.reason || ''}`);
-      notifyOwner('Chargeback opened', `A customer disputed ${money(o.amount)} (${o.reason || 'no reason given'}). Reply with evidence in your Stripe dashboard before ${o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000).toDateString() : 'the deadline'}. Signed agreement and trip records are in the admin.`, 'chargeback').catch(() => {});
-    } else if (ev.type === 'charge.refunded') {
-      const p = one("SELECT * FROM payments WHERE stripe_pi=? AND amount_cents>0 AND status='succeeded'", o.payment_intent);
-      for (const rf of o.refunds?.data || []) {
-        if (p && !one('SELECT 1 x FROM payments WHERE stripe_session=?', rf.id)) {
-          insert('payments', { invoice_id: p.invoice_id, amount_cents: -rf.amount, method: 'refund', reference: rf.id, stripe_session: rf.id, stripe_pi: o.payment_intent, status: 'succeeded', created_at: now() });
-          recalcInvoice(p.invoice_id); log('stripe', 'payment.refunded', 'invoice', p.invoice_id, money(rf.amount));
-        }
-      }
-    }
-  } catch (e) { console.error('webhook error', e); return res.status(500).send('error'); }
+  try { await applyStripeEvent(ev); } catch (e) { console.error('webhook error', e); return res.status(500).send('error'); }
   res.json({ received: true });
 };
 

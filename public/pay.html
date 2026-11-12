@@ -4,6 +4,7 @@
 .opt-pay{display:grid;gap:10px;margin:14px 0}.opt-pay label{display:flex;gap:12px;align-items:center;border:1.5px solid var(--line);border-radius:10px;padding:13px 14px;cursor:pointer;margin:0;font-weight:500}.opt-pay input{width:auto;min-height:0}.opt-pay label:has(input:checked){border-color:var(--blue);background:var(--blue-l)}.opt-pay b{margin-left:auto}</style></head><body><div id="hdr"></div><main id="main">
 <section style="padding-top:40px"><div class="wrap narrow">
 
+<div id="savedmsg" class="alert ok" hidden><b>Card saved.</b> Thank you. Nothing was charged.</div>
 <div id="lookup" hidden><div class="eyebrow">Invoice payment</div><h1 style="font-size:clamp(2rem,4.5vw,2.8rem)">Pay your invoice</h1>
 <p class="muted">Use the secure link from your invoice email, or find your invoice below.</p>
 <form class="card" id="lf"><div class="row"><div class="field"><label for="ln">Invoice number</label><input id="ln" placeholder="INV-1001" required></div><div class="field"><label for="le">Email on the invoice</label><input type="email" id="le" required></div></div><div id="lerr" class="alert err" hidden></div><button class="btn btn-blue">Find my invoice</button></form>
@@ -18,8 +19,9 @@
 <div id="pays" style="margin-top:14px"></div>
 <div id="notes" class="muted" style="margin-top:14px;font-size:.93rem"></div></div>
 
+<div class="card noprint" id="tipbox" hidden style="margin-top:20px"><h3>Add a gratuity for your driver</h3><p class="muted" style="margin:0 0 10px;font-size:.93rem">Optional. It is added to this invoice and paid with it.</p><div class="seg" id="tips"></div></div>
 <div class="card noprint" id="paybox" style="margin-top:20px"><h3>Pay securely by card</h3>
-<form id="pf"><div class="opt-pay" id="opts"></div><div id="cust" class="field" hidden><label for="ca">Amount (USD)</label><input id="ca" type="number" step="0.01" min="1" placeholder="0.00"></div><div id="perr" class="alert err" hidden></div>
+<form id="pf"><div class="opt-pay" id="opts"></div><div id="cust" class="field" hidden><label for="ca">Amount (USD)</label><input id="ca" type="number" step="0.01" min="1" placeholder="0.00"></div><label id="svrow" style="display:none;font-weight:400;margin:6px 0 12px"><input type="checkbox" id="svc" style="width:auto;min-height:0;display:inline;margin-right:8px">Save this card for the remaining balance and extras I agreed to, such as overtime. I authorize charging it. I can ask to have it removed.</label><div id="cardnote" class="hint" style="margin-bottom:10px" hidden></div><div id="perr" class="alert err" hidden></div>
 <button class="btn btn-lime" id="pb" style="width:100%;font-size:1.1rem">Pay now</button><p class="hint center" style="margin-top:10px">Payments are processed by Stripe. We never see or store your card number.</p></form></div>
 <p class="center noprint" style="margin-top:16px"><button class="btn btn-line btn-sm" onclick="print()">Print / save PDF</button></p>
 <p class="muted center noprint" id="contact" style="font-size:.9rem"></p>
@@ -31,7 +33,7 @@
 import {boot,api,$,esc,money,fmtWhen} from '/js/site.js';
 await boot('/pay');
 const tok=location.pathname.split('/')[2];
-if(!tok){$('#lookup').hidden=false;
+if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('saved'))$('#savedmsg').hidden=false;
  $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').hidden=true;try{const r=await api('/invoice-lookup',{body:{number:$('#ln').value,email:$('#le').value}});location.href='/pay/'+r.token;}catch(x){$('#lerr').textContent=x.message;$('#lerr').hidden=false;}};
 }else{
  try{const i=await api('/invoice/'+tok);$('#view').hidden=false;
@@ -42,9 +44,18 @@ if(!tok){$('#lookup').hidden=false;
   $('#due').textContent=i.due_date?'Due '+fmtWhen(i.due_date):'';
   if(i.trip)$('#trip').innerHTML=`<b>Trip:</b> ${esc(i.trip.pickup||'')} → ${esc(i.trip.dropoff||'')} · ${fmtWhen(i.trip.depart_at)}${i.trip.passengers?` · ${i.trip.passengers} passengers`:''}`;
   $('#items').innerHTML=i.items.map(x=>`<tr><td>${esc(x.desc)}</td><td class="r">${x.qty}</td><td class="r">${money(x.unit_cents)}</td><td class="r">${money(x.qty*x.unit_cents)}</td></tr>`).join('');
-  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(i.subtotal_cents)}</td></tr>${i.tax_cents?`<tr><td colspan="3" class="r">Tax (${i.tax_rate}%)</td><td class="r">${money(i.tax_cents)}</td></tr>`:''}<tr><td colspan="3" class="r">Total</td><td class="r">${money(i.total_cents)}</td></tr>${i.paid_cents?`<tr><td colspan="3" class="r">Paid</td><td class="r">−${money(i.paid_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Balance due</td><td class="r">${money(i.balance_cents)}</td></tr>`;
+  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(i.subtotal_cents)}</td></tr>${i.tax_cents?`<tr><td colspan="3" class="r">Tax (${i.tax_rate}%)</td><td class="r">${money(i.tax_cents)}</td></tr>`:''}${i.gratuity_cents?`<tr><td colspan="3" class="r">Gratuity for your driver</td><td class="r">${money(i.gratuity_cents)}</td></tr>`:''}<tr><td colspan="3" class="r">Total</td><td class="r">${money(i.total_cents)}</td></tr>${i.paid_cents?`<tr><td colspan="3" class="r">Paid</td><td class="r">−${money(i.paid_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Balance due</td><td class="r">${money(i.balance_cents)}</td></tr>`;
   if(i.payments.length)$('#pays').innerHTML='<b style="font-size:.9rem">Payments received</b>'+i.payments.map(p=>`<div class="muted" style="font-size:.9rem">${fmtWhen(p.created_at.slice(0,10))} · ${esc(p.method)} · ${money(p.amount_cents)}</div>`).join('');
   $('#notes').textContent=i.notes||'';
+  if(i.tip_options&&i.tip_options.length&&i.subtotal_cents>0&&!paid&&i.status!=='void'){
+   $('#tipbox').hidden=false;const cur=i.gratuity_cents;const pcts=[...i.tip_options];
+   const amt=p=>Math.round(i.subtotal_cents*p/100);
+   $('#tips').innerHTML=`<label><input type="radio" name="tip" value="0" ${!cur?'checked':''}><span>No tip</span></label>`+pcts.map(p=>`<label><input type="radio" name="tip" value="${p}" ${cur===amt(p)?'checked':''}><span>${p}%<br><small>${money(amt(p))}</small></span></label>`).join('')+`<label><input type="radio" name="tip" value="other" ${cur&&!pcts.some(p=>cur===amt(p))?'checked':''}><span>Other${cur&&!pcts.some(p=>cur===amt(p))?`<br><small>${money(cur)}</small>`:''}</span></label>`;
+   $('#tips').onchange=async e=>{let body;const v=e.target.value;if(v==='other'){const d=prompt('Gratuity amount in dollars');if(d===null){location.reload();return;}body={amount_cents:Math.round(parseFloat(d||0)*100)};}else body=v==='0'?{amount_cents:0}:{pct:+v};
+    try{await api(`/invoice/${tok}/gratuity`,{body});location.reload();}catch(x){alert(x.message);location.reload();}};
+  }
+  if(i.card){$('#cardnote').hidden=false;$('#cardnote').textContent=`A ${i.card.b} card ending ${i.card.l} is saved on your account.`;}
+  else if(i.payments_enabled)$('#svrow').style.display='block';
   $('#contact').innerHTML=`Questions about this invoice? ${esc(i.business.phone)} · ${esc(i.business.email)}`;
   if(paid||i.status==='void'||!i.payments_enabled){ if(paid||i.status==='void')$('#paybox').hidden=true; else {$('#pf').innerHTML='<div class="alert info">Online card payment is not available right now. Please call us to pay.</div>';} }
   else{
@@ -52,7 +63,7 @@ if(!tok){$('#lookup').hidden=false;
    opts.push(['full','Pay full balance',i.balance_cents]);opts.push(['custom','Pay a different amount',null]);
    $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}</b></label>`).join('');
    const sync=()=>{const m=document.querySelector('input[name=m]:checked').value;$('#cust').hidden=m!=='custom';};document.addEventListener('change',sync);
-   $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const m=document.querySelector('input[name=m]:checked').value;const body={mode:m};if(m==='custom')body.amount_cents=Math.round(parseFloat($('#ca').value||0)*100);
+   $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const m=document.querySelector('input[name=m]:checked').value;const body={mode:m,save_card:!!($('#svc')&&$('#svc').checked&&$('#svrow').style.display!=='none')};if(m==='custom')body.amount_cents=Math.round(parseFloat($('#ca').value||0)*100);
     const btn=$('#pb');btn.disabled=true;btn.textContent='Redirecting to secure checkout…';
     try{const r=await api(`/invoice/${tok}/pay`,{body});location.href=r.url;}catch(x){$('#perr').textContent=x.message;$('#perr').hidden=false;btn.disabled=false;btn.textContent='Pay now';}};
   }

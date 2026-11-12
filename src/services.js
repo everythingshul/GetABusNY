@@ -1,7 +1,8 @@
 // Business logic shared by public, admin, driver and bot routes.
-import { db, all, one, run, insert, update, tx, now, token, nextNumber, totals, parse, getSetting, log } from './db.js';
+import { db, all, one, run, insert, update, tx, now, token, nextNumber, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
 import { normItinerary, fromLegacy, summarize, itineraryText, KINDS, mapsDirUrl } from './itinerary.js';
+import { quietUntil } from './zmanim.js';
 
 // ---------- time helpers (trip times are "naive" local times in the business timezone) ----------
 const tz = () => getSetting('timezone') || 'America/New_York';
@@ -18,10 +19,16 @@ export function localToDate(naive) {
 }
 export const naiveMs = (naive) => (naive ? Date.parse((naive.length === 16 ? naive + ':00' : naive) + 'Z') : NaN);
 export function nowLocalMs() { const d = new Date(); return d.getTime() + tzOffsetMs(d, tz()); }
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** June 1, 2099 (from YYYY-MM-DD or any ISO-ish string). */
+export const fmtDate = (s) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(s || '')); return m ? `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}` : ''; };
+/** June 1, 2099, 7:00 AM (naive local times, or date only). */
 export const fmtWhen = (naive) => {
   if (!naive) return 'TBD';
-  const d = new Date(naive.length === 10 ? naive + 'T00:00:00Z' : naive + ':00Z');
-  return d.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(naive.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) });
+  const t = /T(\d\d):(\d\d)/.exec(naive);
+  if (!t) return fmtDate(naive) || 'TBD';
+  const h = +t[1];
+  return `${fmtDate(naive)}, ${h % 12 || 12}:${t[2]} ${h < 12 ? 'AM' : 'PM'}`;
 };
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 const addHours = (d, n) => new Date(d.getTime() + n * 3600000);
@@ -110,11 +117,14 @@ export async function sendQuote(id, actor) {
   if (!c.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
   if (!q.total_cents) throw Object.assign(new Error('Quote total is $0, add pricing first.'), { status: 400 });
   const t = parse(q.trip, {});
-  const html = emailShell(`Your quote ${q.number}`,
-    `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for <b>${esc(q.title || 'your trip')}</b>.</p>
+  const unsent = all('SELECT * FROM quote_revisions WHERE quote_id=? AND sent_at IS NULL ORDER BY revision', id);
+  const changed = unsent.flatMap((r) => changeLines(parse(r.changes, [])));
+  const html = emailShell(unsent.length ? `Updated quote ${q.number}` : `Your quote ${q.number}`,
+    `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${unsent.length ? 'We updated your quote for' : `Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for`} <b>${esc(q.title || 'your trip')}</b>.</p>${changed.length ? `<p><b>What changed</b></p><ul>${changed.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
      <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
-     <p>The quote is good until ${q.valid_until || 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
-  const r = await sendEmail(c.email, `Quote ${q.number} from ${getSetting('business_name')}`, html);
+     <p>The quote is good until ${q.valid_until ? fmtDate(q.valid_until) : 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
+  const r = await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
+  if (unsent.length) run('UPDATE quote_revisions SET sent_at=? WHERE quote_id=? AND sent_at IS NULL', now(), id);
   update('quotes', id, { status: 'sent', sent_at: now(), updated_at: now() });
   textCustomer(q.customer_id, `${getSetting('business_name')}: your quote ${q.number} is ready: ${link.quote(q)}`, 'quote_sent', { force: true }).catch(() => {});
   if (q.request_id) update('requests', q.request_id, { status: 'quoted', updated_at: now() });
@@ -160,11 +170,13 @@ export function acceptQuote(id, actor = 'customer') {
 export function recalcInvoice(id) {
   const i = one('SELECT * FROM invoices WHERE id=?', id);
   const t = totals(parse(i.items, []), i.tax_rate);
+  t.total_cents += Number(i.gratuity_cents) || 0; // gratuity is not taxed and goes on top
   const paid = one("SELECT COALESCE(SUM(amount_cents),0) s FROM payments WHERE invoice_id=? AND status='succeeded'", id).s;
   let status = i.status;
   if (status !== 'void' && status !== 'draft') status = paid >= t.total_cents && t.total_cents > 0 ? 'paid' : paid > 0 ? 'partial' : 'sent';
   update('invoices', id, { ...t, amount_paid_cents: paid, status, paid_at: status === 'paid' ? i.paid_at || now() : null, updated_at: now() });
 }
+export const biz = () => getSetting('business_name');
 export const invoiceBalance = (i) => Math.max(0, i.total_cents - i.amount_paid_cents);
 
 export async function sendInvoice(id, actor) {
@@ -178,7 +190,7 @@ export async function sendInvoice(id, actor) {
   const due = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
   const r = await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
-     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date || 'on receipt'}</p>`, { label: 'Pay securely online', url: link.pay(i) }));
+     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>`, { label: 'Pay securely online', url: link.pay(i) }));
   if (!one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
     const due0 = new Date(i.due_date + 'T14:00:00Z');
     nums(getSetting('fu_invoice_before_days')).forEach((n) => scheduleAuto('invoice', id, 'invoice_reminder', addDays(due0, -n)));
@@ -329,7 +341,7 @@ function composeFollowup(f) {
     if (!i || !['sent', 'partial'].includes(i.status)) return null;
     const c = customerOf(i.customer_id);
     const late = i.due_date && i.due_date < new Date().toISOString().slice(0, 10);
-    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${i.due_date}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${i.due_date}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
+    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${fmtDate(i.due_date)}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${fmtDate(i.due_date)}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
   }
   if (f.entity_type === 'trip') {
     const t = one('SELECT * FROM trips WHERE id=?', f.entity_id);
@@ -369,6 +381,7 @@ export async function runFollowups() {
       } catch (e) { update('followups', f.id, { status: 'failed', done_at: now(), result: e.message }); }
     }
     await flushSMS();
+    checkInsuranceDaily();
     await syncInboundSms();
     // mark overdue invoices
     // (status stays sent/partial; "overdue" is derived from due_date in queries)
@@ -398,7 +411,8 @@ export function analytics(months = 12) {
   const today = new Date().toISOString().slice(0, 10);
   const ar = one("SELECT COALESCE(SUM(total_cents-amount_paid_cents),0) open, COALESCE(SUM(CASE WHEN due_date<? THEN total_cents-amount_paid_cents ELSE 0 END),0) overdue FROM invoices WHERE status IN ('sent','partial')", today);
   const vendorResp = one("SELECT COUNT(*) sent, SUM(CASE WHEN status IN ('responded','accepted','closed') THEN 1 ELSE 0 END) replied FROM rfqs");
-  return { revenue, leads, bySource, byRef, funnel, quoteStats, margin, topVehicles, topVendors, topCustomers, ar, vendorResp, win_rate: funnel.quoted ? funnel.accepted / funnel.quoted : 0 };
+  const gratuity = { total: one("SELECT COALESCE(SUM(gratuity_cents),0) s FROM invoices WHERE status='paid'").s, byDriver: all("SELECT COALESCE(d.name,'No driver assigned') k, SUM(i.gratuity_cents) c FROM invoices i LEFT JOIN trips t ON t.id=i.trip_id LEFT JOIN drivers d ON d.id=t.driver_id WHERE i.status='paid' AND i.gratuity_cents>0 GROUP BY k ORDER BY c DESC LIMIT 12") };
+  return { gratuity, revenue, leads, bySource, byRef, funnel, quoteStats, margin, topVehicles, topVendors, topCustomers, ar, vendorResp, win_rate: funnel.quoted ? funnel.accepted / funnel.quoted : 0 };
 }
 
 export function dashboard() {
@@ -413,6 +427,7 @@ export function dashboard() {
     revenue_mtd: one("SELECT COALESCE(SUM(amount_cents),0) v FROM payments WHERE status='succeeded' AND substr(created_at,1,7)=?", ym).v,
     trips_week: all("SELECT t.*, c.name customer_name, v.name vehicle_name, d.name driver_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id WHERE t.status NOT IN ('cancelled','completed') AND substr(t.depart_at,1,10)>=? AND substr(t.depart_at,1,10)<=? ORDER BY t.depart_at", today, weekEnd),
     unassigned: one("SELECT COUNT(*) c FROM trips WHERE status IN ('booked','confirmed') AND (driver_id IS NULL OR vehicle_id IS NULL) AND substr(depart_at,1,10)>=?", today).c,
+    insurance: insuranceAlerts(),
     followups_due: all("SELECT * FROM followups WHERE status='pending' AND auto=0 AND due_at<=? ORDER BY due_at LIMIT 20", addHours(new Date(), 12).toISOString()),
     rfqs_waiting: one("SELECT COUNT(*) c FROM rfqs WHERE status='responded'").c,
     unread_messages: one("SELECT COUNT(*) c FROM messages WHERE status='new'").c,
@@ -431,12 +446,14 @@ export function toE164(p) {
 const DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 function weekMin(str) { const m = /^(\w{3})\w*\s+(\d{1,2}):(\d\d)/.exec(String(str || '').trim()); return m ? (DOW[m[1].toLowerCase()] ?? 0) * 1440 + Number(m[2]) * 60 + Number(m[3]) : null; }
 export function inQuietWindow(localMs = nowLocalMs()) {
+  if (getSetting('sms_quiet_mode') !== 'weekly') return !!quietUntil();
   const a = weekMin(getSetting('sms_quiet_start')), b = weekMin(getSetting('sms_quiet_end'));
   if (a == null || b == null) return false;
   const d = new Date(localMs); const w = d.getUTCDay() * 1440 + d.getUTCHours() * 60 + d.getUTCMinutes();
   return a <= b ? w >= a && w < b : w >= a || w < b;
 }
 function quietEndsAt() { // first real moment after the quiet window ends
+  if (getSetting('sms_quiet_mode') !== 'weekly') { const u = quietUntil(); if (u) return new Date(u.getTime() + 2 * 60000); }
   let t = Date.now();
   for (let i = 0; i < 400 && inQuietWindow(nowLocalMs() + (t - Date.now())); i++) t += 15 * 60000;
   return new Date(t);
@@ -533,3 +550,90 @@ export async function sendReviewRequest(trip_id) {
 // ---------- signed calendar links ----------
 import crypto from 'node:crypto';
 export const icsKey = (id) => crypto.createHmac('sha256', getSetting('cal_token')).update(String(id)).digest('hex').slice(0, 16);
+
+// ---------- operator insurance tracking (plain dates, no guessing) ----------
+export function insuranceStatus(expires, on = new Date().toISOString().slice(0, 10)) {
+  if (!expires) return { status: 'none', days: null };
+  const days = Math.round((Date.parse(expires + 'T00:00:00Z') - Date.parse(on + 'T00:00:00Z')) / 86400000);
+  return { status: days < 0 ? 'expired' : days <= 30 ? 'expiring' : 'ok', days };
+}
+export function insuranceAlerts() {
+  return all("SELECT id,name,email,phone,insurance_carrier,insurance_expires FROM vendors WHERE active=1 AND insurance_expires IS NOT NULL AND insurance_expires<>''")
+    .map((v) => ({ ...v, ...insuranceStatus(v.insurance_expires) })).filter((v) => v.status === 'expired' || v.status === 'expiring').sort((a, b) => a.days - b.days);
+}
+/** Once a day: tell the admins about insurance that is expired or about to be, at 30, 14, 7 and 3 days and when it lapses. */
+export function checkInsuranceDaily() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (getSetting('ins_last_check') === today) return 0;
+  setSetting('ins_last_check', today);
+  const done = new Set(String(getSetting('ins_alerted') || '').split(',').filter(Boolean));
+  let n = 0;
+  for (const v of insuranceAlerts()) {
+    const step = v.status === 'expired' ? 'expired' : [3, 7, 14, 30].find((t) => v.days <= t);
+    const key = `${v.id}:${v.insurance_expires}:${step}`;
+    if (done.has(key)) continue;
+    done.add(key); n++;
+    const when = v.status === 'expired' ? `expired ${-v.days} day${-v.days === 1 ? '' : 's'} ago` : v.days === 0 ? 'expires today' : `expires in ${v.days} day${v.days === 1 ? '' : 's'}`;
+    notifyOwner(`Insurance ${when}: ${v.name}`, `${v.name} (${v.insurance_carrier || 'carrier not entered'}) insurance ${when} (${fmtDate(v.insurance_expires)}). Ask them for a new certificate of insurance before booking them.`, 'insurance').catch(() => {});
+    if (step === 30 || step === 'expired') scheduleTask('vendor', v.id, 'insurance', `Get a new insurance certificate from ${v.name}`, new Date(), `Insurance ${when}.`);
+  }
+  setSetting('ins_alerted', [...done].slice(-400).join(','));
+  return n;
+}
+
+// ---------- quote revisions: a record of exactly what changed ----------
+const stopKey = (x) => `${x.kind}|${(x.address || '').toLowerCase()}`;
+const stopLabel = (x) => `${KINDS[x.kind] || x.kind}: ${x.address}`;
+export function diffQuote(a, b) {
+  const out = [];
+  const money2 = (c) => money(c);
+  if (a.total_cents !== b.total_cents) out.push({ label: 'Total', from: money2(a.total_cents), to: money2(b.total_cents) });
+  // price lines
+  const la = parse(a.items, []), lb = parse(b.items, []);
+  const ka = new Map(la.map((i) => [i.desc, i])), kb = new Map(lb.map((i) => [i.desc, i]));
+  for (const [d, i] of kb) {
+    const o = ka.get(d);
+    if (!o) out.push({ label: `Line added: ${d}`, from: '', to: money2(Math.round(i.qty * i.unit_cents)) });
+    else if (o.qty !== i.qty || o.unit_cents !== i.unit_cents) out.push({ label: `Line changed: ${d}`, from: `${o.qty} x ${money2(o.unit_cents)}`, to: `${i.qty} x ${money2(i.unit_cents)}` });
+  }
+  for (const [d, i] of ka) if (!kb.has(d)) out.push({ label: `Line removed: ${d}`, from: money2(Math.round(i.qty * i.unit_cents)), to: '' });
+  if (Number(a.tax_rate) !== Number(b.tax_rate)) out.push({ label: 'Tax rate', from: `${a.tax_rate}%`, to: `${b.tax_rate}%` });
+  if (Number(a.deposit_pct) !== Number(b.deposit_pct)) out.push({ label: 'Deposit', from: `${a.deposit_pct}%`, to: `${b.deposit_pct}%` });
+  if ((a.valid_until || '') !== (b.valid_until || '')) out.push({ label: 'Valid until', from: fmtDate(a.valid_until), to: fmtDate(b.valid_until) });
+  if ((a.notes || '') !== (b.notes || '')) out.push({ label: 'Note to customer', from: a.notes || '', to: b.notes || '' });
+  // trip
+  const ta = parse(a.trip, {}), tb = parse(b.trip, {});
+  for (const [k, l] of [['depart_at', 'Departure'], ['return_at', 'Return'], ['passengers', 'Passengers'], ['purpose', 'Trip purpose']]) {
+    if ((ta[k] || '') !== (tb[k] || '')) out.push({ label: l, from: k.endsWith('_at') ? fmtWhen(ta[k]) : String(ta[k] ?? ''), to: k.endsWith('_at') ? fmtWhen(tb[k]) : String(tb[k] ?? '') });
+  }
+  if ((ta.vehicle_id || null) !== (tb.vehicle_id || null)) {
+    const nm = (id) => (id ? one('SELECT name FROM vehicles WHERE id=?', id)?.name || `#${id}` : 'Not chosen');
+    out.push({ label: 'Vehicle', from: nm(ta.vehicle_id), to: nm(tb.vehicle_id) });
+  }
+  const ia = normItinerary(ta.itinerary), ib = normItinerary(tb.itinerary);
+  const ma = new Map(ia.map((x) => [stopKey(x), x])), mb = new Map(ib.map((x) => [stopKey(x), x]));
+  for (const [k, x] of mb) {
+    const o = ma.get(k);
+    if (!o) out.push({ label: `Stop added`, from: '', to: stopLabel(x) });
+    else {
+      if ((o.time || '') !== (x.time || '')) out.push({ label: `Time at ${x.address}`, from: o.time ? fmtWhen(o.time) : 'none', to: x.time ? fmtWhen(x.time) : 'none' });
+      if ((o.wait_min || 0) !== (x.wait_min || 0)) out.push({ label: `Wait at ${x.address}`, from: `${o.wait_min || 0} min`, to: `${x.wait_min || 0} min` });
+    }
+  }
+  for (const [k, x] of ma) if (!mb.has(k)) out.push({ label: 'Stop removed', from: stopLabel(x), to: '' });
+  const oa = ia.map(stopKey).filter((k) => mb.has(k)), ob = ib.map(stopKey).filter((k) => ma.has(k));
+  if (oa.join('\n') !== ob.join('\n')) out.push({ label: 'Stop order changed', from: '', to: '' });
+  return out;
+}
+/** Call after a quote that the customer may have seen is edited. */
+export function recordQuoteRevision(before, after, { by, reason } = {}) {
+  const changes = diffQuote(before, after);
+  if (!changes.length) return null;
+  const rev = (before.revision || 1) + 1;
+  const id = insert('quote_revisions', { quote_id: before.id, revision: rev, changed_at: now(), changed_by: by || 'system', reason: reason || null, changes, total_before: before.total_cents, total_after: after.total_cents, snapshot: before });
+  update('quotes', before.id, { revision: rev });
+  log(by, 'quote.revised', 'quote', before.id, `rev ${rev}: ${changes.length} change${changes.length === 1 ? '' : 's'}`);
+  return id;
+}
+export const quoteRevisions = (quote_id) => all('SELECT * FROM quote_revisions WHERE quote_id=? ORDER BY revision DESC', quote_id).map((r) => ({ ...r, changes: parse(r.changes, []), snapshot: parse(r.snapshot, {}) }));
+const changeLines = (changes) => changes.filter((c) => c.from || c.to).map((c) => `${c.label}${c.from && c.to ? `: ${c.from} to ${c.to}` : c.to ? `: ${c.to}` : c.from ? `: ${c.from}` : ''}`);

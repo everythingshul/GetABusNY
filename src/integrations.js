@@ -96,6 +96,7 @@ export const NOTIFY_EVENTS = [
   { key: 'hold', label: 'Card hold placed', email: true, sms: false },
   { key: 'payment_failed', label: 'Card payment failed', email: true, sms: false },
   { key: 'chargeback', label: 'Chargeback opened', email: true, sms: false },
+  { key: 'insurance', label: 'Operator insurance expiring or expired', email: true, sms: false },
   { key: 'vendor_reply', label: 'Vendor replied to a price request', email: true, sms: false },
   { key: 'message', label: 'Contact form or quote question', email: true, sms: false },
   { key: 'chat', label: 'Website chat needs a person', email: true, sms: false },
@@ -141,20 +142,45 @@ async function stripe(path, body) {
   return j;
 }
 
-export async function createCheckout({ invoice, amount_cents, email, auth = false }) {
+export async function createCheckout({ invoice, amount_cents, email, auth = false, saveCard = false, stripeCustomer }) {
   const base = BASE_URL();
   return stripe('checkout/sessions', {
     mode: 'payment',
-    customer_email: email || undefined,
+    ...(stripeCustomer ? { customer: stripeCustomer } : { customer_email: email || undefined }),
     success_url: `${base}/pay/${invoice.token}?paid=1`,
     cancel_url: `${base}/pay/${invoice.token}`,
     client_reference_id: String(invoice.id),
-    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) },
-    payment_intent_data: { ...(auth ? { capture_method: 'manual' } : {}), metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) }, description: `${getSetting('business_name')} invoice ${invoice.number}${auth ? ' (card hold)' : ''}` },
+    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, ...(auth ? { mode: 'auth' } : {}), ...(saveCard ? { save_card: '1' } : {}) },
+    payment_intent_data: { ...(auth ? { capture_method: 'manual' } : {}), ...(saveCard ? { setup_future_usage: 'off_session' } : {}), metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) }, description: `${getSetting('business_name')} invoice ${invoice.number}${auth ? ' (card hold)' : ''}` },
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount_cents, product_data: { name: auth ? `Card hold for invoice ${invoice.number}` : `Invoice ${invoice.number}`, description: auth ? 'Your card is authorized, not charged, until the trip is confirmed or completed.' : (invoice.title || 'Charter bus service') } } } },
   });
 }
 
+export const CARD_CONSENT = () => `I authorize ${getSetting('business_name')} to charge this card for the balance of my trip and for extras I agreed to, such as overtime and gratuity.`;
+export async function stripeCustomerFor({ id, name, email, phone, stripe_customer_id }) {
+  if (stripe_customer_id) return stripe_customer_id;
+  const c = await stripe('customers', { name: name || undefined, email: email || undefined, phone: phone || undefined, metadata: { customer_id: id } });
+  run('UPDATE customers SET stripe_customer_id=? WHERE id=?', c.id, id);
+  return c.id;
+}
+/** Stripe-hosted page that saves a card without charging it. */
+export async function createSetupCheckout({ customer_id, stripeCustomer }) {
+  const base = BASE_URL();
+  return stripe('checkout/sessions', { mode: 'setup', customer: stripeCustomer, currency: 'usd', payment_method_types: { 0: 'card' }, success_url: `${base}/pay?saved=1`, cancel_url: `${base}/pay`, metadata: { customer_id, save_card: '1' }, custom_text: { submit: { message: CARD_CONSENT() } } });
+}
+export const getSetupIntent = (id) => stripe(`setup_intents/${encodeURIComponent(id)}`);
+export const getPaymentIntent = (id) => stripe(`payment_intents/${encodeURIComponent(id)}`);
+export const getPaymentMethod = (id) => stripe(`payment_methods/${encodeURIComponent(id)}`);
+export const detachPaymentMethod = (id) => stripe(`payment_methods/${encodeURIComponent(id)}/detach`, {});
+/** Charge a saved card with the customer not present. Throws a plain message if the bank wants the customer to confirm. */
+export async function chargeSaved({ customer, pm, amount_cents, invoice }) {
+  try {
+    return await stripe('payment_intents', { amount: amount_cents, currency: 'usd', customer, payment_method: pm, off_session: 'true', confirm: 'true', description: `${getSetting('business_name')} invoice ${invoice.number}`, metadata: { invoice_id: invoice.id, invoice_number: invoice.number, mode: 'saved_card' } });
+  } catch (e) {
+    if (/authentication|requires_action|authenticate/i.test(e.message)) throw new Error('The bank wants the customer to confirm this charge. Send them a payment link instead.');
+    throw e;
+  }
+}
 export async function capturePayment(payment_intent, amount_cents) { return stripe(`payment_intents/${encodeURIComponent(payment_intent)}/capture`, amount_cents ? { amount_to_capture: amount_cents } : {}); }
 export async function cancelPayment(payment_intent) { return stripe(`payment_intents/${encodeURIComponent(payment_intent)}/cancel`, {}); }
 export async function refundPayment(payment_intent, amount_cents) {

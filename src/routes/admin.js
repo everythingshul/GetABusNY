@@ -8,6 +8,8 @@ import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '.
 import * as S from '../services.js';
 import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
+import { chargeInvoice, removeCard, cardOf } from '../cards.js';
+import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
@@ -71,11 +73,11 @@ const RES = {
   customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin'), sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
   vehicles: { fields: J('name', 'category', 'capacity', 'description', 'features', 'image', 'hourly_cents', 'min_hours', 'active', 'sort'), sel: 'SELECT t.* FROM vehicles t', search: ['t.name', 't.category'], order: 't.sort, t.name', del: () => true },
   drivers: { fields: J('name', 'phone', 'email', 'vendor_id', 'active', 'notes'), sel: 'SELECT t.*, v.name vendor_name FROM drivers t LEFT JOIN vendors v ON v.id=t.vendor_id', search: ['t.name', 't.phone'], order: 't.name COLLATE NOCASE', del: () => true, create: (o) => ({ ...o, token: token(24) }), extra: (r) => ({ ...r, portal_url: `${process.env.BASE_URL || ''}/d/${r.token}` }) },
-  vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
+  vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active', 'insurance_carrier', 'insurance_policy', 'insurance_expires', 'dot_number', 'mc_number'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
   requests: { fields: J('name', 'email', 'phone', 'status', 'notes', 'referred_by', 'details'), sel: 'SELECT t.*, c.name customer_name FROM requests t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.name', 't.email', 't.ref', 't.phone'], order: 't.id DESC', del: () => true },
   quotes: { fields: J('customer_id', 'title', 'items', 'tax_rate', 'deposit_pct', 'valid_until', 'notes', 'trip', 'status'), sel: 'SELECT t.*, c.name customer_name FROM quotes t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM quotes WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: nextNumber('Q'), token: token(), status: 'draft', ...o }), before: (o) => { if (o.trip && typeof o.trip === 'object') { o.trip.itinerary = normItinerary(o.trip.itinerary); const f = summarize(o.trip.itinerary); for (const k of ['pickup', 'dropoff', 'stops']) o.trip[k] = f[k]; for (const k of ['depart_at', 'return_at']) if (!o.trip[k] && f[k]) o.trip[k] = f[k]; } return o; }, after: (id) => S.recalcQuote(id) },
   trips: { fields: J('customer_id', 'status', 'title', 'purpose', 'itinerary', 'pickup', 'dropoff', 'stops', 'depart_at', 'return_at', 'passengers', 'vehicle_id', 'vendor_id', 'vendor_cost_cents', 'driver_id', 'price_cents', 'onsite_name', 'onsite_phone', 'notes', 'driver_notes'), before: (o) => { if ('itinerary' in o) { o.itinerary = normItinerary(typeof o.itinerary === 'string' ? JSON.parse(o.itinerary || '[]') : o.itinerary); const f = summarize(o.itinerary); for (const k of ['pickup', 'dropoff', 'stops']) o[k] = f[k]; for (const k of ['depart_at', 'return_at']) if (!o[k] && f[k]) o[k] = f[k]; } return o; }, sel: 'SELECT t.*, c.name customer_name, v.name vehicle_name, d.name driver_name, vn.name vendor_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id LEFT JOIN vendors vn ON vn.id=t.vendor_id', search: ['t.ref', 't.title', 'c.name', 't.pickup', 't.dropoff'], order: 't.depart_at DESC', del: () => false, create: (o) => ({ ref: nextNumber('TRIP'), status: 'booked', ...o }), after: (id, created) => { if (created) S.scheduleTripFollowups(id); } },
-  invoices: { fields: J('customer_id', 'trip_id', 'status', 'title', 'items', 'tax_rate', 'deposit_cents', 'due_date', 'notes'), sel: 'SELECT t.*, c.name customer_name FROM invoices t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM invoices WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: nextNumber('INV'), token: token(), status: 'draft', ...o }), after: (id) => S.recalcInvoice(id) },
+  invoices: { fields: J('customer_id', 'trip_id', 'status', 'title', 'items', 'tax_rate', 'deposit_cents', 'gratuity_cents', 'due_date', 'notes'), sel: 'SELECT t.*, c.name customer_name FROM invoices t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM invoices WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: nextNumber('INV'), token: token(), status: 'draft', ...o }), after: (id) => S.recalcInvoice(id) },
   followups: { fields: J('entity_type', 'entity_id', 'kind', 'channel', 'to_email', 'subject', 'body', 'due_at', 'status'), sel: 'SELECT t.* FROM followups t', search: ['t.subject', 't.kind'], order: "CASE t.status WHEN 'pending' THEN 0 ELSE 1 END, t.due_at", del: () => true, create: (o) => ({ auto: 0, channel: 'task', kind: 'manual', status: 'pending', ...o }) },
   messages: { fields: J('status'), sel: 'SELECT t.* FROM messages t', search: ['t.name', 't.email', 't.subject', 't.body'], order: 't.id DESC', del: () => true },
 };
@@ -122,12 +124,15 @@ for (const [name, cfg] of Object.entries(RES)) {
     if (!one(`SELECT 1 x FROM ${table} WHERE id=?`, id)) throw bad('Not found', 404);
     let o = pick(req.body || {});
     if (cfg.before) o = cfg.before(o);
+    const prev = name === 'quotes' ? one('SELECT * FROM quotes WHERE id=?', id) : null;
+    if (prev && prev.status === 'accepted') throw bad('This quote was accepted and signed, so it is locked. Change the trip or add an invoice instead.', 409);
     if (name === 'customers' && 'sms_optin' in o) o.sms_optin_at = o.sms_optin ? now() : null;
     if (name === 'invoices' && o.status === 'sent') delete o.status; // use the Send action
     update(table, id, { ...o, ...(table !== 'followups' && table !== 'messages' ? { updated_at: now() } : {}) });
     if (name === 'followups' && o.status && o.status !== 'pending') update('followups', id, { done_at: now() });
     if (name === 'trips' && o.status === 'cancelled') log(req.user.email, 'trip.cancelled', 'trip', id);
     cfg.after?.(id, false);
+    if (prev && ['sent', 'declined', 'expired'].includes(prev.status)) S.recordQuoteRevision(prev, one('SELECT * FROM quotes WHERE id=?', id), { by: req.user.email, reason: String(req.body?.revision_note || '').slice(0, 300) });
     return one(`${cfg.sel} WHERE t.id=?`, id);
   }));
   admin.delete(`/${name}/:id`, wrap((req) => {
@@ -360,6 +365,16 @@ admin.post('/users/:id/notify-test', wrap(async (req) => {
   return out;
 }));
 
+// ---------- zmanim and Shabbos / Yom Tov checks ----------
+import { dayInfo, scheduleCheck } from '../zmanim.js';
+const coordsOf = (it) => { const s = (it || []).find((x) => x.lat && x.lng); return s ? [s.lat, s.lng] : [null, null]; };
+admin.get('/zmanim', wrap((req) => { const d = String(req.query.date || ''); if (!/^\d{4}-\d\d-\d\d$/.test(d)) throw bad('date required'); return dayInfo(d, req.query.lat, req.query.lng); }));
+admin.post('/schedule-check', wrap((req) => {
+  const it = normItinerary(req.body?.itinerary); const [lat, lng] = coordsOf(it);
+  const dep = (req.body?.depart_at || it.find((x) => x.time)?.time || '').slice(0, 16), ret = (req.body?.return_at || '').slice(0, 16);
+  return { issues: scheduleCheck({ stops: it, depart_at: dep, return_at: ret, lat, lng }), depart: /^\d{4}-\d\d-\d\d/.test(dep) ? dayInfo(dep.slice(0, 10), lat, lng) : null, return: /^\d{4}-\d\d-\d\d/.test(ret) && ret.slice(0, 10) !== dep.slice(0, 10) ? dayInfo(ret.slice(0, 10), lat, lng) : null };
+}));
+
 // ---------- double-booking check ----------
 admin.get('/trips/conflicts', wrap((req) => {
   const { id = 0, driver_id, vehicle_id, from, to } = req.query;
@@ -368,3 +383,47 @@ admin.get('/trips/conflicts', wrap((req) => {
   const clash = (col, val) => (val ? all(`SELECT t.id, t.ref, t.depart_at, t.return_at, c.name customer_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id WHERE t.${col}=? AND t.id<>? AND t.status NOT IN ('cancelled','completed') AND t.depart_at IS NOT NULL`, val, id).filter((t) => S.naiveMs(t.depart_at) < end && S.naiveMs(t.return_at || t.depart_at) + 3600000 > start) : []);
   return [...clash('driver_id', driver_id).map((t) => ({ ...t, what: 'driver' })), ...clash('vehicle_id', vehicle_id).map((t) => ({ ...t, what: 'vehicle' }))];
 }));
+
+// ---------- operator insurance: certificate upload (private) and trip-date check ----------
+const COI = path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'coi');
+admin.post('/vendors/:id/coi', express.raw({ type: ['application/pdf', 'image/*'], limit: '10mb' }), wrap((req) => {
+  const v = one('SELECT id FROM vendors WHERE id=?', req.params.id); if (!v) throw bad('Not found', 404);
+  const b = req.body; if (!Buffer.isBuffer(b) || b.length < 16) throw bad('No file received');
+  const ext = b.subarray(0, 4).toString() === '%PDF' ? 'pdf' : b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ? 'png' : b.subarray(0, 2).equals(Buffer.from([0xff, 0xd8])) ? 'jpg' : null;
+  if (!ext) throw bad('Upload a PDF, PNG or JPG');
+  fs.mkdirSync(COI, { recursive: true });
+  const name = `vendor${v.id}-${Date.now()}.${ext}`; fs.writeFileSync(path.join(COI, name), b);
+  update('vendors', v.id, { coi_file: name, updated_at: now() }); log(req.user.email, 'vendor.coi_uploaded', 'vendor', v.id);
+  return { ok: true };
+}));
+admin.get('/vendors/:id/coi', (req, res) => {
+  const v = one('SELECT coi_file FROM vendors WHERE id=?', req.params.id);
+  const f = v?.coi_file && path.join(COI, path.basename(v.coi_file));
+  if (!f || !fs.existsSync(f)) return res.status(404).json({ error: 'No certificate on file' });
+  res.setHeader('Content-Type', f.endsWith('.pdf') ? 'application/pdf' : f.endsWith('.png') ? 'image/png' : 'image/jpeg'); res.setHeader('Content-Disposition', `inline; filename="${path.basename(f)}"`); res.send(fs.readFileSync(f));
+});
+admin.get('/vendors/:id/insurance-check', wrap((req) => {
+  const v = one('SELECT name, insurance_expires FROM vendors WHERE id=?', req.params.id); if (!v) throw bad('Not found', 404);
+  const on = /^\d{4}-\d\d-\d\d/.test(req.query.on || '') ? String(req.query.on).slice(0, 10) : undefined;
+  const today = S.insuranceStatus(v.insurance_expires); const onTrip = on ? S.insuranceStatus(v.insurance_expires, on) : today;
+  return { name: v.name, expires: v.insurance_expires, today, covers_trip: v.insurance_expires ? onTrip.status !== 'expired' : null };
+}));
+
+admin.get('/quotes/:id/revisions', wrap((req) => S.quoteRevisions(Number(req.params.id))));
+
+// ---------- saved cards ----------
+admin.get('/customers/:id/card', wrap((req) => cardOf(one('SELECT * FROM customers WHERE id=?', req.params.id))));
+admin.post('/customers/:id/card-link', wrap(async (req) => {
+  const c = one('SELECT * FROM customers WHERE id=?', req.params.id); if (!c) throw bad('Not found', 404);
+  const cid = await stripeCustomerFor(c);
+  const sess = await createSetupCheckout({ customer_id: c.id, stripeCustomer: cid });
+  let emailed = false;
+  if (req.body?.email && c.email) {
+    await sendEmail(c.email, 'Save a card on file', emailShell('Save a card for your trip', `<p>Hi ${esc((c.name || '').split(' ')[0])}, use the secure button to save a card with ${esc(S.biz())}. Nothing is charged now. We will only charge it for the balance of your trip and for extras you agreed to, such as overtime or gratuity. You can ask us to remove it any time.</p>`, { label: 'Save my card', url: sess.url }));
+    emailed = true;
+  }
+  log(req.user.email, 'card.link', 'customer', c.id);
+  return { url: sess.url, emailed };
+}));
+admin.delete('/customers/:id/card', wrap(async (req) => { await removeCard(Number(req.params.id), req.user.email); return { ok: true }; }));
+admin.post('/invoices/:id/charge-saved', wrap((req) => chargeInvoice(Number(req.params.id), req.body?.amount_cents, req.user.email)));

@@ -47,7 +47,7 @@ export function requireAdmin(req, res, next) {
     const ct = req.headers['content-type'] || '';
     const origin = req.headers.origin;
     if (origin && new URL(origin).host !== req.headers.host) return res.status(403).json({ error: 'Bad origin' });
-    if (!ct.includes('application/json') && !ct.startsWith('image/') && req.method !== 'DELETE' && !(req.headers['content-length'] === '0')) return res.status(415).json({ error: 'JSON required' });
+    if (!ct.includes('application/json') && !ct.startsWith('image/') && !ct.startsWith('application/pdf') && req.method !== 'DELETE' && !(req.headers['content-length'] === '0')) return res.status(415).json({ error: 'JSON required' });
   }
   req.user = u;
   next();

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { all, one, run, insert, update, now, token, nextNumber, getSetting, parse, log, totals } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner } from './integrations.js';
-import { tripDetail, fmtWhen, localToDate, link, icsKey, naiveMs } from './services.js';
+import { tripDetail, fmtWhen, fmtDate, localToDate, link, icsKey, naiveMs } from './services.js';
 import { normItinerary, fromLegacy, itineraryText, KINDS, summarize } from './itinerary.js';
 import { buildXlsx } from './xlsx.js';
 
@@ -25,6 +25,7 @@ export const CONTRACT_TERMS = [
   'Price covers the itinerary listed here. Added pickups, stops, drop-offs, waiting time or hours are billed at the rates agreed with us; changes need our confirmation.',
   'Unless stated on the quote, gratuity, tolls, parking and surcharges are not included.',
   'The customer is responsible for the group\'s conduct and for damage or excessive cleaning beyond normal wear. No smoking. Alcohol only where the vehicle and passengers\' ages allow.',
+  'If you save a card on file, you authorize us to charge it for the remaining balance and for extras you agreed to, such as overtime and gratuity. You can ask us to remove it at any time.',
   'The customer agrees to the full Terms & Conditions on our website, as in effect on the date of signing.',
 ];
 
@@ -44,7 +45,7 @@ export function buildSnapshot({ quote, trip, items, itinerary }) {
     customer: { name: c.name, email: c.email, phone: c.phone, company: c.company },
     trip: { purpose: flat.purpose || '', passengers: flat.passengers, depart_at: flat.depart_at, return_at: flat.return_at, vehicle: veh },
     itinerary: it, items: lines, tax_rate: taxRate, ...tot, deposit_pct: depPct, deposit_cents: Math.round((tot.total_cents * depPct) / 100),
-    terms: CONTRACT_TERMS, prepared: now().slice(0, 10),
+    terms: CONTRACT_TERMS, prepared: now().slice(0, 10), revision: quote?.revision || 1,
   };
 }
 const hash = (o) => crypto.createHash('sha256').update(JSON.stringify(o)).digest('hex');
@@ -135,7 +136,7 @@ export async function contractPdf(k, sigPng) {
     need(110);
     const img = await doc.embedPng(sigPng); const dims = img.scaleToFit(220, 70);
     page.drawImage(img, { x: L, y: y - dims.height, width: dims.width, height: dims.height }); y -= dims.height + 6;
-    text(`Signed electronically by ${k.signer_name} on ${new Date(k.signed_at).toUTCString()}`, { size: 9 });
+    text(`Signed electronically by ${k.signer_name} on ${fmtDate(k.signed_at)} at ${new Date(k.signed_at).toISOString().slice(11, 16)} UTC`, { size: 9 });
     text(`IP ${k.signer_ip || 'n/a'} · Document fingerprint (SHA-256): ${k.body_hash}`, { size: 7, color: grey });
     text('Electronic signature has the same legal effect as a handwritten signature under the ESIGN Act and UETA.', { size: 7, color: grey });
   } else text('Not yet signed.', { color: grey });
@@ -183,13 +184,13 @@ export function customerTripIcs(id, key) {
 // =====================================================================================
 const $c = (c) => (c == null ? '' : Number(c) / 100);
 const ms = (iso) => (iso ? Date.parse(iso) : '');
-const day = (s) => (s ? String(s).slice(0, 10) : '');
-const when = (s) => (s ? String(s).replace('T', ' ').slice(0, 16) : '');
+const day = (s) => (s ? fmtDate(s) : '');
+const when = (s) => (s ? fmtWhen(String(s)) : '');
 function range(col, from, to, p) { const w = []; if (from) { w.push(`substr(${col},1,10)>=?`); p.push(from); } if (to) { w.push(`substr(${col},1,10)<=?`); p.push(to); } return w.length ? ' WHERE ' + w.join(' AND ') : ''; }
 
 const SHEETS = {
-  customers: (f, t) => ({ name: 'Customers', cols: [{ h: 'ID', t: 'int' }, { h: 'Name' }, { h: 'Company' }, { h: 'Email' }, { h: 'Phone' }, { h: 'OK to text' }, { h: 'Address' }, { h: 'Tags' }, { h: 'Notes' }, { h: 'Created', t: 'datetime' }, { h: 'Trips', t: 'int' }, { h: 'Total billed', t: 'money' }, { h: 'Outstanding', t: 'money' }],
-    rows: all('SELECT c.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=c.id) n, (SELECT COALESCE(SUM(total_cents),0) FROM invoices i WHERE i.customer_id=c.id AND i.status<>\'void\') billed, (SELECT COALESCE(SUM(total_cents-amount_paid_cents),0) FROM invoices i WHERE i.customer_id=c.id AND i.status IN (\'sent\',\'partial\')) owed FROM customers c ORDER BY c.name').map((c) => [c.id, c.name, c.company, c.email, c.phone, c.sms_optin ? 'Yes' : 'No', c.address, c.tags, c.notes, ms(c.created_at), c.n, $c(c.billed), $c(c.owed)]) }),
+  customers: (f, t) => ({ name: 'Customers', cols: [{ h: 'ID', t: 'int' }, { h: 'Name' }, { h: 'Company' }, { h: 'Email' }, { h: 'Phone' }, { h: 'OK to text' }, { h: 'Address' }, { h: 'Card on file' }, { h: 'Tags' }, { h: 'Notes' }, { h: 'Created', t: 'datetime' }, { h: 'Trips', t: 'int' }, { h: 'Total billed', t: 'money' }, { h: 'Outstanding', t: 'money' }],
+    rows: all('SELECT c.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=c.id) n, (SELECT COALESCE(SUM(total_cents),0) FROM invoices i WHERE i.customer_id=c.id AND i.status<>\'void\') billed, (SELECT COALESCE(SUM(total_cents-amount_paid_cents),0) FROM invoices i WHERE i.customer_id=c.id AND i.status IN (\'sent\',\'partial\')) owed FROM customers c ORDER BY c.name').map((c) => [c.id, c.name, c.company, c.email, c.phone, c.sms_optin ? 'Yes' : 'No', c.address, c.card_pm ? `${c.card_brand} ${c.card_last4} exp ${c.card_exp}` : '', c.tags, c.notes, ms(c.created_at), c.n, $c(c.billed), $c(c.owed)]) }),
   leads: (f, t) => { const p = []; return { name: 'Leads', cols: [{ h: 'Ref' }, { h: 'Status' }, { h: 'Name' }, { h: 'Email' }, { h: 'Phone' }, { h: 'Purpose' }, { h: 'Itinerary' }, { h: 'Depart' }, { h: 'Return' }, { h: 'Passengers', t: 'int' }, { h: 'Source' }, { h: 'Referred by' }, { h: 'Comments' }, { h: 'Notes' }, { h: 'Received', t: 'datetime' }],
     rows: all(`SELECT * FROM requests${range('created_at', f, t, p)} ORDER BY id`, ...p).map((r) => { const d = parse(r.details, {}); return [r.ref, r.status, r.name, r.email, r.phone, d.purpose, itineraryText(normItinerary(d.itinerary)), when(d.depart_at), when(d.return_at), d.passengers, r.source, r.referred_by, d.comments, r.notes, ms(r.created_at)]; }) }; },
   quotes: (f, t) => { const p = []; return { name: 'Quotes', cols: [{ h: 'Number' }, { h: 'Status' }, { h: 'Customer' }, { h: 'Title' }, { h: 'Subtotal', t: 'money' }, { h: 'Tax', t: 'money' }, { h: 'Total', t: 'money' }, { h: 'Deposit %', t: 'num' }, { h: 'Valid until', t: 'date' }, { h: 'Sent', t: 'datetime' }, { h: 'Viewed', t: 'datetime' }, { h: 'Accepted', t: 'datetime' }, { h: 'Created', t: 'datetime' }],
@@ -198,12 +199,12 @@ const SHEETS = {
   trips: (f, t) => { const p = []; return { name: 'Trips', cols: [{ h: 'Ref' }, { h: 'Status' }, { h: 'Customer' }, { h: 'Purpose' }, { h: 'Depart' }, { h: 'Return' }, { h: 'Passengers', t: 'int' }, { h: 'Vehicle' }, { h: 'Driver' }, { h: 'Vendor' }, { h: 'Price', t: 'money' }, { h: 'Vendor cost', t: 'money' }, { h: 'Margin', t: 'money' }, { h: 'Itinerary' }, { h: 'Notes' }],
     rows: all(`${TRIPQ}${range('t.depart_at', f, t, p)} ORDER BY t.depart_at`, ...p).map((r) => [r.ref, r.status, r.customer_name, r.purpose, when(r.depart_at), when(r.return_at), r.passengers, r.vehicle_name, r.driver_name, r.vendor_name, $c(r.price_cents), $c(r.vendor_cost_cents), r.vendor_id ? $c(r.price_cents - r.vendor_cost_cents) : '', itineraryText(normItinerary(parse(r.itinerary, []))), r.notes]) }; },
   stops: () => ({ name: 'Itinerary stops', cols: [{ h: 'Trip' }, { h: '#', t: 'int' }, { h: 'Type' }, { h: 'Address' }, { h: 'Time' }, { h: 'Wait (min)', t: 'int' }, { h: 'Passengers', t: 'int' }, { h: 'Contact' }, { h: 'Phone' }, { h: 'Note' }], rows: all('SELECT ref, itinerary FROM trips ORDER BY depart_at').flatMap((t) => normItinerary(parse(t.itinerary, [])).map((x, i) => [t.ref, i + 1, KINDS[x.kind], x.address, when(x.time), x.wait_min, x.pax, x.contact_name, x.contact_phone, x.note])) }),
-  invoices: (f, t) => { const p = []; return { name: 'Invoices', cols: [{ h: 'Number' }, { h: 'Status' }, { h: 'Customer' }, { h: 'Trip' }, { h: 'Title' }, { h: 'Subtotal', t: 'money' }, { h: 'Tax', t: 'money' }, { h: 'Total', t: 'money' }, { h: 'Paid', t: 'money' }, { h: 'Balance', t: 'money' }, { h: 'Due', t: 'date' }, { h: 'Sent', t: 'datetime' }, { h: 'Paid on', t: 'datetime' }, { h: 'Created', t: 'datetime' }],
-    rows: all(`SELECT i.*, c.name cn, t.ref tr FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN trips t ON t.id=i.trip_id${range('i.created_at', f, t, p)} ORDER BY i.id`, ...p).map((i) => [i.number, i.status, i.cn, i.tr, i.title, $c(i.subtotal_cents), $c(i.tax_cents), $c(i.total_cents), $c(i.amount_paid_cents), $c(i.total_cents - i.amount_paid_cents), i.due_date, ms(i.sent_at), ms(i.paid_at), ms(i.created_at)]) }; },
+  invoices: (f, t) => { const p = []; return { name: 'Invoices', cols: [{ h: 'Number' }, { h: 'Status' }, { h: 'Customer' }, { h: 'Trip' }, { h: 'Title' }, { h: 'Subtotal', t: 'money' }, { h: 'Tax', t: 'money' }, { h: 'Gratuity', t: 'money' }, { h: 'Total', t: 'money' }, { h: 'Paid', t: 'money' }, { h: 'Balance', t: 'money' }, { h: 'Due', t: 'date' }, { h: 'Sent', t: 'datetime' }, { h: 'Paid on', t: 'datetime' }, { h: 'Created', t: 'datetime' }],
+    rows: all(`SELECT i.*, c.name cn, t.ref tr FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN trips t ON t.id=i.trip_id${range('i.created_at', f, t, p)} ORDER BY i.id`, ...p).map((i) => [i.number, i.status, i.cn, i.tr, i.title, $c(i.subtotal_cents), $c(i.tax_cents), $c(i.gratuity_cents), $c(i.total_cents), $c(i.amount_paid_cents), $c(i.total_cents - i.amount_paid_cents), i.due_date, ms(i.sent_at), ms(i.paid_at), ms(i.created_at)]) }; },
   invoice_lines: () => ({ name: 'Invoice lines', cols: [{ h: 'Invoice' }, { h: 'Description' }, { h: 'Qty', t: 'num' }, { h: 'Unit price', t: 'money' }, { h: 'Amount', t: 'money' }], rows: all('SELECT number, items FROM invoices ORDER BY id').flatMap((q) => parse(q.items, []).map((i) => [q.number, i.desc, i.qty, $c(i.unit_cents), $c(Math.round(i.qty * i.unit_cents))])) }),
   payments: (f, t) => { const p = []; return { name: 'Payments', cols: [{ h: 'Date', t: 'datetime' }, { h: 'Invoice' }, { h: 'Customer' }, { h: 'Method' }, { h: 'Reference' }, { h: 'Amount', t: 'money' }, { h: 'Note' }],
     rows: all(`SELECT p.*, i.number inv, c.name cn FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id${range('p.created_at', f, t, p)} ORDER BY p.id`, ...p).map((x) => [ms(x.created_at), x.inv, x.cn, x.method, x.reference, $c(x.amount_cents), x.note]) }; },
-  vendors: () => ({ name: 'Vendors', cols: [{ h: 'Name' }, { h: 'Contact' }, { h: 'Email' }, { h: 'Phone' }, { h: 'Vehicles' }, { h: 'Area' }, { h: 'Rating', t: 'int' }, { h: 'Active' }, { h: 'Notes' }], rows: all('SELECT * FROM vendors ORDER BY name').map((v) => [v.name, v.contact_name, v.email, v.phone, v.vehicle_types, v.service_area, v.rating, v.active ? 'Yes' : 'No', v.notes]) }),
+  vendors: () => ({ name: 'Vendors', cols: [{ h: 'Name' }, { h: 'Contact' }, { h: 'Email' }, { h: 'Phone' }, { h: 'Vehicles' }, { h: 'Area' }, { h: 'Rating', t: 'int' }, { h: 'Active' }, { h: 'Insurance carrier' }, { h: 'Policy' }, { h: 'Insurance expires', t: 'date' }, { h: 'DOT' }, { h: 'MC' }, { h: 'Notes' }], rows: all('SELECT * FROM vendors ORDER BY name').map((v) => [v.name, v.contact_name, v.email, v.phone, v.vehicle_types, v.service_area, v.rating, v.active ? 'Yes' : 'No', v.insurance_carrier, v.insurance_policy, v.insurance_expires, v.dot_number, v.mc_number, v.notes]) }),
   rfqs: () => ({ name: 'Vendor quote requests', cols: [{ h: 'Ref' }, { h: 'Vendor' }, { h: 'Status' }, { h: 'Price', t: 'money' }, { h: 'Vehicle offered' }, { h: 'Notes' }, { h: 'Sent', t: 'datetime' }, { h: 'Replied', t: 'datetime' }], rows: all('SELECT r.*, v.name vn FROM rfqs r JOIN vendors v ON v.id=r.vendor_id ORDER BY r.id').map((r) => [r.ref, r.vn, r.status, $c(r.price_cents), r.offered_vehicle, r.response_notes, ms(r.sent_at), ms(r.responded_at)]) }),
   drivers: () => ({ name: 'Drivers', cols: [{ h: 'Name' }, { h: 'Phone' }, { h: 'Email' }, { h: 'Active' }, { h: 'Notes' }], rows: all('SELECT * FROM drivers ORDER BY name').map((d) => [d.name, d.phone, d.email, d.active ? 'Yes' : 'No', d.notes]) }),
   fleet: () => ({ name: 'Fleet', cols: [{ h: 'Name' }, { h: 'Category' }, { h: 'Seats', t: 'int' }, { h: 'Features' }, { h: 'Description' }, { h: 'On website' }], rows: all('SELECT * FROM vehicles ORDER BY sort').map((v) => [v.name, v.category, v.capacity, v.features, v.description, v.active ? 'Yes' : 'No']) }),

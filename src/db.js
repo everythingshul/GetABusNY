@@ -40,6 +40,16 @@ function addCol(table, col, def) {
   const have = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   if (!have) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 }
+addCol('vendors', 'insurance_carrier', 'TEXT');
+addCol('vendors', 'insurance_policy', 'TEXT');
+addCol('vendors', 'insurance_expires', 'TEXT');
+addCol('vendors', 'dot_number', 'TEXT');
+addCol('vendors', 'mc_number', 'TEXT');
+addCol('vendors', 'coi_file', 'TEXT');
+addCol('quotes', 'revision', 'INTEGER DEFAULT 1');
+db.exec(`CREATE TABLE IF NOT EXISTS quote_revisions(id INTEGER PRIMARY KEY, quote_id INTEGER, revision INTEGER, changed_at TEXT, changed_by TEXT, reason TEXT, changes TEXT, total_before INTEGER, total_after INTEGER, snapshot TEXT, sent_at TEXT)`);
+addCol('invoices', 'gratuity_cents', 'INTEGER DEFAULT 0');
+for (const c of ['stripe_customer_id', 'card_pm', 'card_brand', 'card_last4', 'card_exp', 'card_consent_at', 'card_consent_text']) addCol('customers', c, 'TEXT');
 addCol('users', 'phone', 'TEXT');
 addCol('users', 'notify_prefs', 'TEXT');
 addCol('customers', 'sms_types', 'TEXT');
@@ -123,6 +133,11 @@ export const DEFAULT_SETTINGS = {
   // v2
   google_review_url: '',
   sms_own_number: '',
+  gratuity_suggest: '1',
+  gratuity_presets: '10,15,20',
+  sms_quiet_mode: 'zmanim',
+  candle_mins: '18',
+  havdalah_mins: '50',
   sms_groups_on: 'quotes,payments,reminders,driver,reviews',
   bus_height_cm: '370',
   bus_width_cm: '260',

@@ -26,7 +26,7 @@ const KL={start:'Bus starts at',pickup:'Pickup',stop:'Stop',dropoff:'Drop-off',r
 await boot('');
 const tok=location.pathname.split('/')[2];
 try{const k=await api('/contract/'+tok);$('#view').hidden=false;
- $('#num').textContent=k.number;$('#hi').textContent=`Between ${k.business.name} and ${k.customer.name}${k.customer.company?' ('+k.customer.company+')':''}`;
+ $('#num').textContent=k.number;$('#hi').textContent=`Between ${k.business.name} and ${k.customer.name}${k.customer.company?' ('+k.customer.company+')':''}${k.revision>1?', quote revision '+k.revision:''}`;
  const t=k.trip||{};
  $('#kv').innerHTML=`<div><dt>Trip</dt><dd>${esc(t.purpose||'Charter')}</dd></div><div><dt>Passengers</dt><dd>${t.passengers||'-'}</dd></div><div><dt>Departure</dt><dd>${fmtWhen(t.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmtWhen(t.return_at)}</dd></div><div><dt>Vehicle</dt><dd>${esc(t.vehicle||'To be confirmed')}</dd></div><div><dt>Deposit to book</dt><dd>${money(k.deposit_cents)} (${k.deposit_pct}%)</dd></div>`;
  $('#stops').innerHTML=(k.itinerary||[]).filter(x=>x.kind!=='start'&&x.kind!=='end').map((x,i)=>`<li><b>${i+1}</b><div>${esc(x.address)}<small>${KL[x.kind]}${x.time?' · '+fmtWhen(x.time):''}${x.wait_min?' · wait '+x.wait_min+' min':''}${x.note?' · '+esc(x.note):''}</small></div></li>`).join('')||'<li>See quote.</li>';
@@ -34,7 +34,7 @@ try{const k=await api('/contract/'+tok);$('#view').hidden=false;
  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(k.subtotal_cents)}</td></tr>${k.tax_cents?`<tr><td colspan="3" class="r">Tax (${k.tax_rate}%)</td><td class="r">${money(k.tax_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Total</td><td class="r">${money(k.total_cents)}</td></tr>`;
  $('#terms').innerHTML=(k.terms||[]).map(x=>`<li>${esc(x)}</li>`).join('');
  const b=$('#banner');
- if(k.status==='signed'){b.hidden=false;b.innerHTML=`Signed by <b>${esc(k.signer_name)}</b> on ${new Date(k.signed_at).toLocaleString()}. <a href="/api/public/contract/${tok}/pdf" target="_blank"><b>Download signed PDF</b></a>`;$('#sf').hidden=true;}
+ if(k.status==='signed'){b.hidden=false;b.innerHTML=`Signed by <b>${esc(k.signer_name)}</b> on ${fmtWhen(k.signed_at.slice(0,10))}. <a href="/api/public/contract/${tok}/pdf" target="_blank"><b>Download signed PDF</b></a>`;$('#sf').hidden=true;}
  else if(k.status==='void'){b.className='alert err';b.hidden=false;b.textContent='This agreement is no longer valid. Please contact us.';$('#sf').hidden=true;}
  else{const pad=signaturePad($('#sig'));$('#clr').onclick=()=>pad.clear();
   $('#sf').onsubmit=async e=>{e.preventDefault();const err=$('#err');err.hidden=true;const sig=pad.get();
