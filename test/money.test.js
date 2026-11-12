@@ -91,4 +91,14 @@ assert.ok(labels.some((l) => l.startsWith('Stop added||Stop: Rest area')) && lab
 assert.equal(revs[0].snapshot.total_cents, 200000, 'keeps the previous version');
 assert.equal(S.recordQuoteRevision(one('SELECT * FROM quotes WHERE id=?', qid), one('SELECT * FROM quotes WHERE id=?', qid)), null, 'no change, no revision');
 assert.equal(S.fmtWhen('2099-06-01T19:05'), 'June 1, 2099, 7:05 PM'); assert.equal(S.fmtDate('2026-11-12'), 'November 12, 2026'); assert.equal(S.fmtWhen('2099-06-01T00:30'), 'June 1, 2099, 12:30 AM');
+{
+  const { itineraryHtml } = await import('../src/itinerary.js'); const { emailShell } = await import('../src/integrations.js');
+  const h = itineraryHtml([{ kind: 'pickup', address: '1 A St <b>', time: '2099-06-01T07:00' }, { kind: 'stop', address: '2 B St', wait_min: 30 }, { kind: 'dropoff', address: '3 C St' }], S.fmtWhen);
+  assert.ok(h.includes('Pickup') && h.includes('June 1, 2099, 7:00 AM') && h.includes('waits 30 min') && h.includes('&lt;b&gt;') && !h.includes('<b>'), 'itinerary list is formatted and escaped');
+  assert.match(emailShell('x', '<p>y</p>'), /src="https?:\/\/[^"]+\/img\/logo\.png"/); assert.ok(!/localhost/.test(emailShell('x', '')), 'logo is never a localhost address');
+  const rq = S.createRequest({ name: 'Rand Om', email: 'r@example.com', phone: '5551234567', depart_at: '2099-06-01T07:00', passengers: 10, pickup: 'A', dropoff: 'B' }, 'website');
+  assert.match(rq.ref, /^REQ-\d{6}$/); const rq2 = S.createRequest({ name: 'Rand Om', email: 'r@example.com', phone: '5551234567', depart_at: '2099-06-02T07:00', passengers: 10, pickup: 'A', dropoff: 'B' }, 'website');
+  assert.notEqual(rq.ref, rq2.ref); const rows = [one('SELECT * FROM requests WHERE id=?', rq.id), one('SELECT * FROM requests WHERE id=?', rq2.id)]; assert.equal(rows[1].seq, rows[0].seq + 1, 'admin number is consecutive');
+  const qq = S.quoteFromRequest(rq.id); const qrow = one('SELECT * FROM quotes WHERE id=?', qq.id ?? qq); assert.match(qrow.number, /^Q-\d{6}$/); assert.ok(qrow.seq >= 1);
+}
 console.log('Money checks passed.');

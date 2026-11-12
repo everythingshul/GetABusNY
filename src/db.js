@@ -52,6 +52,8 @@ addCol('vendors', 'insurance_verified_at', 'TEXT');
 addCol('vendors', 'insurance_verified_by', 'TEXT');
 addCol('vendors', 'insurance_verify_note', 'TEXT');
 addCol('quotes', 'revision', 'INTEGER DEFAULT 1');
+addCol('requests', 'seq', 'INTEGER'); addCol('quotes', 'seq', 'INTEGER'); addCol('invoices', 'seq', 'INTEGER');
+for (const t of ['requests', 'quotes', 'invoices']) db.exec(`UPDATE ${t} SET seq=id WHERE seq IS NULL`);
 db.exec(`CREATE TABLE IF NOT EXISTS quote_revisions(id INTEGER PRIMARY KEY, quote_id INTEGER, revision INTEGER, changed_at TEXT, changed_by TEXT, reason TEXT, changes TEXT, total_before INTEGER, total_after INTEGER, snapshot TEXT, sent_at TEXT)`);
 addCol('invoices', 'gratuity_cents', 'INTEGER DEFAULT 0');
 for (const c of ['stripe_customer_id', 'card_pm', 'card_brand', 'card_last4', 'card_exp', 'card_consent_at', 'card_consent_text']) addCol('customers', c, 'TEXT');
@@ -162,6 +164,17 @@ export const getSetting = (k) => one('SELECT value FROM settings WHERE key=?', k
 export const getJSON = (k, d) => { try { return JSON.parse(getSetting(k)); } catch { return d; } };
 export const setSetting = (k, v) => run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, String(v));
 export const allSettings = () => Object.fromEntries(all('SELECT key,value FROM settings').map((r) => [r.key, r.value]));
+
+/** Customer-facing reference: a random number that reveals nothing about volume, e.g. Q-482931. */
+export function randomRef(prefix, table, col) {
+  for (let i = 0; i < 50; i++) {
+    const ref = `${prefix}-${crypto.randomInt(100000, 1000000)}`;
+    if (!db.prepare(`SELECT 1 FROM ${table} WHERE ${col}=?`).get(ref)) return ref;
+  }
+  return `${prefix}-${Date.now()}`;
+}
+/** Internal consecutive number shown only in the admin. */
+export const nextSeq = (table) => (db.prepare(`SELECT COALESCE(MAX(seq),0)+1 n FROM ${table}`).get().n);
 
 export function nextNumber(prefix, start = 1001) {
   const key = `seq_${prefix}`;

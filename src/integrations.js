@@ -18,12 +18,14 @@ export const status = () => ({
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const money = (c) => (Number(c || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+/** Absolute, public address of the logo. A localhost address cannot load in anyone's inbox. */
+const LOGO_URL = () => { const b = BASE_URL(); return `${/localhost|127\.0\.0\.1/.test(b) ? (process.env.RENDER_EXTERNAL_URL || 'https://getabusny.com') : b}/img/logo.png`; };
 export function emailShell(title, bodyHtml, cta) {
   const biz = esc(getSetting('business_name'));
   return `<!doctype html><html><body style="margin:0;background:#eef3f7;font-family:Arial,Helvetica,sans-serif;color:#10222f">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:10px;overflow:hidden">
-<tr><td style="padding:20px 28px;border-bottom:4px solid #94bf33"><img src="${BASE_URL()}/img/logo.png" alt="${biz}" height="44"></td></tr>
+<tr><td style="padding:20px 28px;border-bottom:4px solid #94bf33"><img src="${LOGO_URL()}" alt="${biz}" width="190" height="44" style="display:block;border:0;height:44px;width:auto;max-width:190px"></td></tr>
 <tr><td style="padding:28px;font-size:15px;line-height:1.55"><h2 style="margin:0 0 14px;font-size:20px">${esc(title)}</h2>${bodyHtml}
 ${cta ? `<p style="margin:24px 0 6px"><a href="${cta.url}" style="background:#0078c0;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:bold;display:inline-block">${esc(cta.label)}</a></p>` : ''}
 </td></tr>

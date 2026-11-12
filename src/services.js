@@ -1,7 +1,7 @@
 // Business logic shared by public, admin, driver and bot routes.
-import { db, all, one, run, insert, update, tx, now, token, nextNumber, totals, parse, getSetting, setSetting, log } from './db.js';
+import { db, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
-import { normItinerary, fromLegacy, summarize, itineraryText, KINDS, mapsDirUrl } from './itinerary.js';
+import { normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
 
 // ---------- time helpers (trip times are "naive" local times in the business timezone) ----------
@@ -71,8 +71,8 @@ export function createRequest(d, source = 'website') {
     depart_at: d.depart_at || flat.depart_at, return_at: d.return_at || flat.return_at, passengers: Number(d.passengers) || null,
     vehicle_id: d.vehicle_id ? Number(d.vehicle_id) : null, vehicle_pref: d.vehicle_pref, comments: String(d.comments || '').slice(0, 3000),
   };
-  const ref = nextNumber('REQ', 1001);
-  const id = insert('requests', { ref, customer_id, name, email, phone, details, status: 'new', source, referred_by: d.referred_by, created_at: now(), updated_at: now() });
+  const ref = randomRef('REQ', 'requests', 'ref');
+  const id = insert('requests', { ref, seq: nextSeq('requests'), customer_id, name, email, phone, details, status: 'new', source, referred_by: d.referred_by, created_at: now(), updated_at: now() });
   log(source, 'request.created', 'request', id, `${name} ${details.depart_at || ''}`);
   const veh = details.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', details.vehicle_id)?.name : 'No preference';
   notifyOwner(`New quote request ${ref} - ${name}`,
@@ -80,7 +80,7 @@ export function createRequest(d, source = 'website') {
   if (email) {
     sendEmail(email, `We got your request (${ref})`, emailShell(`Thanks, ${name.split(' ')[0]}, we have your request`,
       `<p>Your reference number is <b>${ref}</b>. We'll send your quote during business hours, usually the same day.</p>
-       <p>${details.purpose ? `<b>Trip:</b> ${esc(details.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(details.depart_at)}<br><b>Passengers:</b> ${details.passengers || '-'}</p><p><b>Itinerary</b><br>${esc(itineraryText(itinerary)).replace(/\n/g, '<br>')}</p>
+       <p>${details.purpose ? `<b>Trip:</b> ${esc(details.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(details.depart_at)}<br><b>Passengers:</b> ${details.passengers || '-'}</p><p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(itinerary, fmtWhen)}
        <p>Need it faster? Call ${esc(getSetting('phone'))}.</p>`)).catch(() => {});
   }
   scheduleTask('request', id, 'lead_call', `Call new lead: ${name} (${ref})`, addHours(new Date(), 1));
@@ -99,7 +99,7 @@ export function quoteFromRequest(request_id) {
   const d = parse(r.details, {});
   const days = Number(getSetting('quote_valid_days')) || 7;
   const id = insert('quotes', {
-    number: nextNumber('Q', 1001), customer_id: r.customer_id, request_id: r.id, status: 'draft',
+    number: randomRef('Q', 'quotes', 'number'), seq: nextSeq('quotes'), customer_id: r.customer_id, request_id: r.id, status: 'draft',
     title: `${d.pickup || 'Charter'} → ${d.dropoff || ''}`.trim(), items: [{ desc: 'Charter service', qty: 1, unit_cents: 0 }],
     tax_rate: Number(getSetting('tax_rate')) || 0, deposit_pct: Number(getSetting('deposit_pct')) || 50,
     valid_until: addDays(new Date(), days).toISOString().slice(0, 10), trip: { purpose: d.purpose, itinerary: d.itinerary?.length ? d.itinerary : fromLegacy(d), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle_id: d.vehicle_id, notes: d.comments },
@@ -118,9 +118,11 @@ export async function sendQuote(id, actor) {
   const t = parse(q.trip, {});
   const unsent = all('SELECT * FROM quote_revisions WHERE quote_id=? AND sent_at IS NULL ORDER BY revision', id);
   const changed = unsent.flatMap((r) => changeLines(parse(r.changes, [])));
+  const qIt = normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t)).filter((x) => x.kind !== 'start' && x.kind !== 'end');
   const html = emailShell(unsent.length ? `Updated quote ${q.number}` : `Your quote ${q.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${unsent.length ? 'We updated your quote for' : `Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for`} <b>${esc(q.title || 'your trip')}</b>.</p>${changed.length ? `<p><b>What changed</b></p><ul>${changed.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
      <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
+     ${qIt.length ? `<p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(qIt, fmtWhen)}` : ''}
      <p>The quote is good until ${q.valid_until ? fmtDate(q.valid_until) : 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
   const r = await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
   if (unsent.length) run('UPDATE quote_revisions SET sent_at=? WHERE quote_id=? AND sent_at IS NULL', now(), id);
@@ -148,7 +150,7 @@ export function acceptQuote(id, actor = 'customer') {
     const deposit = Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
     const due = addDays(new Date(), Number(getSetting('invoice_due_days')) || 7).toISOString().slice(0, 10);
     const invId = insert('invoices', {
-      number: nextNumber('INV', 1001), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate,
+      number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate,
       ...totals(parse(q.items, []), q.tax_rate), deposit_cents: deposit, due_date: due, token: token(), created_at: now(), updated_at: now(),
     });
     if (q.request_id) {
@@ -264,7 +266,7 @@ export async function sendTripConfirmation(trip_id) {
   return sendEmail(t.customer.email, `Trip confirmation ${t.ref} - ${fmtWhen(t.depart_at)}`, emailShell('Your trip is confirmed',
     `<p>Hi ${esc(t.customer.name.split(' ')[0])}, here are your trip details.</p>
      <p>${t.purpose ? `<b>Trip:</b> ${esc(t.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Vehicle:</b> ${esc(t.vehicle?.name || 'To be assigned')}</p>
-     <p><b>Itinerary</b><br>${esc(itineraryText(t.itinerary.filter((x) => x.kind !== 'start' && x.kind !== 'end'))).replace(/\n/g, '<br>')}</p>
+     <p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(t.itinerary.filter((x) => x.kind !== 'start' && x.kind !== 'end'), fmtWhen)}
      <p>Your driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`, { label: 'Add to my calendar', url: `${BASE_URL()}/api/public/trip-ics/${t.id}-${icsKey(t.id)}.ics` }));
 }
 
@@ -285,7 +287,7 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
       res = await sendEmail(v.email, `Quote request ${ref}: ${snap.passengers || '?'} pax, ${fmtWhen(snap.depart_at)}`, emailShell(`Can you quote this trip?`,
         `<p>Hi ${esc(v.contact_name || v.name)},</p><p>We have a trip and would like your best price.</p>
          <p>${snap.purpose ? `<b>Trip:</b> ${esc(snap.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(snap.depart_at)}<br><b>Return:</b> ${fmtWhen(snap.return_at)}<br><b>Passengers:</b> ${snap.passengers || '-'}<br><b>Vehicle wanted:</b> ${esc(snap.vehicle || 'Any suitable')}</p>
-         <p><b>Itinerary</b><br>${esc(itineraryText(snap.itinerary?.length ? snap.itinerary : fromLegacy(snap))).replace(/\n/g, '<br>')}</p>
+         <p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml((snap.itinerary?.length ? snap.itinerary : fromLegacy(snap)).filter((x) => x.kind !== 'start' && x.kind !== 'end'), fmtWhen)}
          ${message ? `<p>${esc(message)}</p>` : ''}<p>You can reply to this email with your price, or use the link below to type your price and notes. No login is needed. If you cannot do this trip, a quick note saying so helps us plan.</p>`, { label: 'Send my price', url: `${(process.env.BASE_URL || '').replace(/\/$/, '')}/r/${r.token}` }));
     }
     if (getSetting('fu_enabled') === '1') { const h = Number(getSetting('fu_rfq_hours')); if (h) scheduleAuto('rfq', id, 'rfq_nudge', addHours(new Date(), h)); }
