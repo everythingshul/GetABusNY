@@ -141,10 +141,10 @@ export async function placesAutocomplete(input, sessionToken) {
 }
 export async function placeDetails(placeId, sessionToken) {
   if (!MAPS()) throw new Error('Maps not configured');
-  const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?sessionToken=${encodeURIComponent(sessionToken || '')}`, { headers: { 'X-Goog-Api-Key': MAPS(), 'X-Goog-FieldMask': 'id,displayName,formattedAddress,location' } });
+  const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?sessionToken=${encodeURIComponent(sessionToken || '')}`, { headers: { 'X-Goog-Api-Key': MAPS(), 'X-Goog-FieldMask': 'id,formattedAddress,location' } });
   if (!r.ok) throw new Error('Place lookup failed');
   const j = await r.json();
-  return { place_id: j.id, name: j.displayName?.text, address: j.formattedAddress, lat: j.location?.latitude, lng: j.location?.longitude };
+  return { place_id: j.id, address: j.formattedAddress, lat: j.location?.latitude, lng: j.location?.longitude };
 }
 /** Driving distance/time through an ordered list of stops (to help staff price manually — never prices anything itself). */
 export async function routeEstimate(stops) {
