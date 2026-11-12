@@ -156,7 +156,7 @@ export const DEFAULT_SETTINGS = {
   sms_auto_reminder_hours: '24',
   cal_token: '',
   require_signature: '1',
-  trip_purposes: 'Camp trip,Shabbaton,Kehila trip,Kivrei Tzadikim,Yeshiva / school trip,Chasunah / simcha,Chol Hamoed trip,Airport / transfer,Other',
+  trip_purposes: 'Camp trip,Shabbaton,Kehila trip,Kivrei Tzadikim,Yeshiva / school trip,Wedding / simcha,Chol Hamoed trip,Airport / transfer,Other',
 };
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)', k, v);
 

@@ -179,7 +179,7 @@ const fleetRows = () => all('SELECT id,name,category,capacity,description FROM v
 function systemPrompt(hasImage = false, hasVoice = false) {
   const name = getSetting('chesky_name') || 'Chesky';
   const biz = getSetting('business_name');
-  return `You are ${name}, the warm, down-to-earth assistant for ${biz}, a Jewish-owned charter bus brokerage (since 2016). We arrange buses, party buses, trolleys and limos for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim trips, yeshiva and school trips, chasunos and other simchas, and group outings. We match the group with a vetted operator and handle the quote, contract, payment and driver coordination.
+  return `You are ${name}, the warm, down-to-earth assistant for ${biz}, a Jewish-owned charter bus brokerage (since 2016). We arrange buses, party buses, trolleys and limos for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim trips, yeshiva and school trips, weddings and other simchas, and group outings. We match the group with a vetted operator and handle the quote, contract, payment and driver coordination.
 
 Talk like a kind staff member texting a customer: contractions, plain words, one or two short sentences, at most one or two questions at a time. No filler, no emoji, no corporate phrasing.
 
@@ -195,7 +195,7 @@ PHOTOS AND VOICE NOTES: the visitor can attach one photo or screenshot and/or re
 
 FLEET (use only these; suggest the smallest that fits the headcount with some headroom): ${fleetRows().map((v) => `${v.name} (${v.category}, seats ${v.capacity})`).join('; ')}. Also by request: Sprinter shuttles, executive coaches, double-decker buses.
 
-QUOTE REQUESTS: when the visitor wants a quote, gather: name, phone or email, what the trip is (camp trip, Shabbaton, Kehila trip, Kivrei Tzadikim, school/yeshiva, chasuna, other), departure date and time, pickup address, destination, passengers, and the return time if round trip. Also ask about extra pickups, stops along the way, a drop-off that differs from the start, and a separate return pickup. Put them in stops as {kind: pickup|stop|dropoff|return_pickup|end, address, time}. Then call submit_quote_request. Confirm only what the tool actually returned, including the reference number, and tell them a team member will email or call with a quote.
+QUOTE REQUESTS: when the visitor wants a quote, gather: name, phone or email, what the trip is (camp trip, Shabbaton, Kehila trip, Kivrei Tzadikim, school/yeshiva, wedding, other), departure date and time, pickup address, destination, passengers, and the return time if round trip. Also ask about extra pickups, stops along the way, a drop-off that differs from the start, and a separate return pickup. Put them in stops as {kind: pickup|stop|dropoff|return_pickup|end, address, time}. Then call submit_quote_request. Confirm only what the tool actually returned, including the reference number, and tell them a team member will email or call with a quote.
 
 ${getSetting('chesky_extra') || ''}${hasImage ? '\n\nThe visitor just sent an image with this message. Look at it.' : ''}${hasVoice ? '\n\nThis message came in as a voice note, already transcribed below.' : ''}
 
@@ -207,7 +207,7 @@ const SUBMIT = {
   name: 'submit_quote_request', description: 'Send a quote request to staff for the visitor. Only call when you have the required details and the visitor wants a quote. Never invent values.',
   input_schema: {
     type: 'object', required: ['name', 'pickup', 'dropoff', 'depart_at', 'passengers'], properties: {
-      name: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, purpose: { type: 'string', description: 'e.g. camp trip, Shabbaton, Kehila trip, Kivrei Tzadikim, school trip, chasuna' },
+      name: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, purpose: { type: 'string', description: 'e.g. camp trip, Shabbaton, Kehila trip, Kivrei Tzadikim, school trip, wedding' },
       trip_type: { type: 'string', enum: ['one_way', 'round_trip', 'multi_day', 'hourly'] }, pickup: { type: 'string' }, dropoff: { type: 'string' },
       depart_at: { type: 'string', description: 'YYYY-MM-DDTHH:MM local' }, return_at: { type: 'string', description: 'YYYY-MM-DDTHH:MM local, optional' },
       passengers: { type: 'integer' }, vehicle_pref: { type: 'string' }, comments: { type: 'string' },

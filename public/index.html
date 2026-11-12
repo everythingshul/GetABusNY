@@ -1,4 +1,4 @@
-<!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Charter Buses for Camps, Shabbatons and Kehila Trips | Get A Bus NY</title><meta name="description" content="Charter bus broker since 2016 for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim trips, yeshiva and school outings, chasunos and simchos."><meta name="theme-color" content="#0d1b26"><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
+<!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Charter Buses for Camps, Shabbatons and Kehila Trips | Get A Bus NY</title><meta name="description" content="Charter bus broker since 2016 for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim trips, yeshiva and school outings, weddings and simchas."><meta name="theme-color" content="#0d1b26"><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
 
 <section class="hero" id="hero">
 <div class="bn" id="banner" aria-hidden="true"></div>
@@ -29,8 +29,8 @@
 <div class="row-r"><span class="no">03</span><h3><a href="/trips/kehila-trips">Kehila trips</a></h3><p>Community outings with many pickup points around the neighborhood.</p><span class="tag2">Coaches</span></div>
 <div class="row-r"><span class="no">04</span><h3><a href="/trips/kivrei-tzadikim">Kivrei Tzadikim</a></h3><p>Day trips and overnights to the Rebbes and Tzadikim, with stops planned along the way.</p><span class="tag2">Coaches</span></div>
 <div class="row-r"><span class="no">05</span><h3><a href="/trips/yeshiva-and-school-trips">Yeshiva and school trips</a></h3><p>Class trips, Chol Hamoed outings and sports games, with one contact for the whole group.</p><span class="tag2">Coaches</span></div>
-<div class="row-r"><span class="no">06</span><h3><a href="/trips/chasunos">Chasunos</a></h3><p>Guests from the hotel to the hall and back, on a time that holds.</p><span class="tag2">Trolleys, limos</span></div>
-<div class="row-r"><span class="no">07</span><h3><a href="/trips/simchos">Simchos</a></h3><p>Bar mitzvahs, sheva brachos, vachtnachts and family events.</p><span class="tag2">Party buses</span></div>
+<div class="row-r"><span class="no">06</span><h3><a href="/trips/weddings">Weddings</a></h3><p>Guests from the hotel to the hall and back, on a time that holds.</p><span class="tag2">Trolleys, limos</span></div>
+<div class="row-r"><span class="no">07</span><h3><a href="/trips/simchas">Simchas</a></h3><p>Bar mitzvahs, sheva brachos, vachtnachts and family events.</p><span class="tag2">Party buses</span></div>
 </div></div></section>
 
 <section class="band"><div class="wrap">
@@ -72,7 +72,7 @@ initBanner($('#banner'));
 document.querySelectorAll('[data-p]').forEach(i=>attachPlaces(i));
 $('#sdt').min=new Date().toISOString().slice(0,10);
 $('#starter').addEventListener('submit',e=>{const f=e.target;[...f.elements].forEach(x=>{if(x.name&&!x.value)x.disabled=true;});});
-const words=['Camp trips','Shabbatons','Kehila trips','Kivrei Tzadikim','Yeshiva trips','Chasunos','Simchos'];let i=0;
+const words=['Camp trips','Shabbatons','Kehila trips','Kivrei Tzadikim','Yeshiva trips','Weddings','Simchas'];let i=0;
 $('#dest').style.transition='opacity .16s';
 if(!matchMedia('(prefers-reduced-motion: reduce)').matches)setInterval(()=>{i=(i+1)%words.length;const d=$('#dest');d.style.opacity=0;setTimeout(()=>{d.textContent=words[i];d.style.opacity=1;},160);},2600);
 const fl=await api('/fleet');

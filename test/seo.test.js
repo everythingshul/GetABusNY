@@ -32,7 +32,7 @@ try {
   const rb = await (await get('/robots.txt')).text(); assert.match(rb, /Disallow: \/admin/); assert.match(rb, /Sitemap: .*\/sitemap\.xml/);
   assert.equal((await get('/quote/abc')).headers.get('x-robots-tag'), 'noindex, nofollow');
   assert.equal((await get('/site.webmanifest')).status, 200); assert.equal((await get('/favicon.ico')).status, 200); assert.equal((await get('/img/apple-touch-icon.png')).status, 200);
-  const dash = /[- - ]/; for (const p of ['/', '/fleet', '/trips/chasunos', '/bus/2']) { const t = await (await get(p)).text(); const m = t.match(/.{30}[\u2013\u2014].{30}/); assert.ok(!m, 'dash on ' + p + ': ' + (m && m[0])); };
+  const dash = /[- - ]/; for (const p of ['/', '/fleet', '/trips/weddings', '/bus/2']) { const t = await (await get(p)).text(); const m = t.match(/.{30}[\u2013\u2014].{30}/); assert.ok(!m, 'dash on ' + p + ': ' + (m && m[0])); };
   const gz = await fetch(base + '/', { headers: { 'accept-encoding': 'gzip' } }); assert.equal(gz.headers.get('content-encoding'), 'gzip');
   console.log('SEO checks passed.');
 } finally { srv.kill(); }

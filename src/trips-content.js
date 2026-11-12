@@ -68,8 +68,8 @@ export const TRIPS = [
     ],
   },
   {
-    slug: 'chasunos', name: 'Chasunos', title: 'Chasuna Transportation: Buses, Trolleys and Limos', h1: 'Transportation for chasunos',
-    desc: 'Buses, trolleys and a limo for chasunos: guests from the hotel to the hall and back, on a time that holds.',
+    slug: 'weddings', name: 'Weddings', title: 'Wedding Transportation: Buses, Trolleys and Limos', h1: 'Transportation for weddings',
+    desc: 'Buses, trolleys and a limo for weddings: guests from the hotel to the hall and back, on a time that holds.',
     lead: 'Guests need to arrive on time and get home safely. We quote the shuttle runs with the times you give us.',
     sections: [
       { h: 'Shuttles for guests', p: ['Tell us the pickup spots, the hall and the time of the chuppah. We plan the runs and the return, and put each one on the quote.'] },
@@ -81,7 +81,7 @@ export const TRIPS = [
     ],
   },
   {
-    slug: 'simchos', name: 'Simchos and party buses', title: 'Party Buses for Simchos', h1: 'Party buses for simchos',
+    slug: 'simchas', name: 'Simchas and party buses', title: 'Party Buses for Simchas', h1: 'Party buses for simchas',
     desc: 'Party buses and trolleys for bar mitzvahs, sheva brachos, vachtnachts and family events.',
     lead: 'Bar mitzvah outings, sheva brachos, vachtnachts and family events call for a vehicle that is part of the celebration.',
     sections: [

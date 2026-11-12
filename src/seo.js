@@ -12,7 +12,7 @@ export const baseUrl = (req) => (process.env.BASE_URL || `${req.protocol}://${re
 const biz = () => getSetting('business_name') || 'Get A Bus NY';
 
 const PAGES = {
-  '/': { file: 'index.html', title: () => `${biz()} | Charter Bus Rentals for Camp Trips, Shabbatons and Simchos`, desc: 'Charter buses, party buses and trolleys for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and chasunos. Request a quote online. In business since 2016.' },
+  '/': { file: 'index.html', title: () => `${biz()} | Charter Bus Rentals for Camp Trips, Shabbatons and Simchas`, desc: 'Charter buses, party buses and trolleys for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and weddings. Request a quote online. In business since 2016.' },
   '/fleet': { file: 'fleet.html', title: () => `Our Fleet: Coach Buses, Party Buses and Trolleys | ${biz()}`, desc: 'See the full fleet with seat counts and amenities: 56 seater coach bus, party buses, trolleys and a limo. Request a quote for any vehicle.' },
   '/about': { file: 'about.html', title: () => `About ${biz()} | Bus Charter Since 2016`, desc: `${biz()} is a charter bus broker serving the Jewish community since 2016. Learn how we work and what to expect.` },
   '/contact': { file: 'contact.html', title: () => `Contact and Hours of Operation | ${biz()}`, desc: 'Call, email or send a message. Office hours Sunday to Thursday 10:00 AM to 7:00 PM, Friday 10:00 AM to 12:30 PM, closed Saturday.' },
@@ -31,7 +31,7 @@ function orgSchema(base) {
   const phone = getSetting('phone'), email = getSetting('email');
   const o = {
     '@context': 'https://schema.org', '@type': 'TravelAgency', '@id': `${base}/#business`, name: biz(), url: base + '/', logo: `${base}/img/logo.png`, image: `${base}/img/logo.png`,
-    description: 'Charter bus, party bus and trolley rentals for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and simchos.',
+    description: 'Charter bus, party bus and trolley rentals for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and simchas.',
     foundingDate: '2016', areaServed: AREAS.map((a) => ({ '@type': 'Place', name: a.name.replace(/^the /, '') })),
     openingHoursSpecification: days.map(([a, b, o1, c1]) => ({ '@type': 'OpeningHoursSpecification', dayOfWeek: dayList(a, b), opens: o1, closes: c1 })),
   };

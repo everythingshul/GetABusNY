@@ -1,9 +1,9 @@
 // Places we cover. Each gets its own page. Copy stays factual: no distances, prices or claims we cannot back up.
 const NYC = 'New York City';
 const R = {
-  brooklyn: { group: 'Brooklyn and Manhattan', p: (n) => [`Most of our Brooklyn and Manhattan work is groups with several pickup points in one neighborhood, then a single run out of the city. List each pickup with its time and we price the whole route as one trip.`, `Typical trips from ${n}: camp runs, Shabbatons, Kehila trips, trips to the Kivrei Tzadikim, yeshiva and school outings, and chasunos.`] },
-  upstate: { group: 'Rockland, Orange and the Catskills', p: (n) => [`We run buses to and from ${n} for camps, Shabbatons, Kehila trips, school outings and simchos. Tell us the pickups, the destination and the return plan, and the quote lists every stop.`, `Summer traffic and camp schedules fill up early, so send the date as soon as you have it.`] },
-  nj: { group: 'New Jersey', p: (n) => [`We quote buses for groups in ${n} for camp trips, Shabbatons, Kehila trips, yeshiva trips, chasunos and simchos. Send the pickups, the destination and the headcount.`, `Groups with pickups in several New Jersey towns can be quoted as one route.`] },
+  brooklyn: { group: 'Brooklyn and Manhattan', p: (n) => [`Most of our Brooklyn and Manhattan work is groups with several pickup points in one neighborhood, then a single run out of the city. List each pickup with its time and we price the whole route as one trip.`, `Typical trips from ${n}: camp runs, Shabbatons, Kehila trips, trips to the Kivrei Tzadikim, yeshiva and school outings, and weddings.`] },
+  upstate: { group: 'Rockland, Orange and the Catskills', p: (n) => [`We run buses to and from ${n} for camps, Shabbatons, Kehila trips, school outings and simchas. Tell us the pickups, the destination and the return plan, and the quote lists every stop.`, `Summer traffic and camp schedules fill up early, so send the date as soon as you have it.`] },
+  nj: { group: 'New Jersey', p: (n) => [`We quote buses for groups in ${n} for camp trips, Shabbatons, Kehila trips, yeshiva trips, weddings and simchas. Send the pickups, the destination and the headcount.`, `Groups with pickups in several New Jersey towns can be quoted as one route.`] },
   far: { group: 'Out of state', p: (n) => [`We also arrange charter buses for groups in ${n}. These are longer trips, so the quote lists the route, the stops and the return, and our team prices each one by hand.`, `Call or send the request form with your dates and we will tell you what we can do.`] },
 };
 const mk = (slug, name, region, intro, sameAs) => ({ slug, name, region, intro });
@@ -27,7 +27,7 @@ export const AREAS = [
   mk('michigan', 'Michigan', 'far', 'Charter buses for groups in Michigan.'),
 ].map((a) => ({
   ...a, group: R[a.region].group,
-  title: `Charter Bus Rental in ${a.name}`, h1: `Charter buses in ${a.name}`, desc: `${a.intro} Camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, school trips and simchos. Request a quote from Get A Bus NY.`,
+  title: `Charter Bus Rental in ${a.name}`, h1: `Charter buses in ${a.name}`, desc: `${a.intro} Camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, school trips and simchas. Request a quote from Get A Bus NY.`,
   lead: a.intro,
   sections: [{ h: `Bus service in ${a.name}`, p: R[a.region].p(a.name) }, { h: 'How to book', p: ['Send the request form with your date, times, pickups and stops, or call the office. We reply with a price. Pricing is set by our team for each trip.'] }],
   faq: [
