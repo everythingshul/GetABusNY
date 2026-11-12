@@ -1,4 +1,4 @@
-// Chesky for Get A Bus NY — ported from JListings' Chesky.
+// Chesky for Get A Bus NY, ported from JListings' Chesky.
 //  • taught answers (chat_learned) are checked first, fuzzy-matched, returned verbatim
 //  • otherwise a stateless Claude call with a `respond` tool that ends every turn
 //  • unanswered questions are logged so staff can "teach" them from the admin
@@ -69,7 +69,7 @@ function bumpUnanswered(question, col = 'miss_count') {
 }
 
 // ---------- AI ----------
-const hoursText = () => getJSON('hours', []).map((h) => `${h.day}: ${h.open ? `${h.open} – ${h.close}` : 'Closed'}`).join('; ');
+const hoursText = () => getJSON('hours', []).map((h) => `${h.day}: ${h.open ? `${h.open} to ${h.close}` : 'Closed'}`).join('; ');
 const fleetRows = () => all('SELECT id,name,category,capacity,description FROM vehicles WHERE active=1 ORDER BY sort');
 
 function systemPrompt() {
@@ -256,7 +256,7 @@ export function chatPublicRouter() {
       }
       run("INSERT INTO chat_messages(conversation_id,from_role,text,created_at) VALUES(?,'visitor',?,?)", id, message, t);
       note({ name, email, page }, message, true);
-      sendEmail(email, `We received your message — ${getSetting('business_name')}`, emailShell('We received your message', `<p>Thanks for reaching out${name ? `, ${esc(name)}` : ''}. A person on our team will reply soon. You can keep chatting from the link below.</p>`, { label: 'View the conversation', url: `${BASE_URL()}/?chesky=${id}` })).catch(() => {});
+      sendEmail(email, `We received your message - ${getSetting('business_name')}`, emailShell('We received your message', `<p>Thanks for reaching out${name ? `, ${esc(name)}` : ''}. A person on our team will reply soon. You can keep chatting from the link below.</p>`, { label: 'View the conversation', url: `${BASE_URL()}/?chesky=${id}` })).catch(() => {});
       res.json({ id, baselineId });
     } catch (e) { next(e); }
   });

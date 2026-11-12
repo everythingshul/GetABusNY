@@ -1,4 +1,4 @@
-// Outbound integrations: email (Resend), SMS (Twilio), Stripe (REST), all optional.
+// Outbound integrations: email (Brevo or Resend), texts (SimpleSender), Stripe (REST), all optional.
 import crypto from 'node:crypto';
 import { run, now, getSetting, all, one, insert, update } from './db.js';
 
@@ -172,7 +172,7 @@ export function verifyStripe(raw, header, secret, tolerance = 300) {
   return sigs.some((s) => s.length === expected.length && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected)));
 }
 
-// ---------- Google Maps (Places API New + Routes) — server-side so one key does it all ----------
+// ---------- Google Maps (Places API New + Routes), server-side so one key does it all ----------
 const MAPS = () => env('GOOGLE_MAPS_API_KEY');
 export async function placesAutocomplete(input, sessionToken) {
   if (!MAPS()) return [];

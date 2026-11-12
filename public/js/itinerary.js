@@ -48,7 +48,7 @@ export function itineraryEditor(box, { value = [], staff = false, roundTrip = fa
     box.innerHTML = `<div class="itn">${rows.map((r, i) => `<div class="itn-row ${r.wait_min || r.note || r.pax || r.time || r.contact_name ? 'open' : ''}" data-i="${i}" data-k="${r.kind}">
       <div class="num">${i + 1}</div><div class="itn-main">
       <select data-f="kind" aria-label="Stop type">${kinds.map((k) => `<option value="${k}" ${k === r.kind ? 'selected' : ''}>${KINDS[k]}</option>`).join('')}</select>
-      <input data-f="address" data-pl value="${esc(r.address)}" placeholder="${r.kind === 'start' || r.kind === 'end' ? 'Garage / depot address' : 'Start typing an address or place name'}" aria-label="Address" ${r.auto ? `title="Copied from the ${r.auto} above — edit to change"` : ''}></div>
+      <input data-f="address" data-pl value="${esc(r.address)}" placeholder="${r.kind === 'start' || r.kind === 'end' ? 'Garage / depot address' : 'Start typing an address or place name'}" aria-label="Address" ${r.auto ? `title="Copied from the ${r.auto} above, edit to change"` : ''}></div>
       <div class="itn-extra"><label>${r.kind === 'pickup' || r.kind === 'return_pickup' ? 'Pickup time' : 'Arrive time'}<input type="datetime-local" data-f="time" value="${esc((r.time || '').slice(0, 16))}"></label>
       <label>Wait here (min)<input type="number" min="0" step="5" data-f="wait_min" value="${r.wait_min || ''}"></label>
       <label>Passengers<input type="number" min="0" data-f="pax" value="${r.pax || ''}"></label>

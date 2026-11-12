@@ -10,7 +10,7 @@ export async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.');
   return j;
 }
-export const fmtWhen = (s) => { if (!s) return '—'; const d = new Date(s.length === 10 ? s + 'T00:00:00Z' : s + ':00Z'); return d.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(s.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
+export const fmtWhen = (s) => { if (!s) return 'Not set'; const d = new Date(s.length === 10 ? s + 'T00:00:00Z' : s + ':00Z'); return d.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(s.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
 
 let cfgP;
 export const config = () => (cfgP ||= api('/config'));
@@ -37,83 +37,39 @@ export function openNow(hours) {
   return { open: false, text: 'Closed now' };
 }
 
-/** Simple side-view vehicle drawing used when there is no photo. */
-export function vehicleArt(cat = '', capacity = 30) {
-  const c = cat.toLowerCase();
-  const len = Math.min(300, 190 + capacity * 2);
-  const x0 = (320 - len) / 2;
-  let body = '', wins = '';
-  const n = Math.max(3, Math.round(len / 36));
-  const ww = (len - 70) / n;
-  if (c.includes('coach')) {
-    body = `<rect x="${x0}" y="22" width="${len}" height="62" rx="12" fill="#fff" stroke="#10222f" stroke-width="2"/><rect x="${x0}" y="58" width="${len}" height="14" fill="#94bf33"/><rect x="${x0}" y="72" width="${len}" height="12" fill="#0078c0"/>`;
-    for (let i = 0; i < n; i++) wins += `<rect x="${x0 + 48 + i * ww}" y="30" width="${ww - 6}" height="22" rx="3" fill="#7fb8dc" stroke="#10222f" stroke-width="1.5"/>`;
-    wins += `<path d="M${x0 + len - 4} 30 h-30 v26 h34z" fill="#7fb8dc" stroke="#10222f" stroke-width="1.5"/>`;
-  } else if (c.includes('trolley')) {
-    body = `<rect x="${x0}" y="28" width="${len}" height="56" rx="8" fill="#0078c0" stroke="#10222f" stroke-width="2"/><rect x="${x0 - 3}" y="18" width="${len + 6}" height="12" rx="4" fill="#94bf33" stroke="#10222f" stroke-width="2"/><rect x="${x0}" y="70" width="${len}" height="8" fill="#94bf33"/>`;
-    for (let i = 0; i < n; i++) wins += `<path d="M${x0 + 16 + i * ww} 36 h${ww - 10} v26 h-${ww - 10} z" fill="#dff0fa" stroke="#10222f" stroke-width="1.5"/>`;
-  } else if (c.includes('limo')) {
-    body = `<path d="M${x0} 70 v-14 q0-8 8-10 l30-4 q14-18 40-18 h${len - 130} q20 0 28 16 l${14} 4 q8 2 8 12 v14z" fill="#10222f" stroke="#10222f" stroke-width="2"/>`;
-    for (let i = 0; i < 3; i++) wins += `<rect x="${x0 + 60 + i * ((len - 140) / 3)}" y="36" width="${(len - 140) / 3 - 6}" height="16" rx="3" fill="#7fb8dc"/>`;
-    wins += `<rect x="${x0}" y="62" width="${len}" height="4" fill="#94bf33"/>`;
-  } else {
-    body = `<rect x="${x0}" y="24" width="${len}" height="60" rx="14" fill="#10222f" stroke="#10222f" stroke-width="2"/><rect x="${x0}" y="62" width="${len}" height="6" fill="#94bf33"/><rect x="${x0}" y="68" width="${len}" height="4" fill="#0078c0"/>`;
-    for (let i = 0; i < n; i++) wins += `<rect x="${x0 + 44 + i * ww}" y="32" width="${ww - 8}" height="22" rx="4" fill="#3d6d8a" stroke="#6fb0d6" stroke-width="1.5"/>`;
-    wins += `<path d="M${x0 + len - 4} 32 h-28 v26 h32z" fill="#3d6d8a" stroke="#6fb0d6" stroke-width="1.5"/>`;
-  }
-  const wheel = (x) => `<circle cx="${x}" cy="88" r="11" fill="#10222f"/><circle cx="${x}" cy="88" r="4.5" fill="#c7d3dc"/>`;
-  return `<svg viewBox="0 0 320 110" role="img" aria-label="${esc(cat)} illustration" width="100%" style="max-width:300px">${body}${wins}${wheel(x0 + 44)}${wheel(x0 + len - 50)}<rect x="10" y="98" width="300" height="3" rx="2" fill="#cfdbe4"/></svg>`;
-}
+export { vehicleArt, vehicleCard, seatMap } from '/js/bus-art.js';
 
-export function vehicleCard(v, { showRequest = true } = {}) {
-  const pic = v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : vehicleArt(v.category, v.capacity);
-  return `<article class="card vehicle ${v.image ? 'has-img' : ''}" data-cat="${esc(v.category)}" data-cap="${v.capacity}"><div class="pic">${pic}</div><div class="body">
-    <div><span class="tag">${esc(v.category)}</span></div><h3>${esc(v.name)}</h3>
-    <div class="seats">Seats ${v.capacity}</div><p class="muted" style="margin:0;font-size:.93rem">${esc(v.description || '')}</p>
-    <div class="pills">${(v.features || []).slice(0, 6).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
-    ${showRequest ? `<div class="foot"><a class="btn btn-blue btn-sm" href="/book?vehicle=${v.id}">Get a quote</a></div>` : ''}</div></article>`;
+/** Compact hours, e.g. "Sun to Thu 10:00 AM to 7:00 PM". */
+export function hoursLines(hours) {
+  const short = (d) => d.slice(0, 3);
+  const groups = [];
+  for (const h of hours) {
+    const key = h.open ? `${h.open} to ${h.close}` : 'Closed';
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.days.push(h.day); else groups.push({ key, days: [h.day] });
+  }
+  return groups.map((g) => `${g.days.length > 1 ? `${short(g.days[0])} to ${short(g.days[g.days.length - 1])}` : short(g.days[0])}: ${g.key}`);
 }
 
 export async function boot(active) {
   const c = await config();
   document.documentElement.lang = 'en';
-  const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/book', 'Request a Quote'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay Invoice'], ['/driver', 'Drivers']];
+  const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/book', 'Request a quote'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay invoice'], ['/driver', 'Drivers']];
   const tel = c.phone.replace(/[^+\d]/g, '');
   const st = openNow(c.hours);
-  $('#hdr').innerHTML = `<div class="topbar"><div class="wrap"><span><span class="open-dot ${st.open ? 'on' : ''}"></span>${esc(st.text)}</span><span><a href="tel:${tel}">${esc(c.phone)}</a> &nbsp;·&nbsp; <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></span></div></div>
+  $('#hdr').innerHTML = `<div class="topbar"><div class="wrap"><span><span class="open-dot ${st.open ? 'on' : ''}"></span>${esc(st.text)}</span><span><a href="tel:${tel}">${esc(c.phone)}</a> &nbsp;&middot;&nbsp; <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></span></div></div>
   <header class="site"><div class="wrap"><a class="logo" href="/"><img src="/img/logo.png" alt="${esc(c.business_name)}" width="190" height="44"></a>
   <button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
-  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}<a class="btn btn-lime btn-sm" href="/book" style="margin-left:6px">Book now</a></nav></div></header>`;
+  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}<a class="btn btn-lime btn-sm" href="/book" style="margin-left:8px">Book now</a></nav></div></header>`;
   $('.burger').onclick = (e) => { const n = $('nav.main'); const o = n.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
   $('#ftr').innerHTML = `<footer class="site"><div class="wrap"><div class="cols">
-    <div><span class="logo-w"><img src="/img/logo.png" alt="${esc(c.business_name)}"></span><p>Charter bus brokerage serving ${esc(c.service_area)}. Since 2016.</p><div class="socials">${socialLinks(c.socials)}</div></div>
-    <div><h4>Company</h4><ul><li><a href="/about">About us</a></li><li><a href="/fleet">Our fleet</a></li><li><a href="/contact">Contact</a></li><li><a href="/terms">Terms &amp; conditions</a></li></ul></div>
+    <div><span class="logo-w"><img src="/img/logo.png" alt="${esc(c.business_name)}"></span><p>Charter bus broker for camps, shuls, yeshivos and families. In business since 2016.</p><div class="socials">${socialLinks(c.socials)}</div></div>
+    <div><h4>Company</h4><ul><li><a href="/about">About us</a></li><li><a href="/fleet">Our fleet</a></li><li><a href="/contact">Contact</a></li><li><a href="/terms">Terms and conditions</a></li><li><a href="/privacy">Privacy</a></li></ul></div>
     <div><h4>Customers</h4><ul><li><a href="/book">Request a quote</a></li><li><a href="/pay">Pay an invoice</a></li><li><a href="/driver">Driver portal</a></li></ul></div>
-    <div><h4>Reach us</h4><ul><li><a href="tel:${tel}">${esc(c.phone)}</a></li><li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>${c.address ? `<li>${esc(c.address)}</li>` : ''}<li>${c.hours.filter((h) => h.open).length ? 'Sun–Thu 10–7 · Fri 10–12:30' : ''}</li></ul></div>
-  </div><div class="legal"><span>© ${new Date().getFullYear()} ${esc(c.business_name)}. All rights reserved.</span><span><a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a></span></div></div></footer>`;
+    <div><h4>Office</h4><ul><li><a href="tel:${tel}">${esc(c.phone)}</a></li><li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>${c.address ? `<li>${esc(c.address)}</li>` : ''}${hoursLines(c.hours).map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>
+  </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span><span><a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a></span></div></div></footer>`;
   if (c.chesky) import('/js/chesky.js').then((m) => m.initChesky({ name: c.chesky_name, phone: c.phone })).catch(() => {});
   beacon();
   fillIcons();
   return c;
-}
-
-function chatWidget(c) {
-  const sid = (() => { try { return sessionStorage.gabChat || (sessionStorage.gabChat = crypto.randomUUID()); } catch { return Math.random().toString(36).slice(2); } })();
-  const box = document.createElement('div');
-  box.innerHTML = `<button id="chesky-btn" aria-label="Chat with ${esc(c.chesky_name)}"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>Chat with ${esc(c.chesky_name)}</button>
-  <div id="chesky" role="dialog" aria-label="Chat"><header><div><b>${esc(c.chesky_name)}</b><small>Virtual assistant · a person will confirm quotes</small></div><button aria-label="Close">×</button></header><div id="cmsgs" aria-live="polite"></div>
-  <form id="cform"><input id="cin" placeholder="Type your question…" autocomplete="off" maxlength="1000" aria-label="Message"><button class="btn btn-blue btn-sm">Send</button></form></div>`;
-  document.body.append(box);
-  const panel = $('#chesky'), msgs = $('#cmsgs');
-  const add = (t, who) => { const d = document.createElement('div'); d.className = 'm ' + who; d.textContent = t; msgs.append(d); msgs.scrollTop = msgs.scrollHeight; return d; };
-  const open = (o) => { panel.classList.toggle('open', o); $('#chesky-btn').style.display = o ? 'none' : 'flex'; if (o && !msgs.children.length) add(`Hi, I'm ${c.chesky_name}. I can help you pick a vehicle, answer questions, or start a quote request. What are you planning?`, 'bot'); if (o) $('#cin').focus(); };
-  $('#chesky-btn').onclick = () => open(true);
-  $('#chesky header button').onclick = () => open(false);
-  $('#cform').onsubmit = async (e) => {
-    e.preventDefault();
-    const inp = $('#cin'), text = inp.value.trim(); if (!text) return;
-    inp.value = ''; add(text, 'me'); const w = add('…', 'bot');
-    try { const r = await api('/chat', { body: { session_id: sid, message: text } }); w.textContent = r.reply || 'Sorry, I did not catch that.'; } catch (err) { w.textContent = err.message; }
-    msgs.scrollTop = msgs.scrollHeight;
-  };
 }

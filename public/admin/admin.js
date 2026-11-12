@@ -1,4 +1,4 @@
-// Get A Bus NY admin — dependency-free single page app.
+// Get A Bus NY admin, dependency-free single page app.
 import { itineraryEditor, KIND_LABELS } from '/js/itinerary.js';
 import { attachPlaces } from '/js/places.js';
 import { renderChat } from '/admin/chesky-admin.js';
@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const c2d = (c) => ((Number(c) || 0) / 100).toFixed(2);
 const d2c = (v) => Math.round((parseFloat(v) || 0) * 100);
 const usd = (c) => (Number(c || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-const fmt = (s) => { if (!s) return '—'; const d = new Date(s.length === 10 ? s + 'T00:00:00Z' : s.length === 16 ? s + ':00Z' : s); return d.toLocaleString('en-US', { timeZone: s.length <= 16 ? 'UTC' : undefined, month: 'short', day: 'numeric', year: 'numeric', ...(s.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
+const fmt = (s) => { if (!s) return '-'; const d = new Date(s.length === 10 ? s + 'T00:00:00Z' : s.length === 16 ? s + ':00Z' : s); return d.toLocaleString('en-US', { timeZone: s.length <= 16 ? 'UTC' : undefined, month: 'short', day: 'numeric', year: 'numeric', ...(s.length > 10 ? { hour: 'numeric', minute: '2-digit' } : {}) }); };
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
 const J = (o) => { try { return typeof o === 'string' ? JSON.parse(o) : o || {}; } catch { return {}; } };
 
@@ -42,7 +42,7 @@ const button = (label, cls = '', attrs = '') => `<button class="btn ${cls}" ${at
 async function confirmBox(msg) { return confirm(msg); }
 
 // ---------- forms ----------
-const opts = (list, label, blank = '— none —') => [['', blank], ...list.map((x) => [x.id, label(x)])];
+const opts = (list, label, blank = '(none)') => [['', blank], ...list.map((x) => [x.id, label(x)])];
 function fld(f, v = {}) {
   if (f.t === 'custom') return `<div class="full">${f.html}</div>`;
   const val = v[f.k] ?? f.def ?? '';
@@ -93,7 +93,7 @@ const readItems = (root, id = 'items') => $$('#' + id + ' tbody tr', root).map((
 // ---------- table ----------
 function table(cols, rows, { onClick, empty = 'Nothing here yet.' } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="tblwrap"><table class="tbl"><thead><tr>${cols.map((c) => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr ${onClick ? `class="click" data-i="${i}"` : ''}>${cols.map((c) => `<td class="${c.cls || ''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tblwrap"><table class="tbl"><thead><tr>${cols.map((c) => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr ${onClick ? `class="click" data-i="${i}"` : ''}>${cols.map((c) => `<td class="${c.cls || ''}" data-l="${esc(c.h)}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function bindRows(root, rows, fn) { $$('tbody tr.click', root).forEach((tr) => tr.addEventListener('click', (e) => { if (e.target.closest('a,button')) return; fn(rows[+tr.dataset.i]); })); }
 const chips = (list, cur, id = 'chips') => `<div class="chips" id="${id}">${list.map(([k, l]) => `<button class="chip ${k === cur ? 'on' : ''}" data-k="${k}">${esc(l)}</button>`).join('')}</div>`;
@@ -104,7 +104,7 @@ async function lookups() {
   const [customers, vehicles, drivers, vendors] = await Promise.all(['customers', 'vehicles', 'drivers', 'vendors'].map((r) => GET('/' + r + '?limit=1000')));
   S.L = { customers, vehicles, drivers, vendors };
 }
-const custOpts = () => opts(S.L.customers, (c) => `${c.name}${c.company ? ' — ' + c.company : ''}${c.email ? ' (' + c.email + ')' : ''}`, 'Select customer…');
+const custOpts = () => opts(S.L.customers, (c) => `${c.name}${c.company ? ', ' + c.company : ''}${c.email ? ' (' + c.email + ')' : ''}`, 'Select customer…');
 const vehOpts = () => opts(S.L.vehicles.filter((v) => v.active), (v) => `${v.name} (${v.capacity})`, 'Not specified');
 const drvOpts = () => opts(S.L.drivers.filter((d) => d.active), (d) => d.name, 'Unassigned');
 const vndOpts = () => opts(S.L.vendors.filter((v) => v.active), (v) => v.name, 'Own / none');
@@ -116,7 +116,7 @@ const NAV = [
   ['', 'Operations'], ['trips', 'Trips'], ['drivers', 'Drivers'], ['fleet', 'Fleet'],
   ['', 'Vendors'], ['vendors', 'Vendors'], ['rfqs', 'Vendor quotes', 'rfqs_waiting'],
   ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['contracts', 'Contracts'],
-  ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['chesky', 'Chesky'], ['texts', 'Texts'], ['activity', 'Activity'], ['settings', 'Settings'],
+  ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
 ];
 const VIEWS = {};
 function renderNav(counts = {}) {
@@ -161,7 +161,7 @@ VIEWS.analytics = async (el) => {
   const [a, tr] = await Promise.all([GET('/analytics'), GET('/traffic?days=30')]);
   const bars = (rows, key, cls = '', fmtv = (x) => x) => { const max = Math.max(1, ...rows.map((r) => r[key])); return `<div class="bars">${rows.map((r) => `<div class="b ${cls}" title="${esc(r.m)}: ${fmtv(r[key])}"><em>${fmtv(r[key])}</em><i style="height:${Math.max(2, (r[key] / max) * 100)}%"></i><span>${esc(r.m.slice(2))}</span></div>`).join('')}</div>`; };
   const hb = (rows, vf = (r) => r.c, cls = '') => { const max = Math.max(1, ...rows.map((r) => Number(vf(r)) || 0)); return rows.length ? rows.map((r) => `<div class="hbar ${cls}"><span>${esc(r.k)}</span><div><i style="width:${((Number(vf(r)) || 0) / max) * 100}%"></i></div><b>${esc(r.label ?? vf(r))}</b></div>`).join('') : '<p class="mut">No data yet.</p>'; };
-  const f = a.funnel, pct = (x, y) => (y ? Math.round((x / y) * 100) + '%' : '—');
+  const f = a.funnel, pct = (x, y) => (y ? Math.round((x / y) * 100) + '%' : '-');
   const mg = a.margin.rev - a.margin.cost;
   el.innerHTML = `<div class="tiles">
    <div class="tile"><div class="l">Quote win rate</div><div class="v">${Math.round(a.win_rate * 100)}%</div><div class="s">${f.accepted} of ${f.quoted} quotes</div></div>
@@ -183,27 +183,45 @@ VIEWS.analytics = async (el) => {
 const exportBtn = (kind, label = 'Export to Excel') => `<a class="btn" href="/api/admin/export/${kind}" download>${label}</a>`;
 function placesFor(root) { $$('input[data-places]', root).forEach((i) => attachPlaces(i)); }
 const KIND_OPTS = Object.entries(KIND_LABELS).map(([k, l]) => [k, l]);
-const purposeOpts = () => [['', '— select —'], ...(S.settings?.trip_purposes || '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => [x, x])];
+const purposeOpts = () => [['', '(select)'], ...(S.settings?.trip_purposes || '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => [x, x])];
 const legacyItin = (t) => (t.itinerary && t.itinerary.length ? t.itinerary : [t.pickup && { kind: 'pickup', address: t.pickup, time: t.depart_at }, t.dropoff && { kind: 'dropoff', address: t.dropoff }].filter(Boolean));
-const itinList = (it) => (it && it.length ? it.map((x, i) => `${i + 1}. <span class="mut">${esc(KIND_LABELS[x.kind] || x.kind)}</span> ${esc(x.address)}${x.time ? ` <span class="mut">@ ${fmt(x.time)}</span>` : ''}${x.wait_min ? ` <span class="mut">(wait ${x.wait_min}m)</span>` : ''}`).join('<br>') : '—');
+const itinList = (it) => (it && it.length ? it.map((x, i) => `${i + 1}. <span class="mut">${esc(KIND_LABELS[x.kind] || x.kind)}</span> ${esc(x.address)}${x.time ? ` <span class="mut">@ ${fmt(x.time)}</span>` : ''}${x.wait_min ? ` <span class="mut">(wait ${x.wait_min}m)</span>` : ''}`).join('<br>') : '-');
 function itemRowHTML(it) { return `<tr><td><input data-k="desc" value="${esc(it.desc)}" placeholder="Description"></td><td style="width:70px"><input data-k="qty" type="number" step="0.5" min="0" value="${it.qty}"></td><td style="width:120px"><input data-k="price" type="number" step="0.01" value="${c2d(it.unit_cents)}"></td><td style="width:100px" class="r mut amt"></td><td style="width:34px"><button type="button" class="btn sm danger rm" aria-label="Remove line">×</button></td></tr>`; }
-/** Route tools shared by the quote and trip editors: build unpriced lines + drive-time estimate. Never sets a price. */
-function wireRouteTools(ov, ed, { purpose, onLines }) {
-  $('#rt_est', ov)?.addEventListener('click', () => guard(async () => { const r = await POST('/route-estimate', { itinerary: ed.get() }); $('#rt_out', ov).innerHTML = `Drive estimate: <b>${r.miles} mi</b>, <b>${Math.floor(r.minutes / 60)}h ${r.minutes % 60}m</b> driving (Google). Waiting time not included. Use it as a guide when you price.`; }));
-  $('#rt_lines', ov)?.addEventListener('click', () => guard(async () => { const lines = await POST('/itinerary/lines', { itinerary: ed.get(), purpose: purpose() }); onLines(lines); toast('Lines added — enter your prices'); }));
+/** Route tools shared by the quote and trip editors: bus-safe drive time with ETAs, and unpriced lines. Never sets a price. */
+function wireRouteTools(ov, ed, { purpose, onLines, vehicle, depart }) {
+  const hm = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  $('#rt_est', ov)?.addEventListener('click', () => guard(async () => {
+    const res = $('#rt_res', ov); res.innerHTML = '<span class="mut">Working out the route...</span>';
+    const rows = ed.get();
+    if (rows[0] && !rows[0].time && depart?.()) rows[0].time = depart();
+    const r = await POST('/route-estimate', { itinerary: rows, vehicle_id: vehicle?.() || null });
+    const banner = r.bus_aware ? `<div class="alert-ok">Bus-safe route (${esc(r.provider)}): avoids roads closed to buses, sized for your coach settings.</div>` : `<div class="alert-warn">${esc(r.warning || 'Not bus aware.')}${r.mode === 'car' && !r.warning ? ' Car route for a limo or sprinter.' : ''}</div>`;
+    const legsHtml = r.legs.map((l, i) => `<tr><td>${i + 1} to ${i + 2}</td><td>${esc(l.to)}</td><td class="r">${l.miles} mi</td><td class="r">${hm(l.minutes)}</td><td class="r">${r.stops?.[i + 1] ? esc(fmt(r.stops[i + 1].arrive)) + (r.stops[i + 1].late ? ' <span class="badge b-r">late</span>' : '') : ''}</td></tr>`).join('');
+    res.innerHTML = `${banner}<p style="margin:6px 0"><b>${r.miles} mi</b>, <b>${hm(r.minutes)}</b> driving, not counting waits. Use it as a guide when you price.</p><div class="tblwrap"><table class="tbl"><thead><tr><th>Leg</th><th>To</th><th class="r">Distance</th><th class="r">Drive</th><th class="r">Arrive</th></tr></thead><tbody>${legsHtml}</tbody></table></div>${r.stops ? '<p style="margin:8px 0 0"><button type="button" class="btn sm" id="rt_fill">Fill empty stop times with these arrivals</button></p>' : '<p class="hint">Set a pickup time on the first stop to get arrival times.</p>'}`;
+    $('#rt_fill', res)?.addEventListener('click', () => { const cur = ed.get(); ed.set(cur.map((x, i) => ({ ...x, time: x.time || r.stops[i]?.arrive || '' }))); toast('Times filled in. Adjust any you like.'); });
+  }));
+  $('#rt_lines', ov)?.addEventListener('click', () => guard(async () => { const lines = await POST('/itinerary/lines', { itinerary: ed.get(), purpose: purpose() }); onLines(lines); toast('Lines added. Enter your prices.'); }));
 }
 
+const smsTypesHTML = (c) => { const chosen = (() => { try { return JSON.parse(c.sms_types || 'null'); } catch { return null; } })(); const g = S.cfg?.sms_groups || {}; return `<div class="fsec" style="margin-top:14px">Texts this customer wants (when "OK to text" is checked)</div><div style="display:flex;flex-wrap:wrap;gap:6px 18px">${Object.entries(g).map(([k, l]) => `<label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" data-sg="${k}" ${!chosen || chosen.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>`; };
+const readSmsTypes = (root) => { const all = $$('[data-sg]', root); const on = all.filter((x) => x.checked).map((x) => x.dataset.sg); return on.length === all.length || !on.length ? null : on; };
+function composeText({ customer_id, name, phone }) {
+  modal({ title: `Text ${name}`, small: true, body: `<p class="mut sm">To ${esc(phone)}. Only works if they agreed to texts.</p><label>Message<textarea id="tm" rows="6" maxlength="500" placeholder="Type your message. Line breaks are kept."></textarea></label><div class="hint" id="tc">0 / 500 (about 160 characters per text)</div>`, footer: `<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+    $('#tm', ov).oninput = (e) => { $('#tc', ov).textContent = `${e.target.value.length} / 500 (about 160 characters per text)`; };
+    $('#go', ov).onclick = () => guard(async () => { const m = $('#tm', ov).value.trim(); if (!m) return toast('Write a message', true); await POST(`/customers/${customer_id}/text`, { message: m }); close(); }, 'Text sent');
+  } });
+}
 const CUST_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'company', l: 'Company / organization' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'address', l: 'Address', full: 1, places: 1 }, { k: 'sms_optin', l: 'OK to text (customer agreed)', t: 'check' }, { k: 'tags', l: 'Tags', help: 'comma separated, e.g. camp, shul, repeat' }, { k: 'notes', l: 'Internal notes', t: 'textarea', full: 1 }];
 async function customerModal(id, after) {
   const c = id ? await GET('/customers/' + id) : {};
   const h = id ? await GET(`/customers/${id}/history`) : null;
   const m = modal({
-    title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
+    title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + smsTypesHTML(c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
     footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && c.sms_optin ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       placesFor(ov);
-      $('#txt', ov)?.addEventListener('click', () => { const m = prompt(`Text ${c.name} (${c.phone}):`); if (m) guard(() => POST(`/customers/${id}/text`, { message: m }), 'Text sent'); });
-      $('#save', ov).onclick = () => guard(async () => { const o = readForm(CUST_F, ov); if (!reqCheck(CUST_F, o)) return; id ? await PUT('/customers/' + id, o) : await POST('/customers', o); close(); await refresh(); after?.(); }, 'Saved');
+      $('#txt', ov)?.addEventListener('click', () => composeText({ customer_id: id, name: c.name, phone: c.phone }));
+      $('#save', ov).onclick = () => guard(async () => { const o = readForm(CUST_F, ov); if (!reqCheck(CUST_F, o)) return; o.sms_types = readSmsTypes(ov); id ? await PUT('/customers/' + id, o) : await POST('/customers', o); close(); await refresh(); after?.(); }, 'Saved');
       if (id) {
         $('#del', ov).onclick = () => guard(async () => { if (!confirm('Delete this customer?')) return; await DEL('/customers/' + id); close(); await refresh(); }, 'Deleted');
         $('#nq', ov).onclick = () => { close(); quoteModal(null, { customer_id: id }); };
@@ -250,7 +268,7 @@ function leadModal(r) {
   const d = J(r.details);
   const v = S.L.vehicles.find((x) => x.id === d.vehicle_id);
   modal({
-    title: `${r.ref} — ${r.name}`, body: `<dl class="kv"><div><dt>Contact</dt><dd>${esc(r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '—')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '—'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
+    title: `${r.ref} - ${r.name}`, body: `<dl class="kv"><div><dt>Contact</dt><dd>${esc(r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
     ${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
     footer: `${button('Delete', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
     onMount(ov, close) {
@@ -268,7 +286,7 @@ VIEWS.quotes = async (el) => {
   let st = ''; let q = '';
   const draw = async () => {
     const rows = await GET('/quotes?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'Quote', f: (r) => `<span class="bold">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => esc(r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '—') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '—') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.' });
+    $('#list', el).innerHTML = table([{ h: 'Quote', f: (r) => `<span class="bold">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => esc(r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '-') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '-') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.' });
     bindRows($('#list', el), rows, (r) => quoteModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(QUOTE_ST, st)}<input type="search" id="q" placeholder="Search…">${button('+ New quote', 'primary', 'id="new"')}${exportBtn('quotes')}</div><div id="list"></div>`;
@@ -281,7 +299,7 @@ const tripScalars = () => [
   { k: 'purpose', l: 'Trip purpose', t: 'select', o: purposeOpts() }, { k: 'passengers', l: 'Passengers', t: 'number' },
   { k: 'depart_at', l: 'Departure', t: 'datetime' }, { k: 'return_at', l: 'Return', t: 'datetime' }, { k: 'vehicle_id', l: 'Vehicle', t: 'select', o: vehOpts() },
 ];
-const routeBlock = `<div class="fsec">Route — every start, pickup, stop and drop-off, in order</div><div id="itn_box"></div><div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn sm" id="rt_est">Estimate drive time</button><button type="button" class="btn sm" id="rt_lines">Add pricing lines from route</button><span class="hint" id="rt_out">Pricing is always entered by you. These only create empty lines to fill in.</span></div>`;
+const routeBlock = `<div class="fsec">Route, every start, pickup, stop and drop-off, in order</div><div id="itn_box"></div><div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn sm" id="rt_est">Estimate drive time</button><button type="button" class="btn sm" id="rt_lines">Add pricing lines from route</button><span class="hint" id="rt_out">Pricing is always entered by you. These only create empty lines to fill in.</span></div><div id="rt_res" style="margin-top:10px"></div>`;
 async function quoteModal(id, preset = {}) {
   const q = id ? await GET('/quotes/' + id) : { items: '[]', tax_rate: Number(S.settings?.tax_rate) || 0, deposit_pct: Number(S.settings?.deposit_pct) || 50, status: 'draft', trip: '{}', valid_until: new Date(Date.now() + (Number(S.settings?.quote_valid_days) || 7) * 864e5).toISOString().slice(0, 10), ...preset };
   const trip = J(q.trip); const items = J(q.items); const tf = tripScalars();
@@ -295,11 +313,12 @@ async function quoteModal(id, preset = {}) {
     onMount(ov, close) {
       const ed = itineraryEditor($('#itn_box', ov), { staff: true, value: legacyItin(trip) });
       const calc = wireItems(ov, () => $('#f_tax_rate', ov).value);
-      wireRouteTools(ov, ed, { purpose: () => $('#f_purpose', ov).value, onLines: (lines) => { const cur = readItems(ov); const have = new Set(cur.map((x) => x.desc)); const add = lines.filter((l) => !have.has(l.desc)); $('#items tbody', ov).insertAdjacentHTML('beforeend', add.map(itemRowHTML).join('')); calc(); } });
+      wireRouteTools(ov, ed, { vehicle: () => $('#f_vehicle_id', ov).value, depart: () => $('#f_depart_at', ov).value, purpose: () => $('#f_purpose', ov).value, onLines: (lines) => { const cur = readItems(ov); const have = new Set(cur.map((x) => x.desc)); const add = lines.filter((l) => !have.has(l.desc)); $('#items tbody', ov).insertAdjacentHTML('beforeend', add.map(itemRowHTML).join('')); calc(); } });
       $('#f_tax_rate', ov).addEventListener('input', () => $('#items', ov).dispatchEvent(new Event('input')));
       $('#newcust', ov).onclick = () => customerModal(null, async () => { await lookups(); });
       const collect = () => {
         const o = readForm([...F, ...F2], ov); if (!o.customer_id) { toast('Select a customer', true); return null; }
+        if (o.depart_at && new Date(o.depart_at.slice(0, 16) + ':00Z').getUTCDay() === 6 && !confirm('This trip starts on a Saturday. Shabbos trips usually start after Shabbos ends. Keep this time?')) return null;
         const t = { notes: o.tnotes, purpose: o.purpose, passengers: o.passengers, depart_at: o.depart_at, return_at: o.return_at, vehicle_id: Number(o.vehicle_id) || null, itinerary: ed.get() };
         return { customer_id: Number(o.customer_id), title: o.title, tax_rate: o.tax_rate, deposit_pct: o.deposit_pct, valid_until: o.valid_until, notes: o.notes, items: readItems(ov), trip: t };
       };
@@ -310,7 +329,7 @@ async function quoteModal(id, preset = {}) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft?')) return; await DEL('/quotes/' + id); close(); reload(); }));
         $('#dup', ov).onclick = () => guard(async () => { const r = await POST(`/quotes/${id}/duplicate`); close(); quoteModal(r.id); });
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/quotes/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer quote link:', r.url); });
-        $('#acc', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Mark as accepted without a signature? This creates the trip and an invoice. (Customers normally accept and sign online.)')) return; await save(); await POST(`/quotes/${id}/accept`); close(); reload(); }, 'Accepted — trip and invoice created'));
+        $('#acc', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Mark as accepted without a signature? This creates the trip and an invoice. (Customers normally accept and sign online.)')) return; await save(); await POST(`/quotes/${id}/accept`); close(); reload(); }, 'Accepted, trip and invoice created'));
       }
     },
   });
@@ -323,7 +342,7 @@ VIEWS.trips = async (el) => {
   const draw = async () => {
     const rows = await GET('/trips?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : '') + (upcoming ? '&from=' + new Date().toISOString().slice(0, 10) : ''));
     if (upcoming) rows.reverse();
-    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `${esc(r.ref)}<br><span class="mut sm">${esc(r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '—') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.' });
+    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `${esc(r.ref)}<br><span class="mut sm">${esc(r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '-') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.' });
     bindRows($('#list', el), rows, (r) => tripModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(TRIP_ST, st)}<label style="display:flex;gap:6px;align-items:center;flex-direction:row"><input type="checkbox" id="up" checked> upcoming only</label><input type="search" id="q" placeholder="Search…">${button('+ Trip', 'primary', 'id="new"')}${exportBtn('trips')}${exportBtn('stops', 'Export stops')}</div><div id="list"></div>`;
@@ -339,7 +358,7 @@ async function tripModal(id) {
   const margin = (t.price_cents || 0) - (t.vendor_cost_cents || 0);
   const cons = t.contracts || [];
   modal({
-    title: id ? `${t.ref} — ${t.customer?.name || ''}` : 'New trip',
+    title: id ? `${t.ref} - ${t.customer?.name || ''}` : 'New trip',
     body: `${id ? `<p class="mut">${badge(t.status)} ${t.driver_status ? `Driver: <b>${esc(t.driver_status.replace('_', ' '))}</b> ${ago(t.driver_status_at)}` : ''} ${t.vendor_id ? `· margin <b>${usd(margin)}</b>` : ''} ${t.maps_url ? `· <a href="${esc(t.maps_url)}" target="_blank" rel="noopener">Open route in Google Maps</a>` : ''}</p>` : ''}${formHTML(F, t)}
     ${id ? `<div class="fsec" style="margin-top:18px">Agreement (e-signature)</div>${cons.length ? cons.map((k) => `<div>${esc(k.number)} ${badge(k.status === 'signed' ? 'accepted' : k.status)} ${usd(k.total_cents)} ${k.status === 'signed' ? `signed by ${esc(k.signer_name)} ${ago(k.signed_at)} · <a href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="link" data-send-con="${k.id}">send to customer</button> · <button class="link" data-copy-con="${k.id}">copy link</button>`}</div>`).join('') : '<p class="mut">No agreement yet. Customers sign automatically when they accept a quote online. For other trips, create one:</p>'}<p><button class="btn sm" id="mkcon" type="button">Create agreement to sign</button></p>
     <div class="fsec">Invoices</div>${t.invoices.length ? t.invoices.map((i) => `<div><a href="#" data-inv="${i.id}">${esc(i.number)}</a> ${badge(i.status)} ${usd(i.total_cents)} (paid ${usd(i.amount_paid_cents)})</div>`).join('') : '<p class="mut">None yet.</p>'}
@@ -348,9 +367,11 @@ async function tripModal(id) {
     footer: `<span class="sp"></span>${id ? button('Email confirmation', '', 'id="conf"') + button('Request Google review', '', 'id="rev"') + button('Vendor prices', '', 'id="rfq"') + button('Create invoice', '', 'id="inv"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       const ed = itineraryEditor($('#itn_box', ov), { staff: true, value: legacyItin(t) });
-      wireRouteTools(ov, ed, { purpose: () => $('#f_purpose', ov).value, onLines: () => toast('Open a quote or invoice to add the lines') });
+      wireRouteTools(ov, ed, { vehicle: () => $('#f_vehicle_id', ov).value, depart: () => $('#f_depart_at', ov).value, purpose: () => $('#f_purpose', ov).value, onLines: () => toast('Open a quote or invoice to add the lines') });
       $('#rt_lines', ov).style.display = 'none';
-      $('#save', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; o.itinerary = ed.get(); id ? await PUT('/trips/' + id, o) : await POST('/trips', o); close(); reload(); }, 'Saved');
+      $('#save', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; o.itinerary = ed.get();
+        if (o.depart_at) { const cf = await GET(`/trips/conflicts?id=${id || 0}&from=${encodeURIComponent(o.depart_at)}&to=${encodeURIComponent(o.return_at || '')}&driver_id=${o.driver_id || ''}&vehicle_id=${o.vehicle_id || ''}`); if (cf.length && !confirm(cf.map((c) => `${c.what === 'driver' ? 'This driver' : 'This vehicle'} is already on ${c.ref} (${c.customer_name}, ${fmt(c.depart_at)})`).join('\n') + '\n\nSave anyway?')) return; }
+        id ? await PUT('/trips/' + id, o) : await POST('/trips', o); close(); reload(); }, 'Saved');
       if (id) {
         $('#conf', ov).onclick = () => guard(() => POST(`/trips/${id}/confirm-email`), 'Confirmation emailed');
         $('#rev', ov).onclick = () => guard(async () => { const r = await POST(`/trips/${id}/review-request`); toast(r.sms ? 'Review request sent by email and text' : 'Review request emailed'); });
@@ -407,9 +428,9 @@ async function invoiceModal(id) {
         $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value }); close(); reload(); }, 'Payment recorded'); };
         ov.addEventListener('click', (e) => {
           const b = e.target.closest('[data-refund]');
-          if (b) { const amt = prompt(`Refund amount ($) — up to ${c2d(b.dataset.amt)}. Leave as is for a full refund; enter less for a partial refund.`, c2d(b.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${b.dataset.refund}/refund`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Refund sent'); return; }
+          if (b) { const amt = prompt(`Refund amount ($), up to ${c2d(b.dataset.amt)}. Leave as is for a full refund; enter less for a partial refund.`, c2d(b.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${b.dataset.refund}/refund`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Refund sent'); return; }
           const c = e.target.closest('[data-capture]');
-          if (c) { const amt = prompt(`Capture amount ($) — up to ${c2d(c.dataset.amt)}. Capturing less releases the rest of the hold.`, c2d(c.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${c.dataset.capture}/capture`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Captured'); return; }
+          if (c) { const amt = prompt(`Capture amount ($), up to ${c2d(c.dataset.amt)}. Capturing less releases the rest of the hold.`, c2d(c.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${c.dataset.capture}/capture`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Captured'); return; }
           const r = e.target.closest('[data-release]');
           if (r && confirm('Release this hold? The customer will not be charged.')) guard(async () => { await POST(`/payments/${r.dataset.release}/release`); close(); reload(); }, 'Hold released');
         });
@@ -452,7 +473,7 @@ VIEWS.rfqs = async (el) => {
   let st = '';
   const draw = async () => {
     const rows = await GET('/rfqs' + (st ? '?status=' + st : ''));
-    $('#list', el).innerHTML = table([{ h: 'Ref', f: (r) => esc(r.ref) }, { h: 'For', f: (r) => esc(r.request_ref || r.trip_ref || '') }, { h: 'Vendor', f: (r) => `<span class="bold">${esc(r.vendor_name)}</span><br><span class="mut sm">${esc(r.vendor_phone || '')}</span>` }, { h: 'Trip', f: (r) => { const s = J(r.snapshot); return `${esc(s.pickup || '')} → ${esc(s.dropoff || '')}<br><span class="mut sm">${fmt(s.depart_at)} · ${s.passengers || '?'} pax</span>`; } }, { h: 'Price', f: (r) => (r.price_cents ? `<b>${usd(r.price_cents)}</b><br><span class="mut sm">${esc(r.offered_vehicle || '')}</span>` : '—'), cls: 'r' }, { h: 'Notes', f: (r) => esc(r.response_notes || '') }, { h: 'Sent', f: (r) => ago(r.sent_at) }, { h: 'Status', f: (r) => badge(r.status) }, { h: '', f: (r) => (['responded', 'sent'].includes(r.status) && r.price_cents ? `<button class="btn sm primary" data-a="${r.id}">Award</button>` : '') }], rows, { empty: 'No vendor quote requests yet. Send them from a lead or trip.' });
+    $('#list', el).innerHTML = table([{ h: 'Ref', f: (r) => esc(r.ref) }, { h: 'For', f: (r) => esc(r.request_ref || r.trip_ref || '') }, { h: 'Vendor', f: (r) => `<span class="bold">${esc(r.vendor_name)}</span><br><span class="mut sm">${esc(r.vendor_phone || '')}</span>` }, { h: 'Trip', f: (r) => { const s = J(r.snapshot); return `${esc(s.pickup || '')} → ${esc(s.dropoff || '')}<br><span class="mut sm">${fmt(s.depart_at)} · ${s.passengers || '?'} pax</span>`; } }, { h: 'Price', f: (r) => (r.price_cents ? `<b>${usd(r.price_cents)}</b><br><span class="mut sm">${esc(r.offered_vehicle || '')}</span>` : '-'), cls: 'r' }, { h: 'Notes', f: (r) => esc(r.response_notes || '') }, { h: 'Sent', f: (r) => ago(r.sent_at) }, { h: 'Status', f: (r) => badge(r.status) }, { h: '', f: (r) => (['responded', 'sent'].includes(r.status) && r.price_cents ? `<button class="btn sm primary" data-a="${r.id}">Award</button>` : '') }], rows, { empty: 'No vendor quote requests yet. Send them from a lead or trip.' });
   };
   el.innerHTML = `<div class="toolbar">${chips([['', 'All'], ['sent', 'Waiting'], ['responded', 'Replied'], ['accepted', 'Awarded'], ['declined', 'Declined']], st)}</div><div id="list"></div>`;
   $('#chips', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; st = b.dataset.k; $$('.chip', el).forEach((x) => x.classList.toggle('on', x === b)); draw(); };
@@ -469,10 +490,10 @@ VIEWS.fleet = async (el) => {
   bindRows(el, rows, vehModal);
 };
 function vehModal(v) {
-  const upload = `<div class="full" style="margin-top:12px"><label>Photo (vehicle only — no people)<input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="prev" style="margin-top:8px">${v?.image ? `<img src="${esc(v.image)}" style="max-height:120px;border-radius:8px">` : ''}</div><input type="hidden" id="imgurl" value="${esc(v?.image || '')}"></div>`;
+  const upload = `<div class="full" style="margin-top:12px"><label>Photo (vehicle only, no people)<input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="prev" style="margin-top:8px">${v?.image ? `<img src="${esc(v.image)}" style="max-height:120px;border-radius:8px">` : ''}</div><input type="hidden" id="imgurl" value="${esc(v?.image || '')}"></div>`;
   const m = simpleModal(v ? v.name : 'New vehicle', VEH_F, v, '/vehicles');
   $('.mb', m.ov).insertAdjacentHTML('beforeend', upload);
-  $('#img', m.ov).onchange = (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; const r = await fetch('/api/admin/upload', { method: 'POST', headers: { 'content-type': f.type }, body: f }); const j = await r.json(); if (!r.ok) throw new Error(j.error); $('#imgurl', m.ov).value = j.url; $('#prev', m.ov).innerHTML = `<img src="${j.url}" style="max-height:120px;border-radius:8px">`; }, 'Uploaded — click Save');
+  $('#img', m.ov).onchange = (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; const r = await fetch('/api/admin/upload', { method: 'POST', headers: { 'content-type': f.type }, body: f }); const j = await r.json(); if (!r.ok) throw new Error(j.error); $('#imgurl', m.ov).value = j.url; $('#prev', m.ov).innerHTML = `<img src="${j.url}" style="max-height:120px;border-radius:8px">`; }, 'Uploaded, click Save');
   const old = $('#save', m.ov); const nb = old.cloneNode(true); old.replaceWith(nb);
   nb.onclick = () => guard(async () => { const o = readForm(VEH_F, m.ov); if (!reqCheck(VEH_F, o)) return; o.image = $('#imgurl', m.ov).value; v ? await PUT('/vehicles/' + v.id, o) : await POST('/vehicles', o); m.close(); await refresh(); }, 'Saved');
 }
@@ -481,7 +502,7 @@ function vehModal(v) {
 const DRV_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'phone', l: 'Phone (for text link)', t: 'tel' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'vendor_id', l: 'Works for vendor', t: 'select', o: [] }, { k: 'active', l: 'Active', t: 'check' }, { k: 'notes', l: 'Notes', t: 'textarea', full: 1 }];
 VIEWS.drivers = async (el) => {
   const rows = await GET('/drivers');
-  el.innerHTML = `<div class="panel" style="background:var(--blue-l);border-color:#bcdcf0"><b>How drivers sign in:</b> every driver has a private link — no password. Send it by email or text; they open it once and their phone remembers them. They only see their own trips, and customer contact info unlocks ${S.settings?.driver_window_before_hrs || 24} hours before pickup. If a phone is lost, regenerate the link to cut off the old one.</div><div class="toolbar">${button('+ Driver', 'primary', 'id="new"')}${exportBtn('drivers')}</div>${table([{ h: 'Driver', f: (d) => `<span class="bold">${esc(d.name)}</span>` }, { h: 'Phone', f: (d) => esc(d.phone) }, { h: 'Email', f: (d) => esc(d.email) }, { h: 'Vendor', f: (d) => esc(d.vendor_name || '—') }, { h: 'Portal link', f: (d) => `<button class="btn sm" data-copy="${esc(location.origin + '/d/' + d.token)}">Copy</button> <button class="btn sm" data-send="${d.id}" data-via="email">Email</button> <button class="btn sm" data-send="${d.id}" data-via="sms">Text</button>` }, { h: '', f: (d) => (d.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add your drivers to give them portal links.' })}`;
+  el.innerHTML = `<div class="panel" style="background:var(--blue-l);border-color:#bcdcf0"><b>How drivers sign in:</b> every driver has a private link, no password. Send it by email or text; they open it once and their phone remembers them. They only see their own trips, and customer contact info unlocks ${S.settings?.driver_window_before_hrs || 24} hours before pickup. If a phone is lost, regenerate the link to cut off the old one.</div><div class="toolbar">${button('+ Driver', 'primary', 'id="new"')}${exportBtn('drivers')}</div>${table([{ h: 'Driver', f: (d) => `<span class="bold">${esc(d.name)}</span>` }, { h: 'Phone', f: (d) => esc(d.phone) }, { h: 'Email', f: (d) => esc(d.email) }, { h: 'Vendor', f: (d) => esc(d.vendor_name || '-') }, { h: 'Portal link', f: (d) => `<button class="btn sm" data-copy="${esc(location.origin + '/d/' + d.token)}">Copy</button> <button class="btn sm" data-send="${d.id}" data-via="email">Email</button> <button class="btn sm" data-send="${d.id}" data-via="sms">Text</button>` }, { h: '', f: (d) => (d.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add your drivers to give them portal links.' })}`;
   $('#new', el).onclick = () => drvModal();
   bindRows(el, rows, drvModal);
   el.addEventListener('click', (e) => {
@@ -512,10 +533,15 @@ VIEWS.followups = async (el) => {
   await draw();
 };
 function composeEmail({ to = '', subject = '', body = '', entity_type, entity_id }) {
-  const F = [{ k: 'to', l: 'To', t: 'email', def: to, req: 1, full: 1 }, { k: 'subject', l: 'Subject', def: subject, req: 1, full: 1 }, { k: 'body', l: 'Message', t: 'textarea', rows: 8, def: body, req: 1, full: 1 }];
-  modal({ title: 'Send email', small: true, body: formHTML(F), footer: `<span class="sp"></span>${button('Send', 'primary', 'id="s"')}`, onMount(ov, close) { $('#s', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; const r = await POST('/followups/send', { ...o, entity_type, entity_id }); if (!r.ok) throw new Error(r.error || 'Failed'); close(); toast(r.status === 'logged' ? 'Saved to outbox (email provider not configured)' : 'Sent'); }); } });
+  const tb = [['bold', '<b>B</b>', 'Bold'], ['italic', '<i>I</i>', 'Italic'], ['underline', '<u>U</u>', 'Underline'], ['insertUnorderedList', '&bull; List', 'Bullet list'], ['insertOrderedList', '1. List', 'Numbered list'], ['createLink', 'Link', 'Add link'], ['removeFormat', 'Clear', 'Clear formatting']];
+  modal({ title: 'Write an email', small: true, body: `<div class="fgrid"><label class="full">To<input id="to" type="email" value="${esc(to)}"></label><label class="full">Subject<input id="sub" value="${esc(subject)}"></label></div>
+    <div class="rte-bar">${tb.map(([c, h, t]) => `<button type="button" class="btn sm" data-cmd="${c}" title="${t}">${h}</button>`).join('')}</div>
+    <div id="rte" class="rte" contenteditable="true" role="textbox" aria-multiline="true">${body ? esc(body).replace(/\n/g, '<br>') : ''}</div><p class="hint">Bold, lists, links and line breaks are kept. It is sent in the Get A Bus NY email design. Find it afterwards under Sent messages.</p>`,
+  footer: `<span class="sp"></span>${button('Send', 'primary', 'id="s"')}`, onMount(ov, close) {
+    ov.addEventListener('click', (e) => { const b = e.target.closest('[data-cmd]'); if (!b) return; e.preventDefault(); $('#rte', ov).focus(); if (b.dataset.cmd === 'createLink') { const u = prompt('Link address (https://...)'); if (u) document.execCommand('createLink', false, u); } else document.execCommand(b.dataset.cmd); });
+    $('#s', ov).onclick = () => guard(async () => { const t = $('#to', ov).value.trim(), sub = $('#sub', ov).value.trim(), html = $('#rte', ov).innerHTML.trim(); if (!t || !sub || !$('#rte', ov).textContent.trim()) return toast('Recipient, subject and message are required', true); const r = await POST('/messages/email', { to: t, subject: sub, html, entity_type, entity_id }); if (!r.ok) throw new Error(r.error || 'Failed'); close(); toast(r.status === 'logged' ? 'Saved to Sent messages (no email provider connected)' : 'Sent'); });
+  } });
 }
-
 // ---------- inbox / activity ----------
 VIEWS.inbox = async (el) => {
   const rows = await GET('/messages');
@@ -530,14 +556,55 @@ VIEWS.activity = async (el) => {
 // ---------- contracts ----------
 VIEWS.contracts = async (el) => {
   const rows = await GET('/contracts');
-  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => esc(k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '—') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '—') }, { h: '', f: (k) => (k.status === 'signed' ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
+  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => esc(k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
   el.addEventListener('click', (e) => { const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent'); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
 };
-VIEWS.texts = async (el) => {
-  const rows = await GET('/texts');
-  el.innerHTML = `<div class="toolbar">${exportBtn('texts')}<span class="mut sm">Texts go only to customers who agreed. Reminders wait out the Shabbos quiet window set in Settings.</span></div>${table([{ h: 'When', f: (m) => ago(m.created_at) }, { h: 'Customer', f: (m) => esc(m.customer_name || m.to_phone) }, { h: 'Type', f: (m) => esc((m.kind || '').replace('_', ' ')) }, { h: 'Message', f: (m) => esc(m.body) }, { h: 'Status', f: (m) => badge(m.status === 'sent' ? 'paid' : m.status === 'queued' ? 'pending' : m.status).replace(/>[^<]*</, `>${esc(m.status)}<`) + (m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : '') }], rows, { empty: 'No texts yet. Add Twilio keys in Settings → Integrations.' })}`;
+VIEWS.messages = async (el) => {
+  let type = 'all', q = '';
+  const draw = async () => {
+    const rows = await GET(`/messages-sent?type=${type}&q=${encodeURIComponent(q)}`);
+    $('#list', el).innerHTML = table([{ h: 'When', f: (m) => `${ago(m.at)}<br><span class="mut sm">${fmt(m.at)}</span>` }, { h: 'Type', f: (m) => (m.type === 'email' ? '<span class="badge b-b">email</span>' : `<span class="badge b-a">text${m.direction === 'in' ? ' in' : ''}</span>`) }, { h: 'To', f: (m) => esc(m.to) }, { h: 'Subject or message', f: (m) => `<span class="clip">${esc(m.title)}</span>` }, { h: 'Status', f: (m) => badge(m.status === 'sent' || m.status === 'received' ? 'paid' : m.status === 'logged' || m.status === 'queued' ? 'pending' : m.status).replace(/>[^<]*</, `>${esc(m.status)}<`) }], rows, { onClick: 1, empty: 'No messages yet.' });
+    bindRows($('#list', el), rows, (m) => (m.type === 'email' ? emailView(m.id) : smsView(m.id)));
+  };
+  el.innerHTML = `<div class="toolbar">${chips([['all', 'Everything'], ['email', 'Emails'], ['sms', 'Texts']], type)}<input type="search" id="q" placeholder="Search recipient, subject or text...">${button('Write email', 'primary', 'id="w"')}${exportBtn('emails', 'Export emails')}${exportBtn('texts', 'Export texts')}</div><p class="mut sm">Every email and text the system sends, exactly as the person received it. Click one to see it.</p><div id="list"></div>`;
+  $('#chips', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; type = b.dataset.k; $$('.chip', el).forEach((x) => x.classList.toggle('on', x === b)); draw(); };
+  let tm; $('#q', el).oninput = (e) => { q = e.target.value; clearTimeout(tm); tm = setTimeout(draw, 250); };
+  $('#w', el).onclick = () => composeEmail({});
+  await draw();
 };
+async function emailView(id) {
+  const m = await GET(`/messages-sent/email/${id}`);
+  modal({ title: m.subject, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>To</dt><dd>${esc(m.to_addr)}</dd></div><div><dt>From</dt><dd>${esc(m.from_addr || '')}</dd></div><div><dt>Sent</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Sent through</dt><dd>${esc(m.provider || '')}</dd></div>${m.attachments ? `<div><dt>Attachments</dt><dd>${esc(m.attachments)}</dd></div>` : ''}</dl>
+    <div class="seg2"><button type="button" class="btn sm primary" data-w="640">Computer</button><button type="button" class="btn sm" data-w="375">Phone</button></div>
+    <div class="mailframe"><iframe id="mf" sandbox="allow-same-origin" title="Email as received"></iframe></div>`,
+  footer: `<span class="sp"></span>${button('Send this again', '', 'id="again"')}`, onMount(ov) {
+    const f = $('#mf', ov);
+    f.srcdoc = String(m.html).replace(/<head>/i, '<head><base target="_blank">') || '';
+    const fit = () => { try { f.style.height = f.contentDocument.documentElement.scrollHeight + 'px'; } catch {} };
+    f.onload = fit;
+    ov.addEventListener('click', (e) => { const b = e.target.closest('[data-w]'); if (!b) return; $$('[data-w]', ov).forEach((x) => x.classList.toggle('primary', x === b)); f.style.width = b.dataset.w + 'px'; setTimeout(fit, 80); });
+    $('#again', ov).onclick = () => guard(async () => { await POST(`/messages-sent/email/${id}/resend`); toast('Sent again'); }, null);
+  } });
+}
+async function smsView(id) {
+  const m = await GET(`/messages-sent/sms/${id}`);
+  modal({ title: m.direction === 'in' ? 'Text received' : 'Text sent', small: true, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>${m.direction === 'in' ? 'From' : 'To'}</dt><dd>${esc(m.customer_name ? m.customer_name + ' ' : '')}${esc(m.to_phone)}</dd></div><div><dt>Time</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Type</dt><dd>${esc((m.kind || '').replace('_', ' '))}</dd></div></dl>
+    <div class="phone"><div class="bubble ${m.direction === 'in' ? 'in' : 'out'}">${esc(m.body)}</div><div class="bubble-t">${fmt(m.created_at)}</div></div>` });
+}
+
 VIEWS.chesky = (el) => renderChat(el, { GET, POST, PUT, DEL, esc, toast, badge, table, modal, button, ago });
+
+// ---------- alerts: each admin chooses what they hear about, by email and/or text ----------
+async function notifyModal(uid) {
+  const [u, evs] = await Promise.all([GET(`/users/${uid}/notify`), GET('/notify-events')]);
+  modal({ title: `Alerts for ${u.name || u.email}`, body: `<label>Mobile number for text alerts<input id="ph" type="tel" value="${esc(u.phone)}" placeholder="10 digit number"></label><p class="hint">Pick what reaches you. Texts are short and link to the admin.</p>
+    <div class="tblwrap"><table class="tbl nm"><thead><tr><th>Event</th><th class="r">Email</th><th class="r">Text</th></tr></thead><tbody>${evs.map((e) => `<tr><td data-l="Event">${esc(e.label)}</td><td class="r" data-l="Email"><input type="checkbox" data-e="${e.key}" data-c="email" ${u.prefs[e.key].email ? 'checked' : ''}></td><td class="r" data-l="Text"><input type="checkbox" data-e="${e.key}" data-c="sms" ${u.prefs[e.key].sms ? 'checked' : ''}></td></tr>`).join('')}</tbody></table></div>`,
+  footer: `${button('Send me a test', '', 'id="tst"')}<span class="sp"></span>${button('Save', 'primary', 'id="sv"')}`, onMount(ov, close) {
+    const collect = () => { const prefs = {}; $$('[data-e]', ov).forEach((c) => { (prefs[c.dataset.e] ||= {})[c.dataset.c] = c.checked; }); return { phone: $('#ph', ov).value, prefs }; };
+    $('#sv', ov).onclick = () => guard(async () => { await PUT(`/users/${uid}/notify`, collect()); close(); reload(); }, 'Alerts saved');
+    $('#tst', ov).onclick = () => guard(async () => { await PUT(`/users/${uid}/notify`, collect()); const r = await POST(`/users/${uid}/notify-test`); toast(r.sms && !r.sms.ok ? `Email sent. Text failed: ${r.sms.error}` : 'Test sent'); });
+  } });
+}
 
 // ---------- settings ----------
 VIEWS.settings = async (el) => {
@@ -547,18 +614,19 @@ VIEWS.settings = async (el) => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const intg = me.integrations;
   const st = (ok, l, how) => `<tr><td>${l}</td><td>${ok ? badge('paid').replace('paid', 'connected') : badge('void').replace('void', 'not set')}</td><td class="mut sm">${how}</td></tr>`;
-  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_start', l: 'No automatic texts from', help: 'e.g. Fri 14:00 (office time, Eastern)' }, { k: 'sms_quiet_end', l: 'Resume texts at', help: 'e.g. Sat 21:30 — held texts go out then' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges — days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders — days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders — days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder — hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you — days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder — hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact — hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked — hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
+  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_start', l: 'No automatic texts from', help: 'e.g. Fri 14:00 (office time, Eastern)' }, { k: 'sms_quiet_end', l: 'Resume texts at', help: 'e.g. Sat 21:30, held texts go out then' }, { k: 'sms_own_number', l: 'Our SimpleSender number', help: '10 digits. Needed so replies and STOP are picked up.' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Bus routing: vehicle size, used to avoid roads closed to buses' }, { k: 'bus_height_cm', l: 'Height (cm)', t: 'number', help: 'Typical coach 370' }, { k: 'bus_width_cm', l: 'Width (cm)', t: 'number', help: 'Typical coach 260' }, { k: 'bus_length_cm', l: 'Length (cm)', t: 'number', help: 'Typical 45 ft coach 1370' }, { k: 'bus_weight_kg', l: 'Weight (kg)', t: 'number', help: 'Typical coach 18000' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges, days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders, days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders, days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder, hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you, days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder, hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact, hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked, hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
   el.innerHTML = `<div class="panel"><h3>General settings</h3>${formHTML(F, s)}
   <div class="fsec" style="margin-top:18px">Hours of operation (shown on site)</div>${days.map((d) => { const h = hours.find((x) => x.day === d) || { open: '', close: '' }; return `<div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:8px;margin:4px 0;align-items:center"><b>${d}</b><input data-h="${d}" data-w="open" value="${esc(h.open)}" placeholder="10:00 AM (blank = closed)"><input data-h="${d}" data-w="close" value="${esc(h.close)}" placeholder="7:00 PM"></div>`; }).join('')}
   <div class="fsec" style="margin-top:18px">Social links</div><div class="fgrid">${['twitter', 'facebook', 'instagram', 'tiktok', 'youtube', 'google'].map((k) => `<label>${k}<input data-soc="${k}" value="${esc(soc[k] || '')}" placeholder="https://"></label>`).join('')}</div>
   <p style="margin-top:16px">${button('Save settings', 'primary', 'id="save"')}</p></div>
   <div class="panel"><h3>Dispatch calendar</h3><p class="mut">Subscribe once and every trip appears (and updates) in Google Calendar, Apple Calendar or Outlook. In Google Calendar: Other calendars → From URL.</p><div id="calbox" class="mut">Loading…</div></div>
   <div class="panel"><h3>Export to Excel</h3><p class="mut">Download any table, or everything in one workbook.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="/api/admin/export/all" download>Everything (one workbook)</a>${['customers', 'leads', 'quotes', 'quote_lines', 'trips', 'stops', 'invoices', 'invoice_lines', 'payments', 'contracts', 'vendors', 'rfqs', 'drivers', 'fleet', 'followups', 'messages', 'texts', 'traffic', 'activity'].map((k) => exportBtn(k, k.replace('_', ' '))).join('')}</div></div>
-  <div class="panel"><h3>Integrations</h3><table class="tbl"><tbody>${st(intg.stripe, 'Stripe payments', 'Set STRIPE_SECRET_KEY on the server')}${st(intg.stripe_webhook, 'Stripe webhook', `Set STRIPE_WEBHOOK_SECRET; endpoint: ${location.origin}/api/stripe/webhook (event: checkout.session.completed, charge.refunded)`)}${st(intg.email, `Email sending${intg.email_provider ? ' (' + intg.email_provider + ')' : ''}`, 'Set BREVO_API_KEY (or RESEND_API_KEY). Until then emails are only logged in Activity → Outbox')}${st(intg.maps, 'Google Maps address suggestions', 'Set GOOGLE_MAPS_API_KEY (Places API New + Routes API enabled)')}${st(intg.sms, 'Text messages (Twilio)', `Set TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM. Point the Twilio number's incoming-message webhook to ${location.origin}/api/twilio/sms so STOP works`)}${st(intg.chesky, 'Chesky AI', 'Set CHESKY_API_KEY (its own Anthropic key)')}</tbody></table></div>
-  <div class="panel"><h3>Team logins</h3>${table([{ h: 'Name', f: (u) => esc(u.name) }, { h: 'Email', f: (u) => esc(u.email) }, { h: '', f: (u) => (u.id === me.user.id ? '<span class="mut sm">you</span>' : `<button class="btn sm danger" data-du="${u.id}">Remove</button>`) }], users)}
+  <div class="panel"><h3>Integrations</h3><table class="tbl"><tbody>${st(intg.stripe, 'Stripe payments', 'Set STRIPE_SECRET_KEY on the server')}${st(intg.stripe_webhook, 'Stripe webhook', `Set STRIPE_WEBHOOK_SECRET; endpoint: ${location.origin}/api/stripe/webhook (event: checkout.session.completed, charge.refunded)`)}${st(intg.email, `Email sending${intg.email_provider ? ' (' + intg.email_provider + ')' : ''}`, 'Set BREVO_API_KEY (or RESEND_API_KEY). Until then emails are only logged in Activity → Outbox')}${st(intg.maps, 'Google Maps address suggestions', 'Set GOOGLE_MAPS_API_KEY (Places API New + Routes API enabled)')}${st(intg.sms, 'Text messages (SimpleSender)', 'Set SMS_API_BASE and SMS_API_KEY (SimpleSender dashboard, Developer, Docs and Keys). Add your number below so replies and STOP are picked up')}${st(intg.here, 'Bus-safe routing (HERE)', 'Set HERE_API_KEY. Without it routes use Google and are not bus aware')}${st(intg.chesky, 'Chesky AI', 'Set CHESKY_API_KEY (its own Anthropic key)')}</tbody></table></div>
+  <div class="panel"><h3>Team logins</h3>${table([{ h: 'Name', f: (u) => esc(u.name) }, { h: 'Email', f: (u) => esc(u.email) }, { h: 'Phone', f: (u) => esc(u.phone || '') }, { h: '', f: (u) => `<button class="btn sm" data-notify="${u.id}">Alerts</button> ${u.id === me.user.id ? '<span class="mut sm">you</span>' : `<button class="btn sm danger" data-du="${u.id}">Remove</button>`}` }], users)}
    <div class="fgrid" style="margin-top:12px"><label>New user email<input id="ue" type="email"></label><label>Name<input id="un"></label><label>Password (10+ chars)<input id="up" type="password" autocomplete="new-password"></label><label>&nbsp;${button('Add user', '', 'id="addu"')}</label></div>
    <div class="fsec" style="margin-top:18px">Change my password</div><div class="fgrid"><label>Current<input id="pc" type="password" autocomplete="current-password"></label><label>New (10+ chars)<input id="pn" type="password" autocomplete="new-password"></label></div><p>${button('Change password', '', 'id="chpw"')}</p></div>`;
   placesFor(el);
+  el.addEventListener('click', (e) => { const n = e.target.closest('[data-notify]'); if (n) notifyModal(+n.dataset.notify); });
   GET('/calendar-link').then((c) => { $('#calbox', el).innerHTML = `<p><b>All trips (staff)</b><div class="copybox"><input readonly value="${esc(c.staff)}" onclick="this.select()"></div></p>${c.drivers.map((d) => `<p><b>${esc(d.name)}</b> (that driver's trips only)<div class="copybox"><input readonly value="${esc(d.url)}" onclick="this.select()"></div></p>`).join('')}<p class="hint">Anyone with a link can see those trips, so treat it like a password. <button class="link" id="calregen">Replace the staff link</button></p>`; $('#calregen', el)?.addEventListener('click', () => { if (confirm('The old staff link stops working. Continue?')) guard(async () => { await POST('/calendar-link/regenerate'); reload(); }); }); }).catch(() => {});
   $('#save', el).onclick = () => guard(async () => {
     const o = readForm(F, el);
@@ -577,7 +645,7 @@ const chesSid = Math.random().toString(36).slice(2);
 function initChesky() {
   const add = (t, w) => { const d = document.createElement('div'); d.className = 'cm ' + w; d.textContent = t; $('#ches-m').append(d); $('#ches-m').scrollTop = 1e9; return d; };
   $('#ches-btn').hidden = false;
-  $('#ches-btn').onclick = () => { $('#ches').hidden = false; $('#ches-btn').hidden = true; if (!$('#ches-m').children.length) add('Hi — ask me about leads, quotes, invoices, trips or customers. Try: "who owes us money?" or "what\'s on this week?"', 'b'); $('#ches-i').focus(); };
+  $('#ches-btn').onclick = () => { $('#ches').hidden = false; $('#ches-btn').hidden = true; if (!$('#ches-m').children.length) add('Hi, ask me about leads, quotes, invoices, trips or customers. Try: "who owes us money?" or "what\'s on this week?"', 'b'); $('#ches-i').focus(); };
   $('#ches-x').onclick = () => { $('#ches').hidden = true; $('#ches-btn').hidden = false; };
   $('#ches-f').onsubmit = async (e) => { e.preventDefault(); const i = $('#ches-i'), t = i.value.trim(); if (!t) return; i.value = ''; add(t, 'u'); const w = add('…', 'b'); try { const r = await POST('/chesky', { message: t, session_id: chesSid }); w.textContent = r.reply || '(no answer)'; } catch (x) { w.textContent = x.message; } $('#ches-m').scrollTop = 1e9; };
 }
@@ -587,7 +655,7 @@ function showLogin() { $('#shell').hidden = true; $('#login').hidden = false; }
 async function start() {
   try { const me = await GET('/me'); S.me = me.user; } catch { return showLogin(); }
   $('#login').hidden = true; $('#shell').hidden = false;
-  S.settings = await GET('/settings'); await lookups();
+  S.settings = await GET('/settings'); S.cfg = await (await fetch('/api/public/config')).json(); await lookups();
   if (!window.__started) { window.__started = true; initChesky(); window.addEventListener('hashchange', route); $('#menu').onclick = () => $('#side').classList.toggle('open'); }
   route();
 }

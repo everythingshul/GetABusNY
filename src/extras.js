@@ -56,7 +56,7 @@ export function createContract({ quote_id, trip_id }) {
   let q = quote || (trip?.quote_id ? one('SELECT * FROM quotes WHERE id=?', trip.quote_id) : null);
   let items = q ? undefined : (() => { const inv = one('SELECT items FROM invoices WHERE trip_id=? ORDER BY id LIMIT 1', trip.id); return parse(inv?.items, []); })();
   const snap = buildSnapshot({ quote: q, trip, items });
-  if (!snap.total_cents) throw Object.assign(new Error('Price the quote or trip first — the contract needs a total.'), { status: 400 });
+  if (!snap.total_cents) throw Object.assign(new Error('Price the quote or trip first, the contract needs a total.'), { status: 400 });
   const id = insert('contracts', { number: nextNumber('CON'), trip_id: trip?.id || null, quote_id: q?.id || null, customer_id: (q || trip).customer_id, token: token(), status: 'draft', body: snap, body_hash: hash(snap), total_cents: snap.total_cents, created_at: now() });
   return one('SELECT * FROM contracts WHERE id=?', id);
 }
@@ -65,7 +65,7 @@ export async function sendContract(id) {
   const k = one('SELECT * FROM contracts WHERE id=?', id);
   const c = one('SELECT * FROM customers WHERE id=?', k.customer_id);
   if (!c?.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
-  const r = await sendEmail(c.email, `Please review & sign — agreement ${k.number}`, emailShell('Your charter agreement', `<p>Hi ${esc((c.name || '').split(' ')[0])}, your trip agreement is ready. Review the itinerary and price, then sign online — it takes about a minute.</p><p><b>Total:</b> ${money(k.total_cents)}</p>`, { label: 'Review & sign', url: `${BASE_URL()}/contract/${k.token}` }));
+  const r = await sendEmail(c.email, `Please review & sign, agreement ${k.number}`, emailShell('Your charter agreement', `<p>Hi ${esc((c.name || '').split(' ')[0])}, your trip agreement is ready. Review the itinerary and price, then sign online, it takes about a minute.</p><p><b>Total:</b> ${money(k.total_cents)}</p>`, { label: 'Review & sign', url: `${BASE_URL()}/contract/${k.token}` }));
   update('contracts', id, { status: k.status === 'signed' ? 'signed' : 'sent', sent_at: now() });
   log('admin', 'contract.sent', 'contract', id, c.email);
   return r;
@@ -118,12 +118,12 @@ export async function contractPdf(k, sigPng) {
   text(`Charter Transportation Agreement ${k.number}`, { size: 12, f: bold, color: grey });
   text(`${b.business?.phone || ''}  ${b.business?.email || ''}`, { color: grey });
   head('Customer');
-  text(`${b.customer?.name || ''}${b.customer?.company ? ' — ' + b.customer.company : ''}`); text(`${b.customer?.email || ''}  ${b.customer?.phone || ''}`);
+  text(`${b.customer?.name || ''}${b.customer?.company ? ', ' + b.customer.company : ''}`); text(`${b.customer?.email || ''}  ${b.customer?.phone || ''}`);
   head('Trip');
-  text(`${b.trip?.purpose ? b.trip.purpose + ' · ' : ''}Passengers: ${b.trip?.passengers || '—'}${b.trip?.vehicle ? ' · Vehicle: ' + b.trip.vehicle : ''}`);
+  text(`${b.trip?.purpose ? b.trip.purpose + ' · ' : ''}Passengers: ${b.trip?.passengers || '-'}${b.trip?.vehicle ? ' · Vehicle: ' + b.trip.vehicle : ''}`);
   text(`Departure: ${fmtWhen(b.trip?.depart_at)}    Return: ${fmtWhen(b.trip?.return_at)}`);
   head('Itinerary');
-  (b.itinerary || []).filter((x) => x.kind !== 'start' && x.kind !== 'end').forEach((x, i) => text(`${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ' @ ' + fmtWhen(x.time) : ''}${x.wait_min ? ' (wait ' + x.wait_min + ' min)' : ''}${x.note ? ' — ' + x.note : ''}`));
+  (b.itinerary || []).filter((x) => x.kind !== 'start' && x.kind !== 'end').forEach((x, i) => text(`${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ' @ ' + fmtWhen(x.time) : ''}${x.wait_min ? ' (wait ' + x.wait_min + ' min)' : ''}${x.note ? ', ' + x.note : ''}`));
   head('Price');
   (b.items || []).filter((x) => x.qty && x.unit_cents).forEach((x) => text(`${x.desc}    ${x.qty} x ${money(x.unit_cents)} = ${money(Math.round(x.qty * x.unit_cents))}`));
   if (b.tax_cents) text(`Tax (${b.tax_rate}%): ${money(b.tax_cents)}`);
@@ -144,7 +144,7 @@ export async function contractPdf(k, sigPng) {
 export const contractPdfPath = (k) => (k.pdf_file ? path.join(PDFS, path.basename(k.pdf_file)) : null);
 
 // =====================================================================================
-// Calendar feeds (.ics) — subscribe from Google Calendar / Apple / Outlook ("add by URL")
+// Calendar feeds (.ics), subscribe from Google Calendar / Apple / Outlook ("add by URL")
 // =====================================================================================
 const icsEsc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 const stamp = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -171,7 +171,7 @@ export function icsDoc(name, events) {
 }
 const TRIPQ = `SELECT t.*, c.name customer_name, c.phone customer_phone, v.name vehicle_name, d.name driver_name, vn.name vendor_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id LEFT JOIN vendors vn ON vn.id=t.vendor_id`;
 export const staffCalendar = () => icsDoc(`${getSetting('business_name')} dispatch`, all(`${TRIPQ} WHERE t.depart_at IS NOT NULL AND t.depart_at>=? ORDER BY t.depart_at`, new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)).map((t) => vevent(t, { staff: true })));
-export const driverCalendar = (d) => icsDoc(`${d.name} — ${getSetting('business_name')} trips`, all(`${TRIPQ} WHERE t.driver_id=? AND t.status<>'cancelled' AND t.depart_at>=? ORDER BY t.depart_at`, d.id, new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)).map((t) => vevent(t, { staff: false, driverId: d.id })));
+export const driverCalendar = (d) => icsDoc(`${d.name} - ${getSetting('business_name')} trips`, all(`${TRIPQ} WHERE t.driver_id=? AND t.status<>'cancelled' AND t.depart_at>=? ORDER BY t.depart_at`, d.id, new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)).map((t) => vevent(t, { staff: false, driverId: d.id })));
 export function customerTripIcs(id, key) {
   if (key !== icsKey(id)) return null;
   const t = one(`${TRIPQ} WHERE t.id=?`, id); if (!t) return null;
@@ -179,7 +179,7 @@ export function customerTripIcs(id, key) {
 }
 
 // =====================================================================================
-// Excel export — everything
+// Excel export, everything
 // =====================================================================================
 const $c = (c) => (c == null ? '' : Number(c) / 100);
 const ms = (iso) => (iso ? Date.parse(iso) : '');
@@ -210,7 +210,8 @@ const SHEETS = {
   contracts: () => ({ name: 'Contracts', cols: [{ h: 'Number' }, { h: 'Status' }, { h: 'Customer' }, { h: 'Total', t: 'money' }, { h: 'Signed by' }, { h: 'Signed at', t: 'datetime' }, { h: 'IP' }, { h: 'Fingerprint' }], rows: all('SELECT k.*, c.name cn FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id ORDER BY k.id').map((k) => [k.number, k.status, k.cn, $c(k.total_cents), k.signer_name, ms(k.signed_at), k.signer_ip, k.body_hash]) }),
   followups: () => ({ name: 'Follow-ups', cols: [{ h: 'Type' }, { h: 'For' }, { h: 'Kind' }, { h: 'Subject' }, { h: 'Due', t: 'datetime' }, { h: 'Status' }, { h: 'Result' }, { h: 'Automatic' }], rows: all('SELECT * FROM followups ORDER BY id').map((f) => [f.entity_type, f.entity_id, f.kind, f.subject, ms(f.due_at), f.status, f.result, f.auto ? 'Yes' : 'No']) }),
   messages: () => ({ name: 'Inbox', cols: [{ h: 'Received', t: 'datetime' }, { h: 'Name' }, { h: 'Email' }, { h: 'Phone' }, { h: 'Subject' }, { h: 'Message' }, { h: 'Status' }], rows: all('SELECT * FROM messages ORDER BY id').map((m) => [ms(m.created_at), m.name, m.email, m.phone, m.subject, m.body, m.status]) }),
-  texts: () => ({ name: 'Text messages', cols: [{ h: 'Created', t: 'datetime' }, { h: 'To' }, { h: 'Type' }, { h: 'Status' }, { h: 'Message' }, { h: 'Error' }], rows: all('SELECT * FROM sms_log ORDER BY id').map((m) => [ms(m.created_at), m.to_phone, m.kind, m.status, m.body, m.error]) }),
+  emails: () => ({ name: 'Emails sent', cols: [{ h: 'Sent', t: 'datetime' }, { h: 'To' }, { h: 'Subject' }, { h: 'Type' }, { h: 'Status' }, { h: 'Through' }, { h: 'Attachments' }, { h: 'Error' }], rows: all('SELECT * FROM outbox ORDER BY id').map((m) => [ms(m.created_at), m.to_addr, m.subject, m.kind, m.status, m.provider, m.attachments, m.error]) }),
+  texts: () => ({ name: 'Text messages', cols: [{ h: 'When', t: 'datetime' }, { h: 'Direction' }, { h: 'Number' }, { h: 'Type' }, { h: 'Status' }, { h: 'Message' }, { h: 'Error' }], rows: all('SELECT * FROM sms_log ORDER BY id').map((m) => [ms(m.created_at), m.direction === 'in' ? 'Received' : 'Sent', m.to_phone, m.kind, m.status, m.body, m.error]) }),
   activity: () => ({ name: 'Activity', cols: [{ h: 'When', t: 'datetime' }, { h: 'Who' }, { h: 'Action' }, { h: 'Type' }, { h: 'ID', t: 'int' }, { h: 'Detail' }], rows: all('SELECT * FROM activity ORDER BY id').map((a) => [ms(a.at), a.actor, a.action, a.entity_type, a.entity_id, a.detail]) }),
   traffic: () => ({ name: 'Website traffic', cols: [{ h: 'Day', t: 'date' }, { h: 'Page views', t: 'int' }, { h: 'Visitors', t: 'int' }], rows: all('SELECT day, COUNT(*) v, COUNT(DISTINCT sid) u FROM page_views GROUP BY day ORDER BY day').map((r) => [r.day, r.v, r.u]) }),
 };

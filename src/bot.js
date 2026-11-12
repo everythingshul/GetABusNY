@@ -1,4 +1,4 @@
-// Chesky — the Get A Bus NY assistant. Uses the Anthropic Messages API with tool use.
+// Chesky, the Get A Bus NY assistant. Uses the Anthropic Messages API with tool use.
 // Uses its own key (CHESKY_API_KEY) so usage/billing is separate from anything else.
 import { all, one, run, now, getSetting, getJSON, parse } from './db.js';
 import { env } from './integrations.js';
@@ -6,7 +6,7 @@ import { createRequest, dashboard, scheduleTask, fmtWhen } from './services.js';
 
 const MODEL = () => env('CHESKY_MODEL', 'claude-sonnet-5-5');
 
-const hoursText = () => getJSON('hours', []).map((h) => `${h.day}: ${h.open ? `${h.open} – ${h.close}` : 'Closed'}`).join('; ');
+const hoursText = () => getJSON('hours', []).map((h) => `${h.day}: ${h.open ? `${h.open} to ${h.close}` : 'Closed'}`).join('; ');
 const fleetText = () => all('SELECT name,category,capacity FROM vehicles WHERE active=1 ORDER BY sort').map((v) => `${v.name} (${v.category}, seats ${v.capacity})`).join('; ');
 
 function publicSystem() {
@@ -31,7 +31,7 @@ ${getSetting('chesky_extra') || ''}`;
 
 function adminSystem() {
   return `You are ${getSetting('chesky_name') || 'Chesky'}, the back-office assistant for ${getSetting('business_name')}, talking to the business owner/staff inside the admin panel. Today is ${new Date().toISOString().slice(0, 10)}.
-Use the tools to look up real data before answering; never invent numbers. Amounts from tools are in cents — present them as dollars. Be concise and actionable (lists, short sentences). You can create follow-up tasks; you cannot send emails or change records — for outbound messages, draft the text and tell the owner to send it from the relevant screen.`;
+Use the tools to look up real data before answering; never invent numbers. Amounts from tools are in cents, present them as dollars. Be concise and actionable (lists, short sentences). You can create follow-up tasks; you cannot send emails or change records, for outbound messages, draft the text and tell the owner to send it from the relevant screen.`;
 }
 
 const publicTools = [
@@ -89,7 +89,7 @@ function fallback(scope, message) {
     const d = dashboard();
     return `Chesky's AI is not connected yet (set CHESKY_API_KEY). Here's the snapshot: ${d.new_leads} new leads, ${d.quotes_out.c} quotes out, ${d.unpaid.c} unpaid invoices (${d.overdue} overdue), ${d.trips_week.length} trips in the next 7 days, ${d.unassigned} trips missing a driver or vehicle.`;
   }
-  return `Thanks for reaching out! The fastest way to get a quote is our booking form at /book — it takes about two minutes. You can also call ${getSetting('phone')}. Hours: ${hoursText()}.`;
+  return `Thanks for reaching out! The fastest way to get a quote is our booking form at /book, it takes about two minutes. You can also call ${getSetting('phone')}. Hours: ${hoursText()}.`;
 }
 
 export async function chat({ scope, session_id, message }) {
@@ -99,7 +99,7 @@ export async function chat({ scope, session_id, message }) {
   const userText = String(message || '').slice(0, 2000);
   if (!userText.trim()) return { reply: '' };
   if (!env('CHESKY_API_KEY')) return { reply: fallback(scope, userText), ai: false };
-  if (history.length > 60) return { reply: `This chat has gotten long — please call ${getSetting('phone')} or use the booking form so a person can help.` };
+  if (history.length > 60) return { reply: `This chat has gotten long, please call ${getSetting('phone')} or use the booking form so a person can help.` };
 
   const msgs = [...history, { role: 'user', content: userText }];
   const work = msgs.slice(-24);

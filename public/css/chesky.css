@@ -1,4 +1,4 @@
-/* Chesky widget — Get A Bus NY brand (lime #94bf33, blue #0078c0, navy #0d1b26) */
+/* Chesky widget, Get A Bus NY brand (lime #94bf33, blue #0078c0, navy #0d1b26) */
 #chesky-root{--c-lime:#94bf33;--c-blue:#0078c0;--c-blue-d:#005b94;--c-navy:#0d1b26;--c-ink:#10222f;--c-line:#dbe5ec;--c-bg:#f5f8fa;--c-red:#c0392b;font-family:'Inter',system-ui,sans-serif}
 .chesky-fab{position:fixed;right:20px;bottom:20px;width:62px;height:62px;border-radius:50%;border:0;padding:3px;background:linear-gradient(135deg,var(--c-navy),#17344a);box-shadow:0 12px 28px -8px rgba(13,27,38,.55);cursor:pointer;z-index:1000;display:flex;align-items:center;justify-content:center;transition:transform .25s cubic-bezier(.34,1.56,.64,1)}
 .chesky-fab::before{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--c-lime);opacity:.6;animation:chesky-pulse 2.8s ease-out infinite}

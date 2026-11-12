@@ -70,12 +70,12 @@ export function createRequest(d, source = 'website') {
   const id = insert('requests', { ref, customer_id, name, email, phone, details, status: 'new', source, referred_by: d.referred_by, created_at: now(), updated_at: now() });
   log(source, 'request.created', 'request', id, `${name} ${details.depart_at || ''}`);
   const veh = details.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', details.vehicle_id)?.name : 'No preference';
-  notifyOwner(`New quote request ${ref} — ${name}`,
-    `${name}\n${email} ${phone}${d.sms_optin ? ' (OK to text)' : ''}\n\nPurpose: ${details.purpose || '—'}\nDepart: ${fmtWhen(details.depart_at)}\nReturn: ${fmtWhen(details.return_at)}\nPassengers: ${details.passengers || '?'}\nVehicle: ${veh}\n\nItinerary:\n${itineraryText(itinerary) || '—'}\n\n${details.comments || ''}`, 'new_lead').catch(() => {});
+  notifyOwner(`New quote request ${ref} - ${name}`,
+    `${name}\n${email} ${phone}${d.sms_optin ? ' (OK to text)' : ''}\n\nPurpose: ${details.purpose || '-'}\nDepart: ${fmtWhen(details.depart_at)}\nReturn: ${fmtWhen(details.return_at)}\nPassengers: ${details.passengers || '?'}\nVehicle: ${veh}\n\nItinerary:\n${itineraryText(itinerary) || '-'}\n\n${details.comments || ''}`, 'new_lead').catch(() => {});
   if (email) {
-    sendEmail(email, `We got your request (${ref})`, emailShell(`Thanks, ${name.split(' ')[0]} — we have your request`,
+    sendEmail(email, `We got your request (${ref})`, emailShell(`Thanks, ${name.split(' ')[0]}, we have your request`,
       `<p>Your reference number is <b>${ref}</b>. We'll send your quote during business hours, usually the same day.</p>
-       <p>${details.purpose ? `<b>Trip:</b> ${esc(details.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(details.depart_at)}<br><b>Passengers:</b> ${details.passengers || '—'}</p><p><b>Itinerary</b><br>${esc(itineraryText(itinerary)).replace(/\n/g, '<br>')}</p>
+       <p>${details.purpose ? `<b>Trip:</b> ${esc(details.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(details.depart_at)}<br><b>Passengers:</b> ${details.passengers || '-'}</p><p><b>Itinerary</b><br>${esc(itineraryText(itinerary)).replace(/\n/g, '<br>')}</p>
        <p>Need it faster? Call ${esc(getSetting('phone'))}.</p>`)).catch(() => {});
   }
   scheduleTask('request', id, 'lead_call', `Call new lead: ${name} (${ref})`, addHours(new Date(), 1));
@@ -109,11 +109,11 @@ export async function sendQuote(id, actor) {
   const q = one('SELECT * FROM quotes WHERE id=?', id);
   const c = customerOf(q.customer_id);
   if (!c.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
-  if (!q.total_cents) throw Object.assign(new Error('Quote total is $0 — add pricing first.'), { status: 400 });
+  if (!q.total_cents) throw Object.assign(new Error('Quote total is $0, add pricing first.'), { status: 400 });
   const t = parse(q.trip, {});
   const html = emailShell(`Your quote ${q.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for <b>${esc(q.title || 'your trip')}</b>.</p>
-     <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '—'}<br><b>Total:</b> ${money(q.total_cents)}</p>
+     <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
      <p>The quote is good until ${q.valid_until || 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
   const r = await sendEmail(c.email, `Quote ${q.number} from ${getSetting('business_name')}`, html);
   update('quotes', id, { status: 'sent', sent_at: now(), updated_at: now() });
@@ -177,7 +177,7 @@ export async function sendInvoice(id, actor) {
   recalcInvoice(id);
   i = one('SELECT * FROM invoices WHERE id=?', id);
   const due = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
-  const r = await sendEmail(c.email, `Invoice ${i.number} — ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
+  const r = await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
      <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date || 'on receipt'}</p>`, { label: 'Pay securely online', url: link.pay(i) }));
   if (!one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
@@ -208,9 +208,9 @@ function afterPayment(invoice_id, amount_cents, method, actor) {
   }
   const c = customerOf(i.customer_id);
   log(actor, 'payment.recorded', 'invoice', invoice_id, `${money(amount_cents)} ${method}`);
-  if (c.email) sendEmail(c.email, `Payment received — ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
+  if (c.email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
   textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
-  notifyOwner(`Payment ${money(amount_cents)} — ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
+  notifyOwner(`Payment ${money(amount_cents)} - ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
 }
 
 // ---------- card authorizations (holds): authorize -> capture (full or partial) or release ----------
@@ -219,7 +219,7 @@ export function recordAuthorization(invoice_id, { amount_cents, stripe_pi }) {
   const id = insert('payments', { invoice_id, amount_cents, method: 'card_auth', reference: stripe_pi, stripe_pi, status: 'authorized', note: 'Card hold (not charged yet)', created_at: now() });
   const i = one('SELECT * FROM invoices WHERE id=?', invoice_id);
   log('stripe', 'payment.authorized', 'invoice', invoice_id, money(amount_cents));
-  notifyOwner(`Card hold ${money(amount_cents)} — ${i.number}`, `${customerOf(i.customer_id).name} authorized ${money(amount_cents)}. Capture or release it from the invoice. Holds usually expire after about 7 days.`, 'hold').catch(() => {});
+  notifyOwner(`Card hold ${money(amount_cents)} - ${i.number}`, `${customerOf(i.customer_id).name} authorized ${money(amount_cents)}. Capture or release it from the invoice. Holds usually expire after about 7 days.`, 'hold').catch(() => {});
   return id;
 }
 export function markCaptured(row, captured_cents, actor = 'stripe') {
@@ -246,14 +246,14 @@ export async function sendDriverLink(driver_id, via = 'email') {
   const d = one('SELECT * FROM drivers WHERE id=?', driver_id);
   const url = link.driver(d);
   if (via === 'sms') return sendSMS(d.phone, `Get A Bus NY driver portal (no password needed): ${url}`, { kind: 'driver_link' });
-  return sendEmail(d.email, 'Your Get A Bus NY driver portal link', emailShell('Your driver portal', `<p>Hi ${esc(d.name.split(' ')[0])}, this link shows your assigned trips and customer contact info on the day of the trip. No password needed — don't share it.</p>`, { label: 'Open driver portal', url }));
+  return sendEmail(d.email, 'Your Get A Bus NY driver portal link', emailShell('Your driver portal', `<p>Hi ${esc(d.name.split(' ')[0])}, this link shows your assigned trips and customer contact info on the day of the trip. No password needed, don't share it.</p>`, { label: 'Open driver portal', url }));
 }
 export async function sendTripConfirmation(trip_id) {
   const t = tripDetail(trip_id);
   if (!t.customer.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
-  return sendEmail(t.customer.email, `Trip confirmation ${t.ref} — ${fmtWhen(t.depart_at)}`, emailShell('Your trip is confirmed',
+  return sendEmail(t.customer.email, `Trip confirmation ${t.ref} - ${fmtWhen(t.depart_at)}`, emailShell('Your trip is confirmed',
     `<p>Hi ${esc(t.customer.name.split(' ')[0])}, here are your trip details.</p>
-     <p>${t.purpose ? `<b>Trip:</b> ${esc(t.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '—'}<br><b>Vehicle:</b> ${esc(t.vehicle?.name || 'To be assigned')}</p>
+     <p>${t.purpose ? `<b>Trip:</b> ${esc(t.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Vehicle:</b> ${esc(t.vehicle?.name || 'To be assigned')}</p>
      <p><b>Itinerary</b><br>${esc(itineraryText(t.itinerary.filter((x) => x.kind !== 'start' && x.kind !== 'end'))).replace(/\n/g, '<br>')}</p>
      <p>Your driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`, { label: 'Add to my calendar', url: `${BASE_URL()}/api/public/trip-ics/${t.id}-${icsKey(t.id)}.ics` }));
 }
@@ -274,7 +274,7 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
     if (v.email) {
       res = await sendEmail(v.email, `Quote request ${ref}: ${snap.passengers || '?'} pax, ${fmtWhen(snap.depart_at)}`, emailShell(`Can you quote this trip?`,
         `<p>Hi ${esc(v.contact_name || v.name)},</p><p>We have a trip and would like your best price.</p>
-         <p>${snap.purpose ? `<b>Trip:</b> ${esc(snap.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(snap.depart_at)}<br><b>Return:</b> ${fmtWhen(snap.return_at)}<br><b>Passengers:</b> ${snap.passengers || '—'}<br><b>Vehicle wanted:</b> ${esc(snap.vehicle || 'Any suitable')}</p>
+         <p>${snap.purpose ? `<b>Trip:</b> ${esc(snap.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(snap.depart_at)}<br><b>Return:</b> ${fmtWhen(snap.return_at)}<br><b>Passengers:</b> ${snap.passengers || '-'}<br><b>Vehicle wanted:</b> ${esc(snap.vehicle || 'Any suitable')}</p>
          <p><b>Itinerary</b><br>${esc(itineraryText(snap.itinerary?.length ? snap.itinerary : fromLegacy(snap))).replace(/\n/g, '<br>')}</p>
          ${message ? `<p>${esc(message)}</p>` : ''}<p>Use the button to reply with your price or decline. No login needed.</p>`, { label: 'Send my price', url: link.vendor(r) }));
     }
@@ -296,7 +296,7 @@ export async function acceptRFQ(id) {
     if (tripId) update('trips', tripId, { vendor_id: r.vendor_id, vendor_cost_cents: r.price_cents || 0, updated_at: now() });
   });
   const v = one('SELECT * FROM vendors WHERE id=?', r.vendor_id);
-  if (v?.email) sendEmail(v.email, `You got the trip — ${r.ref}`, emailShell('Your quote was accepted', `<p>We'd like to book this trip with you at <b>${money(r.price_cents)}</b>. We'll follow up with final details shortly.</p>`)).catch(() => {});
+  if (v?.email) sendEmail(v.email, `You got the trip - ${r.ref}`, emailShell('Your quote was accepted', `<p>We'd like to book this trip with you at <b>${money(r.price_cents)}</b>. We'll follow up with final details shortly.</p>`)).catch(() => {});
   log('admin', 'rfq.accepted', 'rfq', id, v?.name);
 }
 
@@ -323,14 +323,14 @@ function composeFollowup(f) {
     const q = one('SELECT * FROM quotes WHERE id=?', f.entity_id);
     if (!q || q.status !== 'sent') return null;
     const c = customerOf(q.customer_id);
-    return { to: c.email, subject: `Still need a bus? Quote ${q.number}`, html: emailShell('Just checking in', `<p>Hi ${esc((c.name || '').split(' ')[0])}, we sent over quote ${q.number} (${money(q.total_cents)}) and wanted to make sure you got it. Dates can fill up, especially weekends — reply with any questions or changes and we'll update it.</p>`, { label: 'View your quote', url: link.quote(q) }) };
+    return { to: c.email, subject: `Still need a bus? Quote ${q.number}`, html: emailShell('Just checking in', `<p>Hi ${esc((c.name || '').split(' ')[0])}, we sent over quote ${q.number} (${money(q.total_cents)}) and wanted to make sure you got it. Dates can fill up, especially weekends, reply with any questions or changes and we'll update it.</p>`, { label: 'View your quote', url: link.quote(q) }) };
   }
   if (f.entity_type === 'invoice') {
     const i = one('SELECT * FROM invoices WHERE id=?', f.entity_id);
     if (!i || !['sent', 'partial'].includes(i.status)) return null;
     const c = customerOf(i.customer_id);
     const late = i.due_date && i.due_date < new Date().toISOString().slice(0, 10);
-    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${i.due_date}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${i.due_date}` : ''}. If you already paid, thank you — ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
+    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${i.due_date}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${i.due_date}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
   }
   if (f.entity_type === 'trip') {
     const t = one('SELECT * FROM trips WHERE id=?', f.entity_id);
@@ -338,7 +338,7 @@ function composeFollowup(f) {
     const c = customerOf(t.customer_id);
     if (f.kind === 'trip_confirm') {
       if (!['booked', 'confirmed'].includes(t.status)) return null;
-      textCustomer(c.id, `${getSetting('business_name')}: reminder — your trip departs ${fmtWhen(t.depart_at)} from ${t.pickup || 'your pickup location'}. Questions? ${getSetting('phone')}`, 'trip_reminder', { trip_id: t.id }).catch(() => {});
+      textCustomer(c.id, `${getSetting('business_name')}: reminder, your trip departs ${fmtWhen(t.depart_at)} from ${t.pickup || 'your pickup location'}. Questions? ${getSetting('phone')}`, 'trip_reminder', { trip_id: t.id }).catch(() => {});
       return { to: c.email, subject: `Reminder: your trip ${fmtWhen(t.depart_at)}`, html: emailShell('Your trip is coming up', `<p>Pickup: <b>${esc(t.pickup || '')}</b><br>Time: <b>${fmtWhen(t.depart_at)}</b><br>Please have your group ready 10 minutes early. Your driver will call or text you before pickup. Need to change something? Call ${esc(getSetting('phone'))}.</p>`) };
     }
     if (f.kind === 'trip_thanks') { run('UPDATE trips SET review_sent_at=? WHERE id=?', now(), t.id); if (c.sms_optin && c.phone) textCustomer(c.id, reviewText(), 'review_request', { trip_id: t.id }).catch(() => {}); }
@@ -421,7 +421,7 @@ export function dashboard() {
   };
 }
 
-// ---------- text messages (Twilio). Only to customers who opted in; Shabbos-aware quiet window ----------
+// ---------- text messages (SimpleSender). Only to customers who opted in; Shabbos-aware quiet window ----------
 export function toE164(p) {
   const d = String(p || '').replace(/[^\d+]/g, '');
   if (d.startsWith('+')) return d.length >= 11 ? d : null;

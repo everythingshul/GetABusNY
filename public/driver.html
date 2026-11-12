@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#0d1b26"><title>Driver Portal | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#0d1b26"><title>Driver Portal | Get A Bus NY</title><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
 <style>
 body{background:#eef3f7;padding-bottom:40px}
 .dh{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:10}
@@ -30,7 +30,7 @@ import {$,esc,fmtWhen} from '/js/site.js';
 const parts=location.pathname.split('/');let tok=parts[1]==='d'?parts[2]:null;
 try{if(tok)localStorage.gabDriver=tok;else tok=localStorage.gabDriver;}catch{}
 const app=$('#app');
-if(!tok){app.innerHTML=`<div class="card"><h2>Driver portal</h2><p>Open the personal link dispatch sent you (by text or email). It signs you in automatically — no password. Once opened, this page remembers you on this phone.</p><p class="muted">Lost your link? Call dispatch.</p></div>`;}
+if(!tok){app.innerHTML=`<div class="card"><h2>Driver portal</h2><p>Open the personal link dispatch sent you (by text or email). It signs you in automatically, no password. Once opened, this page remembers you on this phone.</p><p class="muted">Lost your link? Call dispatch.</p></div>`;}
 else{
 const tel=(p)=>'tel:'+String(p||'').replace(/[^+\d]/g,'');
 const sms=(p)=>'sms:'+String(p||'').replace(/[^+\d]/g,'');
@@ -46,7 +46,7 @@ async function load(){
   return `<article class="trip ${t.contact_unlocked?'live':''}"><div class="th"><span class="pillx">${esc((t.driver_status||t.status).replace('_',' '))}</span><div class="when">${fmtWhen(t.depart_at)}</div><div class="ref">${esc(t.ref)} · ${esc(t.title||'')}</div></div>
   <div class="sec"><h4>Route · ${t.itinerary.length||2} stops</h4>${t.route_url?`<a class="callbtn alt" style="margin-bottom:10px" href="${t.route_url}" target="_blank" rel="noopener">🧭 Open full route in Maps</a>`:''}
    ${t.itinerary.length?`<ol class="tl">${t.itinerary.map((x,i)=>`<li><b>${i+1}</b><div><span class="pillx">${esc(x.label)}</span> ${x.time?`<b style="background:none;color:inherit;display:inline;width:auto;height:auto">${fmtWhen(x.time)}</b>`:''}<div class="addr"><a href="${x.map}" target="_blank" rel="noopener">${esc(x.address)}</a></div>${x.wait_min?`<div class="mut">Wait ${x.wait_min} min</div>`:''}${x.pax?`<div class="mut">${x.pax} passengers</div>`:''}${x.note?`<div class="mut">${esc(x.note)}</div>`:''}${x.contact_phone?`<a href="${tel(x.contact_phone)}">📞 ${esc(x.contact_name||'Contact')} ${esc(x.contact_phone)}</a>`:''}</div></li>`).join('')}</ol>`:`<div class="addr"><a href="${map(t.pickup)}">📍 ${esc(t.pickup||'TBD')}</a></div><div class="addr" style="margin-top:6px"><a href="${map(t.dropoff)}">🏁 ${esc(t.dropoff||'TBD')}</a></div>`}</div>
-  <div class="sec"><h4>Trip</h4>Return: <b>${fmtWhen(t.return_at)}</b><br>Passengers: <b>${t.passengers||'—'}</b>${t.vehicle?`<br>Vehicle: <b>${esc(t.vehicle)}</b>`:''}</div>
+  <div class="sec"><h4>Trip</h4>Return: <b>${fmtWhen(t.return_at)}</b><br>Passengers: <b>${t.passengers||'-'}</b>${t.vehicle?`<br>Vehicle: <b>${esc(t.vehicle)}</b>`:''}</div>
   ${t.notes||t.driver_notes?`<div class="sec"><h4>Notes</h4>${esc(t.driver_notes||'')} ${esc(t.notes||'')}</div>`:''}
   <div class="sec"><h4>Customer contact</h4>${t.contact_unlocked?`<div class="cust"><div><b style="font-size:1.1rem">${esc(t.contact.name||'')}</b></div>
    ${t.contact.phone?`<a class="callbtn" href="${tel(t.contact.phone)}">📞 Call customer<small>${esc(t.contact.phone)}</small></a><a class="callbtn alt" href="${sms(t.contact.phone)}">💬 Text customer</a>`:''}

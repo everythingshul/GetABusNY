@@ -19,7 +19,7 @@ Lead (`/book` or Chesky) → Quote (admin) → customer accepts → Trip + Invoi
 Vendors: send a quote request from a lead or trip; vendors reply by private link; award → cost and margin tracked on the trip.
 
 ## Features added in v2
-Itinerary builder (start / pickups / stops / drop-offs / return pickups, per-stop time, wait, notes) · Google address suggestions everywhere an address is typed · e-signature contracts with signed PDF · text alerts (opt-in, Shabbos quiet window, STOP handling) · Google review requests · dispatch calendar feeds (.ics) · Excel export of every table · Chesky (ported from JListings) with taught answers and human handoff · first-party website traffic.
+Itinerary builder (start / pickups / stops / drop-offs / return pickups, per-stop time, wait, notes) · Google address suggestions everywhere an address is typed · e-signature contracts with signed PDF · text alerts through SimpleSender (opt-in, customers pick which kinds, Shabbos quiet window, STOP handling), per-admin alert choices by email and text, a Sent messages log that shows every email and text as received, bus-safe routing with ETAs (HERE) · Google review requests · dispatch calendar feeds (.ics) · Excel export of every table · Chesky (ported from JListings) with taught answers and human handoff · first-party website traffic.
 
 Pricing is always entered by hand. The itinerary only generates empty line items and an optional drive-time estimate.
 Photos: upload vehicle photos only. No people in any picture.

@@ -64,3 +64,57 @@ input[type=checkbox]{width:auto;min-height:0}
 #ches-f{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
 .copybox{display:flex;gap:6px}.copybox input{font-size:.8rem}
 .link{background:none;border:0;color:var(--blue);cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+
+/* ---- sent messages: email as received, text as a phone bubble ---- */
+.clip{display:inline-block;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.seg2{display:flex;gap:6px;margin-bottom:8px}
+.mailframe{background:#e9edf1;border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto;text-align:center}
+.mailframe iframe{width:640px;max-width:100%;border:0;background:#fff;border-radius:6px;min-height:300px;box-shadow:0 1px 4px rgba(0,0,0,.15);transition:width .15s}
+.phone{background:#e9edf1;border-radius:14px;padding:16px}
+.bubble{max-width:85%;padding:9px 13px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word;font-size:15px;line-height:1.35}
+.bubble.out{background:#0b84ff;color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.bubble.in{background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+.bubble-t{font-size:.72rem;color:var(--ink2);margin-top:4px;text-align:right}
+/* rich text editor */
+.rte-bar{display:flex;gap:4px;flex-wrap:wrap;margin:12px 0 6px}
+.rte{min-height:180px;max-height:50vh;overflow:auto;border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;line-height:1.5}
+.rte:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-l)}
+/* route estimate banners */
+.alert-ok{background:#e2f4ea;color:#17623a;padding:8px 12px;border-radius:8px;margin-bottom:6px}
+.alert-warn{background:#fff2d6;color:#85590a;padding:8px 12px;border-radius:8px;margin-bottom:6px}
+
+/* ---- phones: smaller type, tables become cards, sheets go full screen ---- */
+@media(max-width:700px){
+  body{font-size:13.5px}
+  h2{font-size:1.05rem}
+  #bar{padding:9px 12px;gap:8px}#bar h1{font-size:1.05rem}#barx .btn{display:none}
+  #view{padding:12px 12px 96px}
+  .tiles{grid-template-columns:repeat(2,1fr);gap:8px}.tile{padding:10px 12px}.tile .v{font-size:1.3rem}.tile .l{font-size:.66rem}
+  .cols{grid-template-columns:1fr;gap:10px}.panel{padding:12px}
+  .toolbar{gap:6px}.toolbar input[type=search]{max-width:none;flex:1 1 100%}.toolbar .btn{flex:0 0 auto}
+  .chips{flex-wrap:nowrap;overflow-x:auto;width:100%;padding-bottom:4px}.chip{white-space:nowrap}
+  .tblwrap{overflow:visible}
+  .tbl,.tbl thead,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl{border:0;background:none}.tbl thead{display:none}
+  .tbl tr{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:6px 10px}
+  .tbl td{border:0;padding:3px 0;display:flex;gap:12px;justify-content:space-between;text-align:right;align-items:flex-start;word-break:break-word}
+  .tbl td:before{content:attr(data-l);flex:none;color:var(--ink2);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding-top:3px;max-width:34%}
+  .tbl td[data-l=""]{justify-content:flex-end}.tbl td[data-l=""]:before{display:none}
+  .tbl td.r{text-align:right}
+  .tbl.nm tr{display:flex;align-items:center;justify-content:space-between;padding:6px 10px}.tbl.nm td{width:auto;display:block}.tbl.nm td:before{display:none}.tbl.nm td:first-child{flex:1;text-align:left}.tbl.nm thead{display:none}
+  .clip{max-width:100%;white-space:normal}
+  .ov{padding:0;align-items:flex-start}
+  .modal,.modal.sm{width:100%;max-width:100%;min-height:100vh;border-radius:0}
+  .modal>header{border-radius:0;padding:12px 14px}.modal>header h2{font-size:1rem}.modal .mb{padding:12px 14px}
+  .modal>footer{padding:10px 14px;border-radius:0;gap:6px}.modal>footer .btn{flex:1 1 auto;justify-content:center}
+  .fgrid{grid-template-columns:1fr;gap:10px}
+  input,select,textarea{font-size:16px}
+  .btn{padding:8px 12px;min-height:36px;font-size:.85rem}
+  .itn-extra{grid-template-columns:1fr 1fr}.itn-main{grid-template-columns:1fr}
+  .items th:nth-child(4),.items td:nth-child(4){display:none}
+  .kv{grid-template-columns:1fr 1fr}
+  .hbar{grid-template-columns:90px 1fr 56px}
+  #ches{right:0;bottom:0;width:100%;max-width:100%;height:80vh;border-radius:14px 14px 0 0}
+  #ches-btn{bottom:12px;right:12px;padding:10px 16px}
+  .mailframe{padding:6px}
+}

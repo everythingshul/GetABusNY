@@ -26,6 +26,6 @@ services:
       - { key: EMAIL_FROM, sync: false }          # e.g. Get A Bus NY <quotes@getabusny.com>
       - { key: GOOGLE_MAPS_API_KEY, sync: false }
       - { key: CHESKY_API_KEY, sync: false }
-      - { key: TWILIO_SID, sync: false }
-      - { key: TWILIO_TOKEN, sync: false }
-      - { key: TWILIO_FROM, sync: false }
+      - { key: SMS_API_BASE, sync: false }
+      - { key: SMS_API_KEY, sync: false }
+      - { key: HERE_API_KEY, sync: false }

@@ -1,10 +1,10 @@
 // Trip itinerary: an ordered list of stops. Kinds:
-//   start        where the bus begins its day (garage / depot) — staff only, billable as deadhead
+//   start        where the bus begins its day (garage / depot), staff only, billable as deadhead
 //   pickup       passengers board (first pickup + any extra pickups)
 //   stop         waypoint where the bus waits (restaurant, ohel, camp visit…)
 //   dropoff      passengers get off (destination or intermediate drop)
 //   return_pickup passengers board for the way back
-//   end          where the bus finishes (garage) — staff only
+//   end          where the bus finishes (garage), staff only
 // Pricing is ALWAYS entered manually; billableLines() only creates empty line items to price.
 export const KINDS = { start: 'Bus starts at', pickup: 'Pickup', stop: 'Stop', dropoff: 'Drop-off', return_pickup: 'Return pickup', end: 'Bus ends at' };
 const MAX = 30;
@@ -50,7 +50,7 @@ export function summarize(it) {
   };
 }
 
-export const itineraryText = (it) => it.map((x, i) => `${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ` @ ${x.time.replace('T', ' ')}` : ''}${x.wait_min ? ` (wait ${x.wait_min} min)` : ''}${x.pax ? ` · ${x.pax} pax` : ''}${x.note ? ` — ${x.note}` : ''}`).join('\n');
+export const itineraryText = (it) => it.map((x, i) => `${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ` @ ${x.time.replace('T', ' ')}` : ''}${x.wait_min ? ` (wait ${x.wait_min} min)` : ''}${x.pax ? ` · ${x.pax} pax` : ''}${x.note ? ` - ${x.note}` : ''}`).join('\n');
 
 export function mapsDirUrl(it) {
   const pts = it.filter((x) => x.kind !== 'start' && x.kind !== 'end').map((x) => (x.lat && x.lng ? `${x.lat},${x.lng}` : x.address)).filter(Boolean);
@@ -63,7 +63,7 @@ export const mapsPlaceUrl = (x) => `https://www.google.com/maps/search/?api=1&qu
 /** Empty, unpriced line items for staff to price by hand. */
 export function billableLines(it, { purpose } = {}) {
   const { pickup, dropoff } = summarize(it);
-  const lines = [{ desc: `Charter${purpose ? ` — ${purpose}` : ''}: ${pickup || '?'} → ${dropoff || '?'}`, qty: 1, unit_cents: 0 }];
+  const lines = [{ desc: `Charter${purpose ? ` - ${purpose}` : ''}: ${pickup || '?'} → ${dropoff || '?'}`, qty: 1, unit_cents: 0 }];
   let pk = 0, dr = 0;
   for (const x of it) {
     if (x.kind === 'pickup' && ++pk > 1) lines.push({ desc: `Additional pickup: ${x.address}`, qty: 1, unit_cents: 0 });

@@ -61,8 +61,8 @@ driver.post('/:token/trips/:id/status', (req, res) => {
   if (st === 'en_route' || st === 'arrived') {
     const dr = req.driver;
     textCustomer(t.customer_id, st === 'en_route'
-      ? `Get A Bus NY: your driver ${dr.name.split(' ')[0]} is on the way${dr.phone ? ` — call/text ${dr.phone}` : ''}.`
-      : `Get A Bus NY: your driver ${dr.name.split(' ')[0]} has arrived${dr.phone ? ` — ${dr.phone}` : ''}.`, 'driver_' + st, { trip_id: t.id, force: true }).catch(() => {});
+      ? `Get A Bus NY: your driver ${dr.name.split(' ')[0]} is on the way${dr.phone ? `, call/text ${dr.phone}` : ''}.`
+      : `Get A Bus NY: your driver ${dr.name.split(' ')[0]} has arrived${dr.phone ? ` - ${dr.phone}` : ''}.`, 'driver_' + st, { trip_id: t.id, force: true }).catch(() => {});
   }
   res.json({ ok: true });
 });
