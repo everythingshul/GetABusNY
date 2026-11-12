@@ -24,6 +24,9 @@ Itinerary builder (start / pickups / stops / drop-offs / return pickups, per-sto
 Pricing is always entered by hand. The itinerary only generates empty line items and an optional drive-time estimate.
 Photos: upload vehicle photos only. No people in any picture.
 
+## Added in v3
+Zmanim and Shabbos / Yom Tov checks (Hebcal, offline) on every quote and trip, and as the quiet window for automatic texts. Saved cards (customer consent, charge later). Gratuity on the invoice. Operator insurance expiry tracking with alerts and a private certificate upload. Quote revisions with a record of exactly what changed. Dates are always shown as Month day, year.
+
 ## Deploy notes
 - Needs a host with a persistent disk. `render.yaml` is ready for Render (same host as JListings). Back the disk up.
 - Serve over HTTPS and set `BASE_URL` (used in every emailed link and Stripe redirect).

@@ -79,13 +79,15 @@ export function scheduleCheck({ stops = [], depart_at, return_at, lat, lng }) {
     const at = naiveToDate(x.t);
     const w = inWindow(at, lat, lng);
     if (w) {
-      const k = `${x.label}`; if (seen.has(k)) continue; seen.add(k);
+      const k = x.t.slice(0, 16); if (seen.has(k)) continue; seen.add(k);
       issues.push({ level: 'red', text: `${x.label} (${longDate(at)}, ${timeStr(at)}) falls on Shabbos or Yom Tov. It lasts from ${longDate(w.start)}, ${timeStr(w.start)} to ${longDate(w.end)}, ${timeStr(w.end)}.` });
     }
   }
   // close calls before candle lighting (timed events inside the 90 minutes before a window)
+  const seenT = new Set();
   for (const x of times) {
-    if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(x.t)) continue;
+    if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(x.t) || seenT.has(x.t.slice(0, 16))) continue;
+    seenT.add(x.t.slice(0, 16));
     const at = naiveToDate(x.t);
     const next = windows(at, new Date(at.getTime() + 86400000), lat, lng).find((w) => w.start > at && w.start - at < 90 * 60000);
     if (next && !inWindow(at, lat, lng)) issues.push({ level: 'amber', text: `${x.label} is ${Math.round((next.start - at) / 60000)} minutes before candle lighting (${timeStr(next.start)}). Leave margin for traffic.` });
