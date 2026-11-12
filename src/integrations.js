@@ -211,19 +211,26 @@ export async function routeEstimate(stops, { bus = true, departAtUtc } = {}) {
   if (env('HERE_API_KEY')) {
     const co = [];
     for (const p of pts) co.push(await hereCoord(p));
-    const q = new URLSearchParams({ transportMode: bus ? 'privateBus' : 'car', origin: co[0], destination: co[co.length - 1], return: 'summary', apiKey: env('HERE_API_KEY') });
-    co.slice(1, -1).forEach((c) => q.append('via', c));
-    if (departAtUtc) q.set('departureTime', departAtUtc);
-    if (bus) {
-      q.set('vehicle[height]', getSetting('bus_height_cm') || '370'); q.set('vehicle[width]', getSetting('bus_width_cm') || '260');
-      q.set('vehicle[length]', getSetting('bus_length_cm') || '1370'); q.set('vehicle[grossWeight]', getSetting('bus_weight_kg') || '18000');
-    }
-    const r = await fetch(`https://router.hereapi.com/v8/routes?${q}`);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.routes?.[0]) throw new Error(j.title || j.error_description || 'No route found for a bus between these stops.');
-    const secs = j.routes[0].sections;
-    const legs = secs.map((sec, i) => ({ from: pts[i].address, to: pts[i + 1].address, miles: Math.round((sec.summary.length / 1609.344) * 10) / 10, minutes: Math.round(sec.summary.duration / 60) }));
-    return { provider: 'HERE', bus_aware: bus, mode: bus ? 'bus' : 'car', miles: Math.round(legs.reduce((a, l) => a + l.miles, 0) * 10) / 10, minutes: legs.reduce((a, l) => a + l.minutes, 0), legs };
+    const run = async (mode) => {
+      const q = new URLSearchParams({ transportMode: mode, origin: co[0], destination: co[co.length - 1], return: 'summary', apiKey: env('HERE_API_KEY') });
+      co.slice(1, -1).forEach((c) => q.append('via', c));
+      if (departAtUtc) q.set('departureTime', departAtUtc);
+      if (mode === 'privateBus') {
+        q.set('vehicle[height]', getSetting('bus_height_cm') || '370'); q.set('vehicle[width]', getSetting('bus_width_cm') || '260');
+        q.set('vehicle[length]', getSetting('bus_length_cm') || '1370'); q.set('vehicle[grossWeight]', getSetting('bus_weight_kg') || '18000');
+      }
+      const r = await fetch(`https://router.hereapi.com/v8/routes?${q}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.routes?.[0]) throw new Error(j.title || j.error_description || (mode === 'car' ? 'No car route found.' : 'No route found for a bus between these stops.'));
+      const legs = j.routes[0].sections.map((sec, i) => ({ from: pts[i].address, to: pts[i + 1].address, miles: Math.round((sec.summary.length / 1609.344) * 10) / 10, minutes: Math.round(sec.summary.duration / 60) }));
+      return { miles: Math.round(legs.reduce((a, l) => a + l.miles, 0) * 10) / 10, minutes: legs.reduce((a, l) => a + l.minutes, 0), legs };
+    };
+    if (!bus) { const c = await run('car'); return { provider: 'HERE', bus_aware: false, mode: 'car', ...c }; }
+    // For a bus, also price out the same trip as a car so the dispatcher can see what the bus restrictions cost.
+    const [b, c] = await Promise.all([run('privateBus'), run('car').catch(() => null)]);
+    const out = { provider: 'HERE', bus_aware: true, mode: 'bus', ...b };
+    if (c) out.car = { ...c, extra_minutes: b.minutes - c.minutes, extra_miles: Math.round((b.miles - c.miles) * 10) / 10 };
+    return out;
   }
   if (!MAPS()) throw new Error('Routing is not configured. Add HERE_API_KEY (bus routing) or GOOGLE_MAPS_API_KEY.');
   const wp = (s) => (s.lat && s.lng ? { location: { latLng: { latitude: s.lat, longitude: s.lng } } } : { address: s.address });

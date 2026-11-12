@@ -87,9 +87,22 @@ export function seatMap(capacity = 40) {
   return `<svg viewBox="0 0 ${w} ${h}" class="seatmap-svg" role="img" aria-label="Seat layout, ${capacity} seats" xmlns="http://www.w3.org/2000/svg">${seats}<path d="M${cols * pitch + 2} 16 l8 6 l-8 6z" fill="${LIME}"/></svg>`;
 }
 
+// Real photos by vehicle type (free-licence stock; see /credits). They show a similar vehicle, the exact unit is confirmed in the quote.
+const PHOTOS = {
+  coach: ['/img/photos/coach-front.jpg', '/img/photos/coach-dusk.jpg', '/img/photos/coach-side.jpg'],
+  party: ['/img/photos/shuttle-black.jpg'], sprinter: ['/img/photos/shuttle-black.jpg'],
+  trolley: ['/img/photos/trolley-red.jpg'], limo: ['/img/photos/limo-white.jpg', '/img/photos/limo-suv.jpg'],
+};
+export function categoryPhoto(category = '', seed = 0) {
+  const c = String(category).toLowerCase();
+  const list = c.includes('trolley') ? PHOTOS.trolley : c.includes('limo') ? PHOTOS.limo : c.includes('sprinter') ? PHOTOS.sprinter : c.includes('party') ? PHOTOS.party : PHOTOS.coach;
+  return { src: list[Math.abs(seed) % list.length], pos: ['50% 55%', '20% 55%', '80% 55%'][Math.abs(seed) % 3] };
+}
+
 export function vehicleCard(v, { showRequest = true } = {}) {
-  const pic = v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy" style="width:100%;height:210px;object-fit:cover;margin:-18px -14px 0;width:calc(100% + 28px);max-width:none">` : vehicleArt(v.category, v.capacity, { label: v.name });
-  return `<article class="vehicle" data-cat="${esc(v.category)}" data-cap="${v.capacity}"><div class="pic">${pic}<div class="groundline"></div></div><div class="body">
+  const ph = v.image ? { src: v.image, pos: '50% 50%' } : categoryPhoto(v.category, v.id || v.capacity);
+  const pic = `<img src="${esc(ph.src)}" alt="${esc(v.image ? v.name : `${v.category}, similar to ${v.name}`)}" loading="lazy" style="object-position:${ph.pos}">`;
+  return `<article class="vehicle" data-cat="${esc(v.category)}" data-cap="${v.capacity}"><div class="pic ph">${pic}<span class="seatbadge">${v.capacity} seats</span></div><div class="body">
     <div><span class="tag">${esc(v.category)}</span></div><h3>${esc(v.name)}</h3>
     <div class="spec"><div class="num"><small>SEATS</small>${v.capacity}</div><div class="seatmap">${seatMap(v.capacity)}</div></div>
     <p class="muted" style="margin:0;font-size:.94rem">${esc(v.description || '')}</p>

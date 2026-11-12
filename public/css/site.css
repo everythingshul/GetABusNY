@@ -217,3 +217,27 @@ footer.site .legal{border-top:1px solid #243543;margin-top:32px;padding-top:16px
   input,select,textarea{font-size:16px}
   .cta-band{padding:40px 0}
 }
+
+/* ---- photo-led layout ---- */
+.vehicle .pic.ph{padding:0;background:#10202c;aspect-ratio:3/2;overflow:hidden;position:relative}
+.vehicle .pic.ph img{width:100%;height:100%;object-fit:cover;transition:transform .6s ease}
+.vehicle:hover .pic.ph img{transform:scale(1.04)}
+.seatbadge{position:absolute;left:0;bottom:0;background:var(--ink);color:#fff;font:700 .95rem var(--head);letter-spacing:.12em;text-transform:uppercase;padding:5px 12px}
+.frame{position:relative;border:3px solid #fff;box-shadow:12px 12px 0 var(--lime);background:#10202c;aspect-ratio:4/3}
+.frame img{width:100%;height:100%;object-fit:cover;display:block}
+.frame .sign{position:absolute;left:14px;top:14px;max-width:calc(100% - 28px)}
+.frame .cap{position:absolute;right:0;bottom:0;background:var(--lime);color:var(--ink);font:700 .95rem var(--head);letter-spacing:.12em;text-transform:uppercase;padding:6px 14px}
+.hero .grid{grid-template-columns:1fr 1fr;padding-bottom:56px}
+.hero .frame{margin:8px 12px 0 0}
+@media(max-width:940px){.hero .frame{margin:10px 12px 0 0}.frame{box-shadow:8px 8px 0 var(--lime)}}
+.onboard{position:relative;color:#fff;background:linear-gradient(rgba(11,22,32,.74),rgba(11,22,32,.82)),url(/img/photos/interior-leather.jpg) center 25%/cover;border-top:4px solid var(--ink);border-bottom:4px solid var(--ink)}
+.onboard .wrap{display:grid;grid-template-columns:1.2fr 1fr;gap:34px;align-items:center}
+.onboard h2{color:#fff}.onboard p{color:#d4dee6;max-width:34em}
+.onboard ul{list-style:none;margin:0;padding:0;columns:2;gap:24px}
+.onboard li{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.25);font:600 1.05rem var(--head);letter-spacing:.08em;text-transform:uppercase}
+@media(max-width:800px){.onboard .wrap{grid-template-columns:1fr}}
+.cta-photo{background:linear-gradient(rgba(11,22,32,.76),rgba(11,22,32,.76)),url(/img/photos/road-autumn.jpg) center 60%/cover;color:#fff;border-top:4px solid var(--lime)}
+.cta-photo p{color:#d4dee6}.cta-photo .btn{background:var(--lime);color:var(--ink);border-color:var(--lime)}
+.pagehead{position:relative;color:#fff;background:linear-gradient(rgba(11,22,32,.7),rgba(11,22,32,.78)),var(--bg) center 45%/cover;padding:64px 0 52px;border-bottom:4px solid var(--lime)}
+.pagehead h1{color:#fff;margin:0}.pagehead p{color:#d4dee6;max-width:40em;margin:12px 0 0;font-size:1.1rem}.pagehead .eyebrow{color:var(--lime)}
+.credits li{margin:8px 0}

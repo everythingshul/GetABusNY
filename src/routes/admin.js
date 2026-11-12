@@ -229,7 +229,7 @@ admin.post('/route-estimate', wrap(async (req) => {
   const bus = isBusCategory(cat);
   const first = it.find((x) => x.time);
   const r = await routeEstimate(it, { bus, departAtUtc: first ? S.localToDate(first.time).toISOString() : undefined });
-  return { ...r, vehicle_category: cat || null, stops: planTimes(it, r.legs) };
+  return { ...r, vehicle_category: cat || null, stops: planTimes(it, r.legs), car_stops: r.car ? planTimes(it, r.car.legs) : null };
 }));
 
 // ---------- contracts / e-signature ----------
