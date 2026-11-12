@@ -1,1 +1,26 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Vehicle</title><!--OG--></head><body><main id="main"></main></body></html>
+<!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vehicle | Get A Bus NY</title><!--OG--><meta name="theme-color" content="#0d1b26"><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
+<div class="pagehead"><div class="wrap"><p style="margin:0 0 8px"><a href="/fleet">&larr; All vehicles</a></p><h1 id="t">Vehicle</h1></div></div>
+<section><div class="wrap" id="box"><p class="muted">Loading...</p></div></section>
+</main><div id="ftr"></div>
+<script type="module">
+import {boot,api,vehicleArt,seatMap,shareButton,$,esc} from '/js/site.js';
+await boot('/fleet');
+const m=location.pathname.match(/\/bus\/(\d+)/)||[null,new URLSearchParams(location.search).get('id')];
+const id=parseInt(m[1],10);
+const box=$('#box');
+function nf(){document.title='Vehicle not found | Get A Bus NY';$('#t').textContent='We could not find that vehicle';box.innerHTML='<p class="muted">It may have been removed from the fleet.</p><a class="btn btn-blue" href="/fleet">See the fleet</a> <a class="btn btn-line" href="/book">Request a quote</a>';}
+if(!id)nf();else try{
+ const v=await api('/vehicle/'+id);
+ document.title=`${v.name} | Get A Bus NY`;$('#t').textContent=v.name;
+ const pic=v.image?`<img src="${esc(v.image)}" alt="${esc(v.name)}">`:vehicleArt(v.category,v.capacity,{label:v.name});
+ box.innerHTML=`<div class="busdetail"><div class="art">${pic}</div><div>
+  <span class="tag">${esc(v.category)}</span>
+  <div class="big" style="margin-top:14px"><small>SEATS</small>${v.capacity}</div>
+  <div class="seatmap">${seatMap(v.capacity)}</div>
+  <p>${esc(v.description||'')}</p>
+  ${(v.features||[]).length?`<h3>Features</h3><ul class="checks" style="columns:1">${v.features.map(f=>`<li>${esc(f)}</li>`).join('')}</ul>`:''}
+  <p class="muted" style="margin-top:14px">Pricing is quoted by hand for each trip.</p>
+  <div class="foot" style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn btn-blue" href="/book?vehicle=${v.id}">Request a quote</a>${shareButton(v,'btn btn-line')}</div>
+ </div></div>`;
+}catch{nf();}
+</script></body></html>

@@ -1,5 +1,6 @@
 // Shared site chrome: header, footer, hours helpers, vehicle art, Chesky chat widget.
 import { beacon, fillIcons } from '/js/icons.js';
+import { initShare } from '/js/bus-art.js';
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -46,7 +47,7 @@ export function openNow(hours) {
   return { open: false, text: 'Closed now' };
 }
 
-export { vehicleArt, vehicleCard, seatMap } from '/js/bus-art.js';
+export { vehicleArt, vehicleCard, seatMap, shareButton, initShare } from '/js/bus-art.js';
 
 /** Compact hours, e.g. "Sun to Thu 10:00 AM to 7:00 PM". */
 export function hoursLines(hours) {
@@ -66,12 +67,10 @@ export async function boot(active) {
   const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay invoice'], ['/driver', 'Drivers']];
   const tel = c.phone.replace(/[^+\d]/g, '');
   const st = openNow(c.hours);
-  const phoneIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>';
   $('#hdr').innerHTML = `<div class="topbar"><div class="wrap"><span><span class="open-dot ${st.open ? 'on' : ''}"></span>${esc(st.text)}</span><span><a href="tel:${tel}">${esc(c.phone)}</a> &nbsp;&middot;&nbsp; <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></span></div></div>
   <header class="site"><div class="wrap"><a class="logo" href="/"><img src="/img/logo.png" alt="${esc(c.business_name)}" width="190" height="44"></a>
   <button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
-  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
-  <div class="hdr-cta"><a class="hdr-tel" href="tel:${tel}" aria-label="Call ${esc(c.phone)}">${phoneIcon}<span>${esc(c.phone)}</span></a><a class="btn btn-lime btn-sm" href="/book">Request a quote</a></div></div></header>`;
+  <nav class="main" aria-label="Main">${nav.map(([h, t]) => `<a href="${h}" ${h === active ? 'aria-current="page"' : ''}>${t}</a>`).join('')}<a class="btn btn-lime btn-sm" href="/book">Request a quote</a></nav></div></header>`;
   $('.burger').onclick = (e) => { const n = $('nav.main'); const o = n.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
   $('#ftr').innerHTML = `<footer class="site"><div class="wrap"><div class="cols">
     <div><span class="logo-w"><img src="/img/logo.png" alt="${esc(c.business_name)}"></span><p>Charter bus broker for camps, shuls, yeshivos and families. In business since 2016.</p><div class="socials">${socialLinks(c.socials)}</div></div>
@@ -81,6 +80,7 @@ export async function boot(active) {
   </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span><span><a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="/privacy">Privacy</a></span></div></div></footer>`;
   if (c.chesky) import('/js/chesky.js').then((m) => m.initChesky({ name: c.chesky_name, phone: c.phone })).catch(() => {});
   beacon();
+  initShare();
   fillIcons();
   return c;
 }
