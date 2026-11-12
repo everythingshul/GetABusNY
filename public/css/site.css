@@ -241,3 +241,7 @@ footer.site .legal{border-top:1px solid #243543;margin-top:32px;padding-top:16px
 .pagehead{position:relative;color:#fff;background:linear-gradient(rgba(11,22,32,.7),rgba(11,22,32,.78)),var(--bg) center 45%/cover;padding:64px 0 52px;border-bottom:4px solid var(--lime)}
 .pagehead h1{color:#fff;margin:0}.pagehead p{color:#d4dee6;max-width:40em;margin:12px 0 0;font-size:1.1rem}.pagehead .eyebrow{color:var(--lime)}
 .credits li{margin:8px 0}
+@media(max-width:940px){.hero .grid{grid-template-columns:1fr;gap:26px;padding-bottom:40px}.hero .frame{margin:0 10px 0 0}}
+@media(max-width:600px){h1{font-size:clamp(1.9rem,8.6vw,2.4rem)}.hero{padding-top:28px}.hero .lead{font-size:1rem}.frame .sign span{font-size:1.25rem}.facts>div{padding-right:14px;margin-right:14px}.facts b{font-size:1.35rem}}
+.vehicle .seatmap{display:flex;justify-content:flex-end}
+.vehicle .seatmap svg{height:46px;width:auto;max-width:100%;display:block}
