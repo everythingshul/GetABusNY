@@ -1,7 +1,7 @@
 import express from 'express';
 import { all, one, run, update, insert, now, getSetting, getJSON, parse, log } from '../db.js';
 import { limit } from '../auth.js';
-import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, SMS_GROUPS, cleanSmsTypes, handleInboundText } from '../services.js';
+import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
 import { createCheckout, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
 import fs from 'node:fs';
 import { placesAutocomplete, placeDetails } from '../integrations.js';
@@ -15,7 +15,7 @@ pub.get('/config', (req, res) => {
   res.json({
     business_name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address'),
     service_area: getSetting('service_area'), hours: getJSON('hours', []), socials: getJSON('socials', {}),
-    chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1', sms_groups: SMS_GROUPS,
+    chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1',
   });
 });
 
@@ -70,7 +70,7 @@ pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
     if (k) await signContract(k, b, { ip: req.ip, ua: req.headers['user-agent'] });
     const r = acceptQuote(q.id, 'customer');
     if (k) { update('contracts', k.id, { trip_id: r.trip_id }); }
-    if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE id=? AND sms_optin=0', now(), q.customer_id); if (cleanSmsTypes(b.sms_types)) update('customers', q.customer_id, { sms_types: cleanSmsTypes(b.sms_types) }); }
+    if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE id=? AND sms_optin=0', now(), q.customer_id); }
     res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE id=?', r.invoice_id)?.token });
   } catch (e) { fail(res, e.status || 500, e.message); }
 });

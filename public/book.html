@@ -29,7 +29,7 @@
 <div class="fieldset"><h3><i>5</i>Your details</h3>
 <div class="row"><div class="field"><label for="nm">Full name *</label><input id="nm" required autocomplete="name"></div><div class="field"><label for="co">Organization <span class="opt">(camp, shul, yeshiva… optional)</span></label><input id="co" autocomplete="organization"></div></div>
 <div class="row"><div class="field"><label for="em">Email *</label><input type="email" id="em" required autocomplete="email"></div><div class="field"><label for="ph2">Phone *</label><input type="tel" id="ph2" required autocomplete="tel"></div></div>
-<label id="smsrow" style="display:none;font-weight:400;margin:-4px 0 14px"><input type="checkbox" id="sms" style="width:auto;min-height:0;display:inline;margin-right:8px">Text me trip updates. Message and data rates may apply. Reply STOP anytime to opt out.</label><div id="smsgroups" style="display:none;margin:-4px 0 14px;padding:10px 12px;border:2px solid var(--line-d);background:var(--card)"><b style="font-size:.9rem">Which texts do you want?</b><div id="smsg" style="display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px"></div></div>
+<label id="smsrow" style="display:none;font-weight:400;margin:-4px 0 14px"><input type="checkbox" id="sms" style="width:auto;min-height:0;display:inline;margin-right:8px">Text me trip updates. Message and data rates may apply. Reply STOP anytime to opt out.</label>
 <div class="field"><label for="cm">Anything else we should know? <span class="opt">(optional)</span></label><textarea id="cm" placeholder="Luggage or equipment, wheelchair access, candle-lighting deadline, kosher food on board, budget…"></textarea></div>
 <div class="field"><label for="rf">Who recommended us? <span class="opt">(optional)</span></label><input id="rf"></div></div>
 <div id="err" class="alert err" role="alert" hidden></div>
@@ -49,7 +49,7 @@ import {fillIcons} from '/js/icons.js';
 const c=await boot('/book');
 const tel=c.phone.replace(/[^+\d]/g,'');$('#ph').href='tel:'+tel;$('#ph').textContent=c.phone;
 $('#pur').innerHTML='<option value="">Select…</option>'+(c.purposes||[]).map(p=>`<option>${esc(p)}</option>`).join('');
-if(c.sms){$('#smsrow').style.display='block';$('#smsg').innerHTML=Object.entries(c.sms_groups||{}).map(([k,l])=>`<label style="font-weight:400;margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" class="sg" value="${k}" checked style="width:auto;min-height:0">${esc(l)}</label>`).join('');$('#sms').onchange=e=>{$('#smsgroups').style.display=e.target.checked?'block':'none';};}
+if(c.sms){$('#smsrow').style.display='block';}
 const fl=await api('/fleet');
 $('#vh').insertAdjacentHTML('beforeend',fl.map(v=>`<option value="${v.id}">${esc(v.name)}, seats ${v.capacity}</option>`).join(''));
 const q=new URLSearchParams(location.search);
@@ -88,7 +88,7 @@ $('#f').onsubmit=async e=>{e.preventDefault();const err=$('#err');err.hidden=tru
  if(type()==='one_way')it=it.filter(x=>x.kind!=='return_pickup');
  const fp=it.find(x=>x.kind==='pickup');fp.time=dep;const rp=it.find(x=>x.kind==='return_pickup');if(rp&&ret)rp.time=ret;
  const b=$('#go');b.disabled=true;b.textContent='Sending…';
- try{const r=await api('/request',{body:{website:e.target.website.value,trip_type:type(),purpose:$('#pur').value,depart_at:dep,return_at:ret,itinerary:it,passengers:+$('#px').value,vehicle_id:$('#vh').value||null,name:$('#nm').value,company:$('#co').value,email:$('#em').value,phone:$('#ph2').value,sms_optin:$('#sms').checked,sms_types:[...document.querySelectorAll('.sg:checked')].map(x=>x.value),comments:$('#cm').value,referred_by:$('#rf').value}});
+ try{const r=await api('/request',{body:{website:e.target.website.value,trip_type:type(),purpose:$('#pur').value,depart_at:dep,return_at:ret,itinerary:it,passengers:+$('#px').value,vehicle_id:$('#vh').value||null,name:$('#nm').value,company:$('#co').value,email:$('#em').value,phone:$('#ph2').value,sms_optin:$('#sms').checked,comments:$('#cm').value,referred_by:$('#rf').value}});
   $('#ref').textContent=r.ref;$('#to').textContent=$('#em').value;document.querySelectorAll('.phl').forEach(a=>{a.href='tel:'+tel;a.textContent=c.phone});
   document.querySelector('section').hidden=true;$('#done').hidden=false;fillIcons();window.scrollTo({top:0,behavior:'smooth'});
  }catch(x){bad(x.message);b.disabled=false;b.textContent='Send my request';}};

@@ -15,7 +15,7 @@
 <div class="field"><label for="nm">Type your full legal name</label><input id="nm" autocomplete="name"></div>
 <div class="field"><label>Draw your signature <button type="button" class="btn btn-line btn-sm" id="clr" style="margin-left:8px">Clear</button></label><canvas id="sig" aria-label="Signature pad"></canvas></div>
 <label style="font-weight:400;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="ag" style="width:auto;min-height:0;margin-top:5px"><span>I agree to sign electronically and be bound by this quote and the terms.</span></label>
-<label id="smsrow" style="font-weight:400;display:none;gap:10px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="sms" style="width:auto;min-height:0;margin-top:5px"><span>Text me trip updates. Message and data rates may apply. Reply STOP to opt out.</span></label><div id="smsg" style="display:none;flex-wrap:wrap;gap:6px 18px;margin:0 0 10px 26px"></div>
+<label id="smsrow" style="font-weight:400;display:none;gap:10px;align-items:flex-start;margin-bottom:8px"><input type="checkbox" id="sms" style="width:auto;min-height:0;margin-top:5px"><span>Text me trip updates. Message and data rates may apply. Reply STOP to opt out.</span></label>
 <div id="serr" class="alert err" hidden></div><button class="btn btn-lime" id="go">Sign &amp; accept quote</button></form>
 <form id="qf" hidden style="margin-top:16px"><div class="field"><label for="qm">Your question</label><textarea id="qm" required></textarea></div><button class="btn btn-blue btn-sm">Send</button></form><div id="msg" class="alert" hidden></div>
 <p class="hint">By accepting you agree to our <a href="/terms" target="_blank">terms &amp; conditions</a>.</p></div>
@@ -45,13 +45,13 @@ try{const q=await api('/quote/'+tok);$('#view').hidden=false;
  if(q.status==='accepted'){b.className='alert ok';b.innerHTML=`You accepted this quote. ${q.invoice_token?`<a href="/pay/${q.invoice_token}"><b>Go to your invoice →</b></a>`:''}`;b.hidden=false;$('#act').hidden=true;}
  else if(q.status==='declined'){b.className='alert err';b.textContent='This quote was declined.';b.hidden=false;$('#act').hidden=true;}
  else if(q.status==='expired'){b.className='alert err';b.textContent='This quote has expired. Contact us and we will refresh it.';b.hidden=false;$('#acc').disabled=true;$('#dec').hidden=true;}
- let pad=null;if(cfg.sms){$('#smsrow').style.display='flex';$('#smsg').innerHTML=Object.entries(cfg.sms_groups||{}).map(([k,l])=>`<label style="font-weight:400;margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" class="sg" value="${k}" checked style="width:auto;min-height:0">${esc(l)}</label>`).join('');$('#sms').onchange=e=>{$('#smsg').style.display=e.target.checked?'flex':'none';};}
+ let pad=null;if(cfg.sms){$('#smsrow').style.display='flex';}
  $('#acc').onclick=()=>{$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
  $('#clr').onclick=()=>pad&&pad.clear();
  $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.hidden=true;const sig=pad&&pad.get();
   if(!$('#nm').value.trim()||!sig||!$('#ag').checked){er.textContent='Type your name, draw your signature and check the box.';er.hidden=false;return;}
   const g=$('#go');g.disabled=true;g.textContent='Signing…';
-  try{const r=await api(`/quote/${tok}/accept`,{body:{name:$('#nm').value,signature:sig,agree:true,sms_optin:$('#sms').checked,sms_types:[...document.querySelectorAll('.sg:checked')].map(x=>x.value)}});location.href='/pay/'+r.invoice_token;}catch(x){er.textContent=x.message;er.hidden=false;g.disabled=false;g.textContent='Sign & accept quote';}};
+  try{const r=await api(`/quote/${tok}/accept`,{body:{name:$('#nm').value,signature:sig,agree:true,sms_optin:$('#sms').checked}});location.href='/pay/'+r.invoice_token;}catch(x){er.textContent=x.message;er.hidden=false;g.disabled=false;g.textContent='Sign & accept quote';}};
  $('#dec').onclick=async()=>{const why=prompt('Sorry it did not work out. Anything we could do better? (optional)');if(why===null)return;try{await api(`/quote/${tok}/decline`,{body:{reason:why}});location.reload();}catch(e){say(e.message,'err');}};
  $('#q').onclick=()=>{$('#qf').hidden=!$('#qf').hidden;};
  $('#qf').onsubmit=async e=>{e.preventDefault();try{await api(`/quote/${tok}/question`,{body:{message:$('#qm').value}});say('Sent. We will reply by email or phone.','ok');$('#qf').hidden=true;}catch(x){say(x.message,'err');}};

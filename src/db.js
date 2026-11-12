@@ -123,6 +123,7 @@ export const DEFAULT_SETTINGS = {
   // v2
   google_review_url: '',
   sms_own_number: '',
+  sms_groups_on: 'quotes,payments,reminders,driver,reviews',
   bus_height_cm: '370',
   bus_width_cm: '260',
   bus_length_cm: '1370',

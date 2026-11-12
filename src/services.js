@@ -52,7 +52,6 @@ export function createRequest(d, source = 'website') {
   const phone = String(d.phone || '').trim().slice(0, 40);
   if (!name || (!email && !phone)) throw Object.assign(new Error('Name and an email or phone number are required.'), { status: 400 });
   const customer_id = ensureCustomer({ name, email, phone, company: d.company, sms_optin: !!d.sms_optin && !!phone });
-  if (d.sms_optin && phone && cleanSmsTypes(d.sms_types)) update('customers', customer_id, { sms_types: cleanSmsTypes(d.sms_types) });
   let itinerary = normItinerary(d.itinerary);
   if (!itinerary.length) itinerary = fromLegacy(d);
   else {
@@ -444,14 +443,13 @@ function quietEndsAt() { // first real moment after the quiet window ends
 }
 export const SMS_GROUPS = { quotes: 'Quote updates', payments: 'Payment receipts', reminders: 'Trip reminders', driver: 'Driver on the way or arrived', reviews: 'Review request after the trip' };
 const KIND_GROUP = { request_received: 'quotes', quote_sent: 'quotes', payment: 'payments', trip_reminder: 'reminders', driver_en_route: 'driver', driver_arrived: 'driver', review_request: 'reviews' };
-export const cleanSmsTypes = (t) => { const a = Array.isArray(t) ? t.filter((x) => SMS_GROUPS[x]) : null; return a && a.length ? a : null; };
 export async function textCustomer(customer_id, body, kind, { trip_id, force = false, override = false } = {}) {
   const c = customerOf(customer_id);
   if (!c.id || !c.phone) return { ok: false, error: 'no phone' };
   if (!override && !c.sms_optin) return { ok: false, error: 'customer has not opted in to texts' };
   const group = KIND_GROUP[kind];
-  const chosen = parse(c.sms_types, null);
-  if (!override && group && Array.isArray(chosen) && !chosen.includes(group)) return { ok: false, error: 'customer chose not to get this kind of text' };
+  const on = String(getSetting('sms_groups_on') || '').split(',').map((x) => x.trim());
+  if (!override && group && !on.includes(group)) return { ok: false, error: 'this kind of text is turned off in Settings' };
   if (getSetting('sms_enabled') !== '1') return { ok: false, error: 'texts are turned off' };
   const to = toE164(c.phone); if (!to) return { ok: false, error: 'invalid phone number' };
   const defer = !force && inQuietWindow();

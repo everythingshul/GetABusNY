@@ -204,8 +204,6 @@ function wireRouteTools(ov, ed, { purpose, onLines, vehicle, depart }) {
   $('#rt_lines', ov)?.addEventListener('click', () => guard(async () => { const lines = await POST('/itinerary/lines', { itinerary: ed.get(), purpose: purpose() }); onLines(lines); toast('Lines added. Enter your prices.'); }));
 }
 
-const smsTypesHTML = (c) => { const chosen = (() => { try { return JSON.parse(c.sms_types || 'null'); } catch { return null; } })(); const g = S.cfg?.sms_groups || {}; return `<div class="fsec" style="margin-top:14px">Texts this customer wants (when "OK to text" is checked)</div><div style="display:flex;flex-wrap:wrap;gap:6px 18px">${Object.entries(g).map(([k, l]) => `<label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" data-sg="${k}" ${!chosen || chosen.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>`; };
-const readSmsTypes = (root) => { const all = $$('[data-sg]', root); const on = all.filter((x) => x.checked).map((x) => x.dataset.sg); return on.length === all.length || !on.length ? null : on; };
 function composeText({ customer_id, name, phone }) {
   modal({ title: `Text ${name}`, small: true, body: `<p class="mut sm">To ${esc(phone)}. Only works if they agreed to texts.</p><label>Message<textarea id="tm" rows="6" maxlength="500" placeholder="Type your message. Line breaks are kept."></textarea></label><div class="hint" id="tc">0 / 500 (about 160 characters per text)</div>`, footer: `<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
     $('#tm', ov).oninput = (e) => { $('#tc', ov).textContent = `${e.target.value.length} / 500 (about 160 characters per text)`; };
@@ -217,12 +215,12 @@ async function customerModal(id, after) {
   const c = id ? await GET('/customers/' + id) : {};
   const h = id ? await GET(`/customers/${id}/history`) : null;
   const m = modal({
-    title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + smsTypesHTML(c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
+    title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
     footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && c.sms_optin ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       placesFor(ov);
       $('#txt', ov)?.addEventListener('click', () => composeText({ customer_id: id, name: c.name, phone: c.phone }));
-      $('#save', ov).onclick = () => guard(async () => { const o = readForm(CUST_F, ov); if (!reqCheck(CUST_F, o)) return; o.sms_types = readSmsTypes(ov); id ? await PUT('/customers/' + id, o) : await POST('/customers', o); close(); await refresh(); after?.(); }, 'Saved');
+      $('#save', ov).onclick = () => guard(async () => { const o = readForm(CUST_F, ov); if (!reqCheck(CUST_F, o)) return; id ? await PUT('/customers/' + id, o) : await POST('/customers', o); close(); await refresh(); after?.(); }, 'Saved');
       if (id) {
         $('#del', ov).onclick = () => guard(async () => { if (!confirm('Delete this customer?')) return; await DEL('/customers/' + id); close(); await refresh(); }, 'Deleted');
         $('#nq', ov).onclick = () => { close(); quoteModal(null, { customer_id: id }); };
