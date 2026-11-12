@@ -6,7 +6,7 @@ import { all, one, run, insert, update, now, token, nextNumber, allSettings, set
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
 import * as S from '../services.js';
-import { status as integ, sendEmail, emailShell, esc, refundPayment, money } from '../integrations.js';
+import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
@@ -172,7 +172,11 @@ admin.post('/invoices/:id/payments', wrap((req) => {
 admin.post('/payments/:id/refund', wrap(async (req) => {
   const p = one('SELECT * FROM payments WHERE id=?', req.params.id);
   if (!p || p.amount_cents <= 0) throw bad('Payment not found');
-  const amt = Math.round(Number(req.body.amount_cents)) || p.amount_cents;
+  if (p.status !== 'succeeded') throw bad('Only completed payments can be refunded. Release a hold instead.');
+  const done = -one("SELECT COALESCE(SUM(amount_cents),0) s FROM payments WHERE method='refund' AND stripe_pi IS ? AND invoice_id=?", p.stripe_pi, p.invoice_id).s;
+  const left = p.amount_cents - done;
+  const amt = Math.round(Number(req.body.amount_cents)) || left;
+  if (amt <= 0 || amt > left) throw bad(`You can refund up to ${money(left)} on this payment.`);
   let ref = null;
   if (p.method === 'card' && p.stripe_pi) { const r = await refundPayment(p.stripe_pi, amt); ref = r.id; }
   insert('payments', { invoice_id: p.invoice_id, amount_cents: -amt, method: 'refund', reference: ref || req.body.reference, stripe_session: ref, stripe_pi: p.stripe_pi, status: 'succeeded', note: req.body.note, created_at: now() });
@@ -261,3 +265,36 @@ admin.get('/export/:kind', (req, res) => {
 });
 admin.get('/export-kinds', (req, res) => res.json(EXPORT_KINDS));
 admin.get('/traffic', wrap((req) => trafficReport(Number(req.query.days) || 30)));
+
+// ---------- card authorizations: hold, capture (full or partial), release ----------
+admin.post('/invoices/:id/auth-link', wrap(async (req) => {
+  const i = one('SELECT * FROM invoices WHERE id=?', req.params.id);
+  if (!i || i.status === 'void') throw bad('Invoice not found');
+  const amt = Math.round(Number(req.body?.amount_cents));
+  if (!Number.isFinite(amt) || amt < 100) throw bad('Enter the amount to hold (at least $1.00).');
+  const c = one('SELECT * FROM customers WHERE id=?', i.customer_id) || {};
+  const sess = await createCheckout({ invoice: i, amount_cents: amt, email: c.email, auth: true });
+  let emailed = false;
+  if (req.body?.email && c.email) {
+    await sendEmail(c.email, `Card authorization for invoice ${i.number}`, emailShell('Please authorize your card', `<p>Hi ${esc((c.name || '').split(' ')[0])}, to hold <b>${money(amt)}</b> on your card for ${esc(i.title || 'your trip')}, use the secure button below. Your card is <b>authorized, not charged</b>. We capture the final amount later, or release the hold. The link works for 24 hours.</p>`, { label: 'Authorize card', url: sess.url }));
+    emailed = true;
+  }
+  log(req.user.email, 'payment.auth_link', 'invoice', i.id, money(amt));
+  return { url: sess.url, emailed };
+}));
+admin.post('/payments/:id/capture', wrap(async (req) => {
+  const p = one('SELECT * FROM payments WHERE id=?', req.params.id);
+  if (!p || p.method !== 'card_auth' || p.status !== 'authorized') throw bad('That is not an open card hold.');
+  const amt = Math.round(Number(req.body?.amount_cents)) || p.amount_cents;
+  if (amt <= 0 || amt > p.amount_cents) throw bad(`You can capture up to ${money(p.amount_cents)}.`);
+  const r = await capturePayment(p.stripe_pi, amt === p.amount_cents ? undefined : amt);
+  markCaptured(p, r.amount_received || amt, req.user.email);
+  return { ok: true, captured_cents: r.amount_received || amt };
+}));
+admin.post('/payments/:id/release', wrap(async (req) => {
+  const p = one('SELECT * FROM payments WHERE id=?', req.params.id);
+  if (!p || p.method !== 'card_auth' || p.status !== 'authorized') throw bad('That is not an open card hold.');
+  await cancelPayment(p.stripe_pi);
+  markReleased(p, 'released', req.user.email);
+  return { ok: true };
+}));

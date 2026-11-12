@@ -96,7 +96,7 @@ async function stripe(path, body) {
   return j;
 }
 
-export async function createCheckout({ invoice, amount_cents, email }) {
+export async function createCheckout({ invoice, amount_cents, email, auth = false }) {
   const base = BASE_URL();
   return stripe('checkout/sessions', {
     mode: 'payment',
@@ -104,12 +104,14 @@ export async function createCheckout({ invoice, amount_cents, email }) {
     success_url: `${base}/pay/${invoice.token}?paid=1`,
     cancel_url: `${base}/pay/${invoice.token}`,
     client_reference_id: String(invoice.id),
-    metadata: { invoice_id: invoice.id, invoice_number: invoice.number },
-    payment_intent_data: { metadata: { invoice_id: invoice.id, invoice_number: invoice.number }, description: `${getSetting('business_name')} invoice ${invoice.number}` },
-    line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount_cents, product_data: { name: `Invoice ${invoice.number}`, description: invoice.title || 'Charter bus service' } } } },
+    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) },
+    payment_intent_data: { ...(auth ? { capture_method: 'manual' } : {}), metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) }, description: `${getSetting('business_name')} invoice ${invoice.number}${auth ? ' (card hold)' : ''}` },
+    line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount_cents, product_data: { name: auth ? `Card hold for invoice ${invoice.number}` : `Invoice ${invoice.number}`, description: auth ? 'Your card is authorized, not charged, until the trip is confirmed or completed.' : (invoice.title || 'Charter bus service') } } } },
   });
 }
 
+export async function capturePayment(payment_intent, amount_cents) { return stripe(`payment_intents/${encodeURIComponent(payment_intent)}/capture`, amount_cents ? { amount_to_capture: amount_cents } : {}); }
+export async function cancelPayment(payment_intent) { return stripe(`payment_intents/${encodeURIComponent(payment_intent)}/cancel`, {}); }
 export async function refundPayment(payment_intent, amount_cents) {
   return stripe('refunds', { payment_intent, amount: amount_cents });
 }

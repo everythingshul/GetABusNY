@@ -67,6 +67,28 @@ try {
   const inv2 = (await api('GET', `/api/admin/invoices/${inv.id}`)).body; assert.equal(inv2.amount_paid_cents, 135000); assert.equal(inv2.status, 'partial'); step('webhook paid deposit once (replay ignored, bad sig rejected)');
   const trip = (await api('GET', '/api/admin/trips')).body[0]; assert.equal(trip.status, 'confirmed'); step('trip auto-confirmed after deposit');
   r = await api('POST', `/api/admin/invoices/${inv.id}/payments`, { amount_cents: 135000, method: 'check', reference: '1001' }); ok(r, 'manual payment'); assert.equal((await api('GET', `/api/admin/invoices/${inv.id}`)).body.status, 'paid'); step('manual payment -> paid');
+  // card holds / partial capture / release / refunds / disputes, driven by Stripe events
+  const wh = async (type, object) => { const body = JSON.stringify({ type, data: { object } }); const ts = Math.floor(Date.now() / 1000); const sg = crypto.createHmac('sha256', 'whsec_test').update(`${ts}.${body}`).digest('hex'); const x = await fetch(base + '/api/stripe/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': `t=${ts},v1=${sg}` }, body }); assert.equal(x.status, 200, type); };
+  const pays = async () => (await api('GET', `/api/admin/invoices/${inv.id}/payments`)).body;
+  const paidNow = async () => (await api('GET', `/api/admin/invoices/${inv.id}`)).body.amount_paid_cents;
+  const base0 = await paidNow();
+  await wh('payment_intent.amount_capturable_updated', { id: 'pi_hold1', amount_capturable: 80000, metadata: { invoice_id: String(inv.id), mode: 'auth' } });
+  await wh('payment_intent.amount_capturable_updated', { id: 'pi_hold1', amount_capturable: 80000, metadata: { invoice_id: String(inv.id), mode: 'auth' } }); // replay
+  let hold = (await pays()).filter((p) => p.method === 'card_auth'); assert.equal(hold.length, 1); assert.equal(hold[0].status, 'authorized'); assert.equal(await paidNow(), base0); step('card hold recorded once and NOT counted as paid');
+  r = await api('POST', `/api/admin/payments/${hold[0].id}/capture`, { amount_cents: 50000 }); assert.ok(r.status >= 400); assert.match(r.body.error, /Stripe is not configured/); step('capture/release call Stripe (clean error here: no Stripe key)');
+  r = await api('POST', `/api/admin/payments/${hold[0].id}/capture`, { amount_cents: 90000 }); assert.equal(r.status, 400); step('cannot capture more than the hold');
+  await wh('payment_intent.succeeded', { id: 'pi_hold1', amount_received: 50000, metadata: { invoice_id: String(inv.id), mode: 'auth' } });
+  hold = (await pays()).filter((p) => p.stripe_pi === 'pi_hold1'); assert.equal(hold[0].status, 'succeeded'); assert.equal(hold[0].amount_cents, 50000); assert.equal(await paidNow(), base0 + 50000); step('partial capture ($500 of $800 hold) counts as paid');
+  await wh('payment_intent.amount_capturable_updated', { id: 'pi_hold2', amount_capturable: 30000, metadata: { invoice_id: String(inv.id), mode: 'auth' } });
+  await wh('payment_intent.canceled', { id: 'pi_hold2', cancellation_reason: 'requested_by_customer' });
+  const rel = (await pays()).find((p) => p.stripe_pi === 'pi_hold2'); assert.equal(rel.status, 'released'); assert.equal(await paidNow(), base0 + 50000); step('released hold never counts as paid');
+  await wh('charge.refunded', { payment_intent: 'pi_hold1', refunds: { data: [{ id: 're_1', amount: 12000 }] } });
+  assert.equal(await paidNow(), base0 + 50000 - 12000); step('partial refund (from Stripe dashboard) reduces the invoice');
+  r = await api('POST', `/api/admin/payments/${hold[0].id}/refund`, { amount_cents: 99999 }); assert.equal(r.status, 400); assert.match(r.body.error, /up to/); step('cannot refund more than what was paid');
+  await wh('charge.dispute.created', { payment_intent: 'pi_hold1', amount: 50000, reason: 'fraudulent' });
+  assert.ok((await api('GET', '/api/admin/activity')).body.some((a) => a.action === 'payment.dispute')); step('chargeback logged + owner alerted');
+  await wh('payment_intent.payment_failed', { id: 'pi_x', metadata: { invoice_id: String(inv.id), invoice_number: inv.number }, last_payment_error: { message: 'Your card was declined.' } }); step('failed payment logged');
+
   // driver + portal
   r = await api('POST', '/api/admin/drivers', { name: 'Sam Driver', phone: '5559998888', email: 'sam@example.com' }); ok(r, 'driver'); const drv = r.body;
   assert.ok(drv.token && drv.token.length >= 24);

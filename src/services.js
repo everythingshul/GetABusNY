@@ -192,6 +192,12 @@ export async function sendInvoice(id, actor) {
 export function recordPayment(invoice_id, { amount_cents, method = 'manual', reference, stripe_session, stripe_pi, note }, actor = 'admin') {
   if (stripe_session && one('SELECT 1 x FROM payments WHERE stripe_session=?', stripe_session)) return null; // webhook replay
   const pid = insert('payments', { invoice_id, amount_cents, method, reference, stripe_session, stripe_pi, status: 'succeeded', note, created_at: now() });
+  afterPayment(invoice_id, amount_cents, method, actor);
+  return pid;
+}
+
+/** Everything that follows money arriving: invoice status, trip confirmation, receipt email/text, owner alert. */
+function afterPayment(invoice_id, amount_cents, method, actor) {
   const before = one('SELECT status FROM invoices WHERE id=?', invoice_id).status;
   if (before === 'draft') update('invoices', invoice_id, { status: 'sent' });
   recalcInvoice(invoice_id);
@@ -204,7 +210,29 @@ export function recordPayment(invoice_id, { amount_cents, method = 'manual', ref
   if (c.email) sendEmail(c.email, `Payment received — ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
   textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
   notifyOwner(`Payment ${money(amount_cents)} — ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`).catch(() => {});
-  return pid;
+}
+
+// ---------- card authorizations (holds): authorize -> capture (full or partial) or release ----------
+export function recordAuthorization(invoice_id, { amount_cents, stripe_pi }) {
+  if (one("SELECT 1 x FROM payments WHERE stripe_pi=? AND method='card_auth'", stripe_pi)) return null; // webhook replay
+  const id = insert('payments', { invoice_id, amount_cents, method: 'card_auth', reference: stripe_pi, stripe_pi, status: 'authorized', note: 'Card hold (not charged yet)', created_at: now() });
+  const i = one('SELECT * FROM invoices WHERE id=?', invoice_id);
+  log('stripe', 'payment.authorized', 'invoice', invoice_id, money(amount_cents));
+  notifyOwner(`Card hold ${money(amount_cents)} — ${i.number}`, `${customerOf(i.customer_id).name} authorized ${money(amount_cents)}. Capture or release it from the invoice. Holds usually expire after about 7 days.`).catch(() => {});
+  return id;
+}
+export function markCaptured(row, captured_cents, actor = 'stripe') {
+  if (row.status !== 'authorized') return false;
+  update('payments', row.id, { status: 'succeeded', method: 'card', amount_cents: captured_cents, note: `Captured from a ${money(row.amount_cents)} hold` });
+  afterPayment(row.invoice_id, captured_cents, 'card', actor);
+  log(actor, 'payment.captured', 'invoice', row.invoice_id, `${money(captured_cents)} of ${money(row.amount_cents)}`);
+  return true;
+}
+export function markReleased(row, why = 'released', actor = 'stripe') {
+  if (row.status !== 'authorized') return false;
+  update('payments', row.id, { status: 'released', note: `Hold ${why}` });
+  log(actor, 'payment.released', 'invoice', row.invoice_id, `${money(row.amount_cents)} ${why}`);
+  return true;
 }
 
 // ---------- trips / drivers ----------
