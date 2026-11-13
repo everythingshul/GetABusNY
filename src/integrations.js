@@ -144,13 +144,13 @@ async function stripe(path, body) {
   return j;
 }
 
-export async function createCheckout({ invoice, amount_cents, email, auth = false, saveCard = false, stripeCustomer }) {
+/** embedded: true returns a client_secret for Stripe's embedded form (card details go only to Stripe); otherwise a hosted page url. */
+export async function createCheckout({ invoice, amount_cents, email, auth = false, saveCard = false, stripeCustomer, embedded = false }) {
   const base = BASE_URL();
   return stripe('checkout/sessions', {
     mode: 'payment',
     ...(stripeCustomer ? { customer: stripeCustomer } : { customer_email: email || undefined }),
-    success_url: `${base}/pay/${invoice.token}?paid=1`,
-    cancel_url: `${base}/pay/${invoice.token}`,
+    ...(embedded ? { ui_mode: 'embedded', return_url: `${base}/pay/${invoice.token}?paid=1` } : { success_url: `${base}/pay/${invoice.token}?paid=1`, cancel_url: `${base}/pay/${invoice.token}` }),
     client_reference_id: String(invoice.id),
     metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, ...(auth ? { mode: 'auth' } : {}), ...(saveCard ? { save_card: '1' } : {}) },
     payment_intent_data: { ...(auth ? { capture_method: 'manual' } : {}), ...(saveCard ? { setup_future_usage: 'off_session' } : {}), metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) }, description: `${getSetting('business_name')} invoice ${invoice.number}${auth ? ' (card hold)' : ''}` },

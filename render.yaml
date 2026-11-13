@@ -22,6 +22,7 @@ services:
       - { key: SESSION_SECRET, generateValue: true }
       - { key: STRIPE_SECRET_KEY, sync: false }
       - { key: STRIPE_WEBHOOK_SECRET, sync: false }
+      - { key: STRIPE_PUBLISHABLE_KEY, sync: false }
       - { key: BREVO_API_KEY, sync: false }
       - { key: EMAIL_FROM, sync: false }          # e.g. Get A Bus NY <quotes@getabusny.com>
       - { key: GOOGLE_MAPS_API_KEY, sync: false }

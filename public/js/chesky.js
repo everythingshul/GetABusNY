@@ -224,6 +224,7 @@ const Chesky = (() => {
     wireFeedbackRow(node, question, result.entryId);
     transcript.push({ role: 'assistant', text: result.reply });
     saveTranscript();
+    if (result.checkout) { report('checkout'); showCheckout(result.checkout); }
     if (result.submitted?.reference) { report('quote'); bubble('bot', `Your reference number is <b>${escapeHtml(result.submitted.reference)}</b>. We will be in touch.`); }
     if (result.offTopic) report('miss');
     if (result.offTopic) {
@@ -232,6 +233,34 @@ const Chesky = (() => {
       document.getElementById('cheskyTalkHumanInline').addEventListener('click', showHandoffForm);
       scrollLog();
     }
+  }
+
+  // Chesky started an invoice payment. Stripe's own form is mounted in the chat when the site has a publishable key;
+  // otherwise a Pay now button opens Stripe's hosted page. Card details only ever go to Stripe, never to this page or our server.
+  let stripeJs = null, stripeInst = null, activeCheckout = null;
+  function loadStripeJs() {
+    if (window.Stripe) return Promise.resolve();
+    stripeJs ||= new Promise((resolve, reject) => {
+      const sc = document.createElement('script'); sc.src = 'https://js.stripe.com/v3/'; sc.onload = resolve; sc.onerror = () => reject(new Error('Stripe did not load')); document.head.appendChild(sc);
+    });
+    return stripeJs;
+  }
+  function payButton(co) {
+    const url = co.url || co.payUrl;
+    return `<div class="chesky-chips"><a href="${escapeHtml(url)}" class="chesky-chip" target="_blank" rel="noopener">Pay ${escapeHtml(co.amount || '')} now</a></div>`;
+  }
+  function showCheckout(co) {
+    const log = document.getElementById('cheskyLog'); if (!log) return;
+    if (!co.clientSecret || !co.publishableKey) { log.appendChild(el(payButton(co))); scrollLog(); return; }
+    const node = el('<div class="chesky-checkout"></div>'); log.appendChild(node); scrollLog();
+    const fallback = () => { node.replaceWith(el(payButton({ ...co, url: co.payUrl }))); scrollLog(); };
+    (async () => {
+      await Promise.race([loadStripeJs(), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 12000))]);
+      stripeInst ||= window.Stripe(co.publishableKey);
+      try { activeCheckout?.destroy(); } catch { /* already gone */ }
+      activeCheckout = await Promise.race([stripeInst.initEmbeddedCheckout({ clientSecret: co.clientSecret }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 15000))]);
+      activeCheckout.mount(node);
+    })().catch(fallback);
   }
 
   async function ask(question) {

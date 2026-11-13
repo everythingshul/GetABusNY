@@ -31,4 +31,5 @@ Zmanim and Shabbos / Yom Tov checks (Hebcal, offline) on every quote and trip, a
 - Needs a host with a persistent disk. `render.yaml` is ready for Render (same host as JListings). Back the disk up.
 - Serve over HTTPS and set `BASE_URL` (used in every emailed link and Stripe redirect).
 - Stripe: add the webhook endpoint from `.env.example`. Without it, payments won't be recorded automatically.
+- Set `STRIPE_PUBLISHABLE_KEY` (the `pk_` key) so Chesky can show the card form inside the chat. Without it, Chesky gives a Pay now button that opens the Stripe page instead. Card details only ever go to Stripe.
 - Follow-ups run from an in-process timer, so keep one instance running.

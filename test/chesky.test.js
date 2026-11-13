@@ -59,7 +59,7 @@ try {
   r = await call('POST', '/p/ask', { question: 'I need a bus for a Kivrei Tzadikim trip, 30 people' });
   assert.match(r.body.reply, /reference REQ-/); assert.ok(r.body.submitted); ok('AI loop: tool call then respond');
   const sys = seen[0].system;
-  assert.match(sys, /Never state, estimate/); assert.match(sys, /Shabbatons/); assert.match(sys, /closed Saturday/); assert.deepEqual(seen[0].tools.map((t) => t.name), ['get_fleet', 'get_hours_contact', 'submit_quote_request', 'respond']); ok('system prompt carries the hard rules');
+  assert.match(sys, /Never state, estimate/); assert.match(sys, /Shabbatons/); assert.match(sys, /closed Saturday/); assert.deepEqual(seen[0].tools.map((t) => t.name), ['get_fleet', 'get_hours_contact', 'get_site_info', 'find_invoice', 'start_invoice_payment', 'submit_quote_request', 'respond']); ok('system prompt carries the hard rules');
   globalThis.fetch = realFetch; delete process.env.CHESKY_API_KEY;
 
   // handoff
@@ -158,6 +158,51 @@ try {
   r = await raw('/p/media?kind=voice', webm, 'audio/webm'); r = await call('POST', '/p/handoff', { email: 'voice@example.com', voice_id: r.body.id }); assert.equal(r.status, 200); ok('a conversation can start with just a voice note');
   const before = fs.readdirSync(vdir).length; await call('DELETE', `/a/${hc}`); assert.ok(fs.readdirSync(vdir).length < before); ok('deleting a conversation deletes its voice files');
   setTranscriber(null);
+
+
+  // site info: everything on the public pages, nothing private
+  { const { siteInfo } = await import('../src/chesky.js'); const all0 = siteInfo('all');
+    assert.ok(all0.fleet.length >= 10 && all0.fleet.some((v) => v.amenities.length > 2 && v.page.startsWith('/bus/')));
+    assert.equal(all0.areas.length, 17); assert.ok(all0.areas.some((a) => a.name === 'Boro Park')); assert.ok(all0.trips.some((t) => t.name === 'Weddings' && t.faq.length));
+    assert.match(all0.about, /2016/); assert.ok(all0.terms.length > 500 && !/<[a-z]/i.test(all0.terms)); assert.ok(all0.privacy.length > 200);
+    assert.match(all0.contact.hours, /Saturday: Closed/); assert.equal(typeof all0.page_texts, 'object');
+    assert.deepEqual(Object.keys(siteInfo('areas')), ['areas']); const dump = JSON.stringify(all0); assert.ok(!/token|password|stripe_customer/i.test(dump) || !/"token"/.test(dump));
+    assert.equal(execTool('get_site_info', { section: 'fleet' }).fleet.length, all0.fleet.length); ok('get_site_info returns the whole public site and nothing private'); }
+
+  // invoice payment by chat
+  { const { insert, now, token: tok } = await import('../src/db.js'); const { execToolAsync } = await import('../src/chesky.js');
+    const cid = insert('customers', { name: 'Pay Er', email: 'payer@example.com', phone: '5550001111', created_at: now(), updated_at: now() });
+    const inv = insert('invoices', { number: 'INV-777777', seq: 1, token: tok(), customer_id: cid, status: 'sent', title: 'Camp trip', items: [], subtotal_cents: 50000, total_cents: 50000, amount_paid_cents: 10000, deposit_cents: 20000, due_date: '2099-07-01', created_at: now(), updated_at: now() });
+    const ctx = { ip: '9.9.9.9' };
+    let f = await execToolAsync('find_invoice', { number: 'inv-777777', email: 'PAYER@example.com' }, ctx);
+    assert.equal(f.status, 'found'); assert.equal(f.balance, '$400.00'); assert.equal(f.due_date, 'July 1, 2099'); assert.ok(!JSON.stringify(f).includes('token'));
+    f = await execToolAsync('find_invoice', { number: 'INV-777777', email: 'someone@else.com' }, ctx); assert.equal(f.status, 'not_found');
+    assert.equal((await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'wrong@x.com' }, ctx)).status, 'error');
+    assert.match((await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com' }, ctx)).error, /not set up/);
+    process.env.STRIPE_SECRET_KEY = 'sk_test_x'; const stripeBodies = [];
+    globalThis.fetch = async (url, opts) => { if (!String(url).includes('api.stripe.com')) return realFetch(url, opts); stripeBodies.push(String(opts.body)); return new Response(JSON.stringify({ id: 'cs_1', url: 'https://checkout.stripe.test/c/1', client_secret: 'cs_secret_1' }), { status: 200 }); };
+    let p = await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com' }, ctx);
+    assert.equal(p.status, 'ready'); assert.equal(p._checkout.url, 'https://checkout.stripe.test/c/1'); assert.equal(p._checkout.clientSecret, undefined); assert.ok(stripeBodies[0].includes('success_url') && !stripeBodies[0].includes('ui_mode') && stripeBodies[0].includes('unit_amount%5D=40000'));
+    process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_x';
+    p = await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com', which: 'deposit' }, ctx);
+    assert.equal(p._checkout.clientSecret, 'cs_secret_1'); assert.equal(p._checkout.publishableKey, 'pk_test_x'); assert.ok(stripeBodies[1].includes('ui_mode=embedded') && stripeBodies[1].includes('return_url') && stripeBodies[1].includes('unit_amount%5D=10000'));
+    // whole ask() loop: the secret reaches the widget, never the model
+    process.env.CHESKY_API_KEY = 'k'; let toolResultSeen = '';
+    globalThis.fetch = async (url, opts) => {
+      if (String(url).includes('api.stripe.com')) return new Response(JSON.stringify({ id: 'cs_2', client_secret: 'cs_secret_2' }), { status: 200 });
+      if (!String(url).includes('api.anthropic.com')) return realFetch(url, opts);
+      const b = JSON.parse(opts.body); const last = b.messages[b.messages.length - 1];
+      if (typeof last.content === 'string') return new Response(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't9', name: 'start_invoice_payment', input: { number: 'INV-777777', email: 'payer@example.com' } }] }), { status: 200 });
+      toolResultSeen = JSON.stringify(last.content);
+      return new Response(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't10', name: 'respond', input: { reply: 'The payment form is below.' } }] }), { status: 200 });
+    };
+    const { ask } = await import('../src/chesky.js'); const a = await ask('I want to pay INV-777777, payer@example.com', [], null, false, ctx);
+    assert.equal(a.checkout.clientSecret, 'cs_secret_2'); assert.equal(a.reply, 'The payment form is below.'); assert.ok(!toolResultSeen.includes('cs_secret_2') && toolResultSeen.includes('ready'));
+    // lookup guessing is limited per visitor
+    const bad = { ip: '8.8.8.8' }; for (let i = 0; i < 6; i++) await execToolAsync('find_invoice', { number: `INV-${i}`, email: 'a@b.com' }, bad);
+    assert.match((await execToolAsync('find_invoice', { number: 'INV-777777', email: 'payer@example.com' }, bad)).error, /Too many/);
+    globalThis.fetch = realFetch; delete process.env.CHESKY_API_KEY; delete process.env.STRIPE_SECRET_KEY; delete process.env.STRIPE_PUBLISHABLE_KEY;
+    ok('invoice lookup needs number and email, payment form is created on Stripe, secret goes to the widget only, guessing is limited'); }
 
   // admin assistant fallback
   const { adminAssistant } = await import('../src/chesky.js');

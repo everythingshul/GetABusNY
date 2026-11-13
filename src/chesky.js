@@ -11,8 +11,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db, all, one, run, now as isoNow, token, getSetting, getJSON, parse } from './db.js';
 import { limit } from './auth.js';
-import { env, sendEmail, emailShell, esc, notifyOwner, BASE_URL } from './integrations.js';
-import { createRequest, dashboard, scheduleTask } from './services.js';
+import { env, sendEmail, emailShell, esc, notifyOwner, BASE_URL, createCheckout, money } from './integrations.js';
+import { createRequest, dashboard, scheduleTask, invoiceBalance, fmtDate } from './services.js';
+import { AREAS } from './areas-content.js';
+import { TRIPS } from './trips-content.js';
+
+// Editable site texts (src/content.js) are optional so Chesky works with or without them.
+let contentMod = null;
+import('./content.js').then((m) => { contentMod = m; }).catch(() => {});
 
 const MAX_TEXT = 1500;
 const MAX_MESSAGES = 300;
@@ -174,7 +180,7 @@ function bumpUnanswered(question, col = 'miss_count') {
 
 // ---------- AI ----------
 const hoursText = () => getJSON('hours', []).map((h) => `${h.day}: ${h.open ? `${h.open} to ${h.close}` : 'Closed'}`).join('; ');
-const fleetRows = () => all('SELECT id,name,category,capacity,description FROM vehicles WHERE active=1 ORDER BY sort');
+const fleetRows = () => all('SELECT id,name,category,capacity,description,features FROM vehicles WHERE active=1 ORDER BY sort').map((v) => ({ ...v, features: String(v.features || '').split(',').map((s) => s.trim()).filter(Boolean) }));
 
 function systemPrompt(hasImage = false, hasVoice = false) {
   const name = getSetting('chesky_name') || 'Chesky';
@@ -184,7 +190,7 @@ function systemPrompt(hasImage = false, hasVoice = false) {
 Talk like a kind staff member texting a customer: contractions, plain words, one or two short sentences, at most one or two questions at a time. No filler, no emoji, no corporate phrasing.
 
 HARD RULES
-- Never state, estimate, hint at, or compare prices or rates, and never say a price is "usually" anything. Pricing is always done by hand by our staff. Say a team member will send a quote.
+- Never state, estimate, hint at, or compare prices or rates for a trip, and never say a price is "usually" anything. Pricing is always done by hand by our staff. Say a team member will send a quote. The one exception: after find_invoice confirms an invoice, you may read back that invoice's own balance and due date to the person who proved they own it.
 - Never promise availability, a specific vehicle or a driver. Staff confirm all of that.
 - The office is closed Saturday (Shabbos). Hours: ${hoursText()} (Eastern). Phone ${getSetting('phone')}, email ${getSetting('email')}.
 - Never identify, describe or comment on people in any photo or picture. If a photo shows people, ignore them completely.
@@ -193,13 +199,17 @@ HARD RULES
 
 PHOTOS AND VOICE NOTES: the visitor can attach one photo or screenshot and/or record a voice note. A voice note arrives already turned into text; treat it like something they typed. A camp, shul or school may send a photo or screenshot of a trip schedule, flyer, email or itinerary. Read it carefully, list back the stops, times and headcount you found, and ask the visitor to confirm or correct them before you call submit_quote_request. Do not guess anything you cannot read. If an image is blurry, cut off or unreadable, say so plainly and ask them to retake it or type the details. Never give prices, even if the image mentions money.
 
-FLEET (use only these; suggest the smallest that fits the headcount with some headroom): ${fleetRows().map((v) => `${v.name} (${v.category}, seats ${v.capacity})`).join('; ')}. Also by request: Sprinter shuttles, executive coaches, double-decker buses.
+FLEET (use only these; suggest the smallest that fits the headcount with some headroom): ${fleetRows().map((v) => `${v.name} (${v.category}, seats ${v.capacity}${v.features.length ? `; ${v.features.slice(0, 8).join(', ')}` : ''})`).join('; ')}. Also by request: Sprinter shuttles, executive coaches, double-decker buses.
+
+SITE: we cover ${AREAS.map((a) => a.name).join(', ')}. Trip pages: ${TRIPS.map((t) => t.name).join(', ')}. For anything about the site (about us, terms, privacy, trip pages and their FAQs, areas, exact wording on pages) call get_site_info instead of guessing.
+
+PAYING AN INVOICE: if the visitor wants to pay an invoice, ask for the invoice number and the email address it was sent to, then call find_invoice. Only if it is found, tell them the balance and due date and ask if they want to pay it now; on yes call start_invoice_payment with the same number and email, and the payment form appears for them below your message. Never ask for card numbers in chat and never say you took a payment: the form belongs to Stripe. If it is not found, say so and offer the team.
 
 QUOTE REQUESTS: when the visitor wants a quote, gather: name, phone or email, what the trip is (camp trip, Shabbaton, Kehila trip, Kivrei Tzadikim, school/yeshiva, wedding, other), departure date and time, pickup address, destination, passengers, and the return time if round trip. Also ask about extra pickups, stops along the way, a drop-off that differs from the start, and a separate return pickup. Put them in stops as {kind: pickup|stop|dropoff|return_pickup|end, address, time}. Then call submit_quote_request. Confirm only what the tool actually returned, including the reference number, and tell them a team member will email or call with a quote.
 
 ${getSetting('chesky_extra') || ''}${hasImage ? '\n\nThe visitor just sent an image with this message. Look at it.' : ''}${hasVoice ? '\n\nThis message came in as a voice note, already transcribed below.' : ''}
 
-You have tools get_fleet, get_hours_contact, submit_quote_request and respond. ALWAYS finish by calling respond exactly once, after any other tool result. Set forwardToTeam true only if the visitor asked you to pass a message to the team.`.trim();
+You have tools get_fleet, get_hours_contact, get_site_info, find_invoice, start_invoice_payment, submit_quote_request and respond. ALWAYS finish by calling respond exactly once, after any other tool result. Set forwardToTeam true only if the visitor asked you to pass a message to the team.`.trim();
 }
 
 const RESPOND = { name: 'respond', description: 'End your turn with your reply to the visitor. Call exactly once, last.', input_schema: { type: 'object', properties: { reply: { type: 'string' }, offTopic: { type: 'boolean', description: 'true if outside what you can help with or you do not know' }, forwardToTeam: { type: 'boolean', description: 'true only if the visitor asked you to pass a message to the team' } }, required: ['reply', 'offTopic', 'forwardToTeam'] } };
@@ -218,6 +228,9 @@ const SUBMIT = {
 const TOOLS = [
   { name: 'get_fleet', description: 'List the active fleet with category and seats.', input_schema: { type: 'object', properties: {} } },
   { name: 'get_hours_contact', description: 'Business hours, phone and email.', input_schema: { type: 'object', properties: {} } },
+  { name: 'get_site_info', description: 'Everything shown on the public website: fleet with amenities, areas covered, trip pages and FAQs, About, Terms, Privacy, contact and hours, and the editable page texts. Pass a section to get one part.', input_schema: { type: 'object', properties: { section: { type: 'string', enum: ['all', 'contact', 'fleet', 'areas', 'trips', 'about', 'terms', 'privacy', 'texts'] } } } },
+  { name: 'find_invoice', description: 'Look up an invoice. Both the invoice number and the email address it was sent to must match. Returns the status, balance and due date.', input_schema: { type: 'object', required: ['number', 'email'], properties: { number: { type: 'string' }, email: { type: 'string' } } } },
+  { name: 'start_invoice_payment', description: 'Open the secure payment form for an invoice balance. Needs the same invoice number and email. The visitor pays inside the form, never in chat.', input_schema: { type: 'object', required: ['number', 'email'], properties: { number: { type: 'string' }, email: { type: 'string' }, which: { type: 'string', enum: ['balance', 'deposit'], description: 'balance (default) or the deposit still due' } } } },
   SUBMIT, RESPOND,
 ];
 
@@ -225,7 +238,68 @@ export function normalizeStops(stops) {
   return (Array.isArray(stops) ? stops : []).slice(0, 25).map((s) => ({ kind: KINDS.includes(s?.kind) ? s.kind : 'stop', address: oneLine(s?.address, 200), ...(s?.time ? { time: oneLine(s.time, 20) } : {}) })).filter((s) => s.address);
 }
 
+const htmlText = (file, max = 7000) => {
+  try {
+    let h = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'public', file), 'utf8');
+    const m = /<main[^>]*>([\s\S]*?)<\/main>/i.exec(h); if (m) h = m[1];
+    return h.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<(br|\/p|\/li|\/h\d|\/div|\/tr|\/section)[^>]*>/gi, '\n').replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&middot;/g, '·').replace(/&#39;|&rsquo;/g, "'").replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim().slice(0, max);
+  } catch { return ''; }
+};
+export function siteInfo(section = 'all') {
+  const want = (k) => section === 'all' || section === k;
+  const out = {};
+  if (want('contact')) out.contact = { business: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), hours: hoursText(), closed: 'Saturday', in_business_since: '2016', service_area: getSetting('service_area') };
+  if (want('fleet')) out.fleet = fleetRows().map((v) => ({ name: v.name, category: v.category, seats: v.capacity, description: v.description, amenities: v.features, page: `/bus/${v.id}` }));
+  if (want('areas')) out.areas = AREAS.map((a) => ({ name: a.name, group: a.group, page: `/areas/${a.slug}`, summary: a.lead }));
+  if (want('trips')) out.trips = TRIPS.map((t) => ({ name: t.name, page: `/trips/${t.slug}`, summary: t.desc, details: t.sections.map((x) => `${x.h}: ${x.p.join(' ')}`), faq: t.faq }));
+  if (want('about')) out.about = htmlText('about.html');
+  if (want('terms')) out.terms = htmlText('terms.html', 9000);
+  if (want('privacy')) out.privacy = htmlText('privacy.html', 6000);
+  if (want('texts')) { try { out.page_texts = contentMod?.allContent?.() || {}; } catch { out.page_texts = {}; } }
+  return out;
+}
+
+// ----- invoice payment by chat. The invoice number AND the email on it must match, same rule as the website's lookup. -----
+const lookups = new Map(); // ip -> [timestamps of failed lookups]
+export function lookupBlocked(ip) { const t = Date.now() - 3600000; const a = (lookups.get(ip) || []).filter((x) => x > t); lookups.set(ip, a); return a.length >= 6; }
+const lookupFailed = (ip) => { const a = lookups.get(ip) || []; a.push(Date.now()); lookups.set(ip, a); if (lookups.size > 5000) lookups.clear(); };
+function verifiedInvoice(input, ctx = {}) {
+  const ip = ctx.ip || 'unknown';
+  if (lookupBlocked(ip)) return { error: 'Too many tries. Please call the office or try again later.' };
+  const num = oneLine(input.number, 40).toUpperCase(), email = oneLine(input.email, 200).toLowerCase();
+  const row = num && email ? one("SELECT i.* FROM invoices i JOIN customers c ON c.id=i.customer_id WHERE upper(i.number)=? AND lower(c.email)=? AND i.status<>'draft'", num, email) : null;
+  if (!row) { lookupFailed(ip); return { error: 'No invoice matches that number and email.' }; }
+  return { invoice: row };
+}
+const invSummary = (i) => { const bal = invoiceBalance(i); return { number: i.number, title: i.title, invoice_status: i.status, total: money(i.total_cents), paid: money(i.amount_paid_cents), balance: money(bal), balance_cents: bal, due_date: i.due_date ? fmtDate(i.due_date) : null, deposit_still_due: i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? money(Math.min(bal, i.deposit_cents - i.amount_paid_cents)) : null }; };
+async function startPayment(input, ctx) {
+  const v = verifiedInvoice(input, ctx); if (v.error) return { status: 'error', error: v.error };
+  const i = v.invoice;
+  if (i.status === 'void') return { status: 'error', error: 'That invoice was cancelled.' };
+  const bal = invoiceBalance(i);
+  if (bal <= 0) return { status: 'error', error: 'That invoice is already paid.' };
+  const dep = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? Math.min(bal, i.deposit_cents - i.amount_paid_cents) : 0;
+  const amount = input.which === 'deposit' && dep ? dep : bal;
+  if (amount < 100) return { status: 'error', error: 'That amount is too small to pay online. Please call the office.' };
+  if (!env('STRIPE_SECRET_KEY')) return { status: 'error', error: 'Online payment is not set up yet. Please call the office to pay.' };
+  const email = one('SELECT email FROM customers WHERE id=?', i.customer_id)?.email;
+  const pk = env('STRIPE_PUBLISHABLE_KEY');
+  try {
+    const s = await createCheckout({ invoice: i, amount_cents: amount, email, embedded: !!pk });
+    const checkout = { number: i.number, amount: money(amount), payUrl: `${BASE_URL()}/pay/${i.token}`, ...(pk && s.client_secret ? { clientSecret: s.client_secret, publishableKey: pk } : { url: s.url || `${BASE_URL()}/pay/${i.token}` }) };
+    return { status: 'ready', amount: money(amount), note: 'The secure payment form is now shown to the visitor below your message.', _checkout: checkout };
+  } catch (e) { return { status: 'error', error: 'Could not start the payment. Please try the pay link in your invoice email or call the office.' }; }
+}
+/** Tools that need to wait (Stripe) or need request context. Anything else goes to execTool. */
+export async function execToolAsync(name, input = {}, ctx = {}) {
+  if (name === 'find_invoice') { const v = verifiedInvoice(input, ctx); return v.error ? { status: 'not_found', error: v.error } : { status: 'found', ...invSummary(v.invoice) }; }
+  if (name === 'start_invoice_payment') return startPayment(input, ctx);
+  return execTool(name, input);
+}
+
 export function execTool(name, input = {}) {
+  if (name === 'get_site_info') return siteInfo(['all', 'contact', 'fleet', 'areas', 'trips', 'about', 'terms', 'privacy', 'texts'].includes(input.section) ? input.section : 'all');
   if (name === 'get_fleet') return fleetRows();
   if (name === 'get_hours_contact') return { hours: hoursText(), phone: getSetting('phone'), email: getSetting('email'), closed: 'Saturday' };
   if (name === 'submit_quote_request') {
@@ -247,7 +321,7 @@ async function callClaude(body) {
 
 const NO_AI = () => `I can't answer that one myself right now. You can leave a message for our team below, call ${getSetting('phone')}, or use the booking form to request a quote. Office hours: ${hoursText()}.`;
 
-export async function ask(question, transcript = [], image = null, hasVoice = false) {
+export async function ask(question, transcript = [], image = null, hasVoice = false, ctx = {}) {
   if (!env('CHESKY_API_KEY')) return { reply: NO_AI(), offTopic: true, unavailable: true };
   const messages = [
     ...transcript.slice(-12).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text || '').slice(0, MAX_TEXT) })).filter((m) => m.content),
@@ -255,7 +329,7 @@ export async function ask(question, transcript = [], image = null, hasVoice = fa
   ];
   while (messages.length > 1 && !(messages[0].role === 'user')) messages.shift();
   const system = systemPrompt(!!image, hasVoice);
-  let final = null, submitted = null;
+  let final = null, submitted = null, checkout = null;
   try {
     for (let round = 0; round < 5; round++) {
       const resp = await callClaude({ system, tools: TOOLS, messages });
@@ -266,7 +340,13 @@ export async function ask(question, transcript = [], image = null, hasVoice = fa
       const respond = uses.find((u) => u.name === 'respond');
       const actions = uses.filter((u) => u.name !== 'respond');
       if (respond && !actions.length) { const i = respond.input || {}; final = { reply: String(i.reply || '').slice(0, 1500) || "Sorry, I didn't catch that. Could you rephrase?", offTopic: !!i.offTopic, forwardToTeam: !!i.forwardToTeam }; break; }
-      const results = actions.map((u) => { const out = execTool(u.name, u.input); if (u.name === 'submit_quote_request' && out.status === 'submitted') submitted = out; return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out) }; });
+      const results = [];
+      for (const u of actions) {
+        let out; try { out = await execToolAsync(u.name, u.input || {}, ctx); } catch (e) { out = { status: 'error', error: 'Tool failed.' }; }
+        if (u.name === 'submit_quote_request' && out.status === 'submitted') submitted = out;
+        if (out && out._checkout) { checkout = out._checkout; const { _checkout: _c, ...rest } = out; out = rest; }
+        results.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out) });
+      }
       if (respond) results.push({ type: 'tool_result', tool_use_id: respond.id, content: 'Check the result(s) above first, then call respond again with what actually happened.' });
       messages.push({ role: 'user', content: results });
     }
@@ -274,8 +354,9 @@ export async function ask(question, transcript = [], image = null, hasVoice = fa
     console.error('[chesky] ask failed:', e.message);
     return { reply: `Something went wrong on my end. Please try again, leave a message for the team, or call ${getSetting('phone')}.`, offTopic: true, unavailable: true };
   }
+  if (!final && checkout) final = { reply: `Here is the secure payment form for invoice ${checkout.number} (${checkout.amount}).`, offTopic: false, forwardToTeam: false };
   if (!final) final = submitted ? { reply: `Your request is in (reference ${submitted.reference}). A team member will follow up with a quote.`, offTopic: false, forwardToTeam: false } : { reply: "Sorry, I didn't catch that. Could you rephrase?", offTopic: true, forwardToTeam: false };
-  return { ...final, submitted };
+  return { ...final, submitted, checkout };
 }
 
 // ---------- back-office assistant (moved from bot.js) ----------
@@ -369,10 +450,10 @@ export function chatPublicRouter() {
         const learned = findLearnedMatch(question);
         if (learned) return res.json({ reply: learned.entry.answer, offTopic: false, entryId: learned.entry.id });
       }
-      const out = await ask(question || '(sent a photo)', transcript, img ? { buffer: img.buf, mime: img.mime } : null, !!vc);
+      const out = await ask(question || '(sent a photo)', transcript, img ? { buffer: img.buf, mime: img.mime } : null, !!vc, { ip: req.ip });
       if (out.offTopic && question) bumpUnanswered(question);
       if (out.forwardToTeam) { const id = insertMessage(question || '(photo)'); notifyOwner('Message forwarded by Chesky', `${question || '(photo)'}\n\nRelayed by Chesky, no reply address given. (inbox #${id})`, 'message').catch(() => {}); }
-      res.json({ reply: out.reply, offTopic: !!out.offTopic, entryId: 'ai', submitted: out.submitted || null, ...(vc ? { voiceTranscript: voiceText } : {}) });
+      res.json({ reply: out.reply, offTopic: !!out.offTopic, entryId: 'ai', submitted: out.submitted || null, checkout: out.checkout || null, ...(vc ? { voiceTranscript: voiceText } : {}) });
     } catch (e) { next(e); }
   });
 
