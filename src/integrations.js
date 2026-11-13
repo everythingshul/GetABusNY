@@ -37,15 +37,20 @@ function parseFrom(from) {
   const m = /^(.*)<(.+)>$/.exec(from.trim());
   return m ? { name: m[1].trim().replace(/^"|"$/g, ''), email: m[2].trim() } : { name: getSetting('business_name'), email: from.trim() };
 }
+/** Who emails come from. EMAIL_FROM_NAME sets the display name; the address comes from EMAIL_FROM, the email_from setting, or the public email. */
+export function emailSender() {
+  const base = parseFrom(env('EMAIL_FROM') || getSetting('email_from') || `${getSetting('business_name')} <${getSetting('email') || 'onboarding@resend.dev'}>`);
+  const name = (env('EMAIL_FROM_NAME') || base.name || getSetting('business_name') || '').replace(/[\r\n<>"]/g, '').trim();
+  return { name, email: base.email };
+}
 /** attachments: [{ filename, content: Buffer, type }] */
 export async function sendEmail(to, subject, html, { replyTo, attachments = [], kind } = {}) {
   if (!to) return { ok: false, error: 'no recipient' };
-  const from = getSetting('email_from') || env('EMAIL_FROM') || `${getSetting('business_name')} <onboarding@resend.dev>`;
+  const sender = emailSender(), from = `${sender.name} <${sender.email}>`;
   const reply = replyTo || getSetting('email') || undefined;
   let st = 'logged', err = null;
   try {
     if (env('BREVO_API_KEY')) {
-      const sender = parseFrom(env('EMAIL_FROM') || getSetting('email_from') || `${getSetting('business_name')} <${getSetting('email')}>`);
       const r = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST', headers: { 'api-key': env('BREVO_API_KEY'), 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ sender, to: [{ email: to }], subject, htmlContent: html, replyTo: reply ? { email: reply } : undefined, attachment: attachments.length ? attachments.map((a) => ({ name: a.filename, content: Buffer.from(a.content).toString('base64') })) : undefined }),

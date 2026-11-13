@@ -6,7 +6,7 @@ import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextS
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
 import * as S from '../services.js';
-import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
+import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { bannerAdminRouter } from '../banner.js';
@@ -330,7 +330,7 @@ admin.post('/payments/:id/release', wrap(async (req) => {
 
 // ---------- sent messages: every email and text, exactly as the customer saw it ----------
 // Email check: shows which provider and sender are in use, recent failures, and sends a test with the provider's exact answer.
-function emailSender() { return process.env.EMAIL_FROM || getSettingSafe('email_from') || `${getSettingSafe('business_name')} <${getSettingSafe('email')}>`; }
+const emailSender = () => { const s = emailSenderOf(); return `${s.name} <${s.email}>`; };
 admin.get('/email/health', wrap(() => {
   const provider = process.env.BREVO_API_KEY ? 'Brevo' : process.env.RESEND_API_KEY ? 'Resend' : '';
   const from = emailSender(); const addr = (/<(.+)>/.exec(from)?.[1] || from).trim().toLowerCase();

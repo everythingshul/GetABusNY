@@ -25,6 +25,7 @@ services:
       - { key: STRIPE_PUBLISHABLE_KEY, sync: false }
       - { key: BREVO_API_KEY, sync: false }
       - { key: EMAIL_FROM, sync: false }          # e.g. Get A Bus NY <quotes@getabusny.com>
+      - { key: EMAIL_FROM_NAME, sync: false }     # optional: the sender name shown in inboxes
       - { key: GOOGLE_MAPS_API_KEY, sync: false }
       - { key: CHESKY_API_KEY, sync: false }
       - { key: SMS_API_BASE, sync: false }

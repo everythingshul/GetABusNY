@@ -101,4 +101,9 @@ assert.equal(S.fmtWhen('2099-06-01T19:05'), 'June 1, 2099, 7:05 PM'); assert.equ
   assert.notEqual(rq.ref, rq2.ref); const rows = [one('SELECT * FROM requests WHERE id=?', rq.id), one('SELECT * FROM requests WHERE id=?', rq2.id)]; assert.equal(rows[1].seq, rows[0].seq + 1, 'admin number is consecutive');
   const qq = S.quoteFromRequest(rq.id); const qrow = one('SELECT * FROM quotes WHERE id=?', qq.id ?? qq); assert.match(qrow.number, /^Q-\d{6}$/); assert.ok(qrow.seq >= 1);
 }
+{
+  const { emailSender } = await import('../src/integrations.js'); process.env.EMAIL_FROM = 'Old Name <quotes@getabusny.com>'; delete process.env.EMAIL_FROM_NAME;
+  assert.deepEqual(emailSender(), { name: 'Old Name', email: 'quotes@getabusny.com' });
+  process.env.EMAIL_FROM_NAME = 'Get A Bus NY Office <script>'; assert.deepEqual(emailSender(), { name: 'Get A Bus NY Office script', email: 'quotes@getabusny.com' }); delete process.env.EMAIL_FROM; delete process.env.EMAIL_FROM_NAME;
+}
 console.log('Money checks passed.');
