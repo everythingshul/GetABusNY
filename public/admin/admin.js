@@ -120,7 +120,7 @@ const NAV = [
   ['', 'Operations'], ['trips', 'Trips'], ['drivers', 'Drivers'], ['fleet', 'Fleet'],
   ['', 'Vendors'], ['vendors', 'Vendors'], ['rfqs', 'Vendor quotes', 'rfqs_waiting'],
   ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['contracts', 'Contracts'],
-  ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
+  ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
 ];
 const VIEWS = {};
 function renderNav(counts = {}) {
@@ -540,6 +540,32 @@ VIEWS.rfqs = async (el) => {
       return; }
     const b = e.target.closest('[data-a]'); if (b && confirm('Award this trip to this vendor at their price? Other requests for the same trip will be closed.')) guard(async () => { await POST(`/rfqs/${b.dataset.a}/accept`); draw(); }, 'Awarded'); });
   await draw();
+};
+
+// ---------- website text ----------
+VIEWS.sitetext = async (el) => {
+  const d = await GET('/site-text'); const items = d.items, labels = d.labels; const edits = {}; let group = 'home', q = '';
+  const cur = (it) => (it.key in edits ? edits[it.key] : (it.value || it.def));
+  const draw = () => {
+    const shown = items.filter((it) => (q ? `${it.def} ${it.value} ${it.label} ${it.key}`.toLowerCase().includes(q) : it.group === group)).slice(0, 150);
+    const changedCount = Object.keys(edits).length;
+    $('#stlist', el).innerHTML = shown.length ? shown.map((it) => { const v = cur(it); const mod = v !== it.def; return `<div class="panel" style="padding:12px;margin:0 0 10px"><div class="mut sm" style="margin-bottom:6px">${esc(it.label || it.def.slice(0, 70))}${mod ? ' <span class="badge" style="background:#e8f3d0;color:#3b5d0a">changed</span>' : ''}</div><textarea data-k="${esc(it.key)}" rows="${Math.min(8, Math.max(1, Math.ceil(v.length / 80)))}" style="width:100%">${esc(v)}</textarea>${mod ? `<button type="button" class="btn sm" data-reset="${esc(it.key)}" style="margin-top:6px">Put back the original</button>` : ''}</div>`; }).join('') + (shown.length === 150 ? '<p class="mut">Showing the first 150. Narrow it with the search box.</p>' : '') : '<div class="empty">Nothing matches.</div>';
+    $('#stcount', el).textContent = changedCount ? `${changedCount} unsaved` : '';
+  };
+  el.innerHTML = `<div class="panel"><h3>Website text</h3><p class="mut">Change any wording on the public site, headings included. The box shows what is on the site now. You can use <b>bold</b>, <em>italics</em>, line breaks and links in the form <code>&lt;a href="/book"&gt;text&lt;/a&gt;</code>. Vehicle names, photos and prices are edited under Fleet.</p>
+  <div class="toolbar"><select id="stg">${Object.entries(labels).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><input id="stq" type="search" placeholder="Search all text..." style="flex:1;min-width:180px"><span class="mut" id="stcount"></span>${button('Save changes', 'primary', 'id="stsave"')}</div></div><div id="stlist"></div>`;
+  $('#stg', el).onchange = (e) => { group = e.target.value; q = ''; $('#stq', el).value = ''; draw(); };
+  $('#stq', el).oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
+  el.addEventListener('input', (e) => { const k = e.target.dataset?.k; if (!k) return; const it = items.find((x) => x.key === k); if (e.target.value === (it.value || it.def)) delete edits[k]; else edits[k] = e.target.value; $('#stcount', el).textContent = Object.keys(edits).length ? `${Object.keys(edits).length} unsaved` : ''; });
+  el.addEventListener('change', (e) => { if (e.target.dataset?.k) draw(); });
+  el.addEventListener('click', (e) => { const r = e.target.closest('[data-reset]'); if (!r) return; const it = items.find((x) => x.key === r.dataset.reset); edits[it.key] = it.def; draw(); });
+  $('#stsave', el).onclick = () => guard(async () => {
+    const out = {}; for (const [k, v] of Object.entries(edits)) { const it = items.find((x) => x.key === k); out[k] = v === it.def ? '' : v; }
+    await PUT('/site-text', { texts: out });
+    for (const [k, v] of Object.entries(out)) { const it = items.find((x) => x.key === k); it.value = v; }
+    for (const k of Object.keys(edits)) delete edits[k]; draw();
+  }, 'Saved. The site shows it now.');
+  draw();
 };
 
 // ---------- home banner ----------

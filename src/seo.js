@@ -4,6 +4,7 @@ import path from 'node:path';
 import { all, one, getSetting } from './db.js';
 import { TRIPS } from './trips-content.js';
 import { AREAS } from './areas-content.js';
+import { applyTexts, applyLanding, seoText, setSeoDefaults } from './content.js';
 
 const esc = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const jsonLd = (o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`;
@@ -66,6 +67,7 @@ export function inject(html, headTags, title) {
 const crumb = (base, items) => jsonLd({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: items.map(([name, p], i) => ({ '@type': 'ListItem', position: i + 1, name, item: base + p })) });
 
 export function mountSeo(app, PUB) {
+  setSeoDefaults(Object.fromEntries(Object.entries(PAGES).flatMap(([r, m]) => { const k = r === '/' ? 'home' : r.slice(1); return [[`${k}.title`, m.title()], [`${k}.desc`, m.desc]]; })));
   const read = (f) => fs.readFileSync(path.join(PUB, f), 'utf8');
 
   // 1. Canonical host and https (production only, where BASE_URL is set)
@@ -111,8 +113,9 @@ export function mountSeo(app, PUB) {
   // 5. Public pages with injected head tags
   for (const [route, meta] of Object.entries(PAGES)) {
     app.get(route, (req, res, next) => {
-      let html; try { html = read(meta.file); } catch { return next(); }
-      const base = baseUrl(req), title = meta.title();
+      let html; try { html = applyTexts(read(meta.file)); } catch { return next(); }
+      const pk = route === '/' ? 'home' : route.slice(1);
+      const base = baseUrl(req), title = seoText(pk, 'title', meta.title()), pdesc = seoText(pk, 'desc', meta.desc);
       let extra = '';
       if (route === '/') {
         const list = vehicleList(base);
@@ -126,7 +129,7 @@ export function mountSeo(app, PUB) {
         extra += crumb(base, [['Home', '/'], [route === '/about' ? 'About' : 'Request a quote', route]]);
       }
       if (route === '/terms' || route === '/privacy') res.setHeader('X-Robots-Tag', 'index, follow');
-      res.type('html').send(inject(html, headFor(req, route, { title, desc: meta.desc }, extra), title));
+      res.type('html').send(inject(html, headFor(req, route, { title, desc: pdesc }, extra), title));
     });
   }
 
@@ -134,7 +137,8 @@ export function mountSeo(app, PUB) {
   app.get('/trips', (req, res) => res.redirect(301, '/#trips'));
   app.get('/areas', (req, res) => res.redirect(301, '/#areas'));
   const landing = (kind, list, otherLabel) => (req, res, next) => {
-    const t = list.find((x) => x.slug === req.params.slug); if (!t) return next();
+    const t0 = list.find((x) => x.slug === req.params.slug); if (!t0) return next();
+    const t = applyLanding(kind, t0);
     let html; try { html = read('trip.html'); } catch { return next(); }
     const base = baseUrl(req), route = `/${kind}/` + t.slug, title = `${t.title} | ${biz()}`;
     const others = list.filter((x) => x.slug !== t.slug);

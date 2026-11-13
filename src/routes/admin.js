@@ -8,6 +8,7 @@ import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '.
 import * as S from '../services.js';
 import { status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
+import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { bannerAdminRouter } from '../banner.js';
 import { chargeInvoice, removeCard, cardOf } from '../cards.js';
 import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
@@ -346,6 +347,9 @@ admin.post('/email/test', limit('emailtest', 10, 3600000), wrap(async (req) => {
   const r = await sendEmail(to, 'Test email from Get A Bus NY', emailShell('Test email', '<p>If you can read this, email sending works.</p>'), { kind: 'test' });
   return { ok: r.ok && r.status === 'sent', status: r.status, error: r.error || (r.status === 'logged' ? 'No email service is connected, so nothing was sent.' : null) };
 }));
+// Website text editor
+admin.get('/site-text', wrap(() => ({ items: listTexts(), labels: PAGE_LABELS })));
+admin.put('/site-text', wrap((req) => { const n = saveTexts(req.body?.texts || {}); log(req.user.email, 'site.text.saved', 'settings', null, `${n} changed texts`); return { ok: true, changed: n }; }));
 admin.get('/messages-sent', wrap((req) => {
   const q = `%${String(req.query.q || '').trim()}%`; const lim = Math.min(Number(req.query.limit) || 200, 500);
   const type = req.query.type || 'all';

@@ -4,6 +4,7 @@ import { limit } from '../auth.js';
 import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
 import { createCheckout, stripeCustomerFor, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
 import fs from 'node:fs';
+import { publicOverrides } from '../content.js';
 import { applyStripeEvent } from '../stripe-events.js';
 import { placesAutocomplete, placeDetails } from '../integrations.js';
 import { contractView, signContract, createContract, contractPdfPath, customerTripIcs, trackView } from '../extras.js';
@@ -14,6 +15,7 @@ const fail = (res, code, msg) => res.status(code).json({ error: msg });
 
 pub.get('/config', (req, res) => {
   res.json({
+    texts: publicOverrides(),
     business_name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address'),
     service_area: getSetting('service_area'), hours: getJSON('hours', []), socials: getJSON('socials', {}),
     chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1',

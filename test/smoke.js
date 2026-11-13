@@ -163,6 +163,11 @@ try {
   r = await api('PUT', `/api/admin/customers/${cust0.id}`, { sms_optin: 0 });
   r = await api('POST', `/api/admin/customers/${cust0.id}/text`, { message: 'Hello again' }); assert.equal(r.status, 400); assert.match(r.body.error, /opted in/); step('no texts after opt-out');
   r = await api('POST', '/api/public/invoice-lookup', { number: inv.number, email: 'jane@example.com' }); ok(r, 'lookup'); r = await api('POST', '/api/public/invoice-lookup', { number: inv.number, email: 'x@example.com' }); assert.equal(r.status, 404); step('invoice lookup requires matching email');
+  { const st = (await api('GET', '/api/admin/site-text')).body; assert.ok(st.items.length > 100 && st.items.some((i) => i.key === 'home.1')); const h1 = st.items.find((i) => i.key === 'home.1');
+    r = await api('PUT', '/api/admin/site-text', { texts: { 'home.1': 'Brand new <b>headline</b> <script>x</script>', 'footer.blurb': 'Our new footer line', 'trips.camp-trips.h1': 'Camp buses', 'seo.home.title': 'Custom home title' } }); ok(r, 'save text');
+    const home = await (await fetch(base + '/')).text(); assert.ok(home.includes('Brand new <b>headline</b> &lt;script&gt;x&lt;/script&gt;') && home.includes('<title>Custom home title</title>') && !home.includes('<script>x</script>'));
+    assert.ok((await (await fetch(base + '/trips/camp-trips')).text()).includes('<h1>Camp buses</h1>')); assert.equal((await api('GET', '/api/public/config')).body.texts['footer.blurb'], 'Our new footer line');
+    await api('PUT', '/api/admin/site-text', { texts: { 'home.1': '', 'footer.blurb': '', 'trips.camp-trips.h1': '', 'seo.home.title': '' } }); assert.ok((await (await fetch(base + '/')).text()).includes(h1.def.slice(0, 12))); step('website text can be changed from settings and reset'); }
   for (const p of ['/', '/fleet', '/book', '/about', '/contact', '/terms', '/privacy', '/pay', '/driver', '/admin', '/healthz', '/bus/1', '/nope']) { const x = await fetch(base + p); if (p === '/nope') assert.equal(x.status, 404); else assert.equal(x.status, 200, p); }
   step('all pages served');
   console.log(`\nAll ${pass} checks passed.`);

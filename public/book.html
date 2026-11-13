@@ -1,11 +1,11 @@
 <!doctype html><html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request a Quote | Get A Bus NY</title><meta name="description" content="Tell us your dates, times, pickups and stops for your camp trip, Shabbaton, Kehila trip or Kivrei Tzadikim trip. Vehicle choice is optional. We send a quote, usually the same business day."><link rel="icon" href="/img/logo.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css"></head><body><div id="hdr"></div><main id="main">
-<section class="pagehead"><div class="wrap"><div class="eyebrow">Request a quote</div><h1>Tell us about your trip</h1><p>No payment now. List every pickup, stop and drop-off in order and we will quote the whole route, usually the same business day. Questions? Call <a id="ph" href="#"></a>. Our office is closed Shabbos; requests sent then are answered Sunday.</p></div></section>
+<section class="pagehead"><div class="wrap"><div class="eyebrow" data-t="book.1">Request a quote</div><h1 data-t="book.2">Tell us about your trip</h1><p>No payment now. List every pickup, stop and drop-off in order and we will quote the whole route, usually the same business day. Questions? Call <a id="ph" href="#"></a>. Our office is closed Shabbos; requests sent then are answered Sunday.</p></div></section>
 <section id="formsec" style="padding-top:34px"><div class="wrap">
 <div class="book-grid">
 <form id="f" class="card" novalidate>
 <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
 
-<div class="fieldset"><h3><i>1</i>What kind of trip?</h3>
+<div class="fieldset"><h3 data-t="book.3"><i>1</i>What kind of trip?</h3>
 <div class="row"><div class="field"><label for="pur">Trip purpose *</label><select id="pur"></select></div>
 <div class="field"><label>Trip type *</label><div class="seg" role="radiogroup" aria-label="Trip type">
 <label><input type="radio" name="trip_type" value="round_trip" checked><span>Round trip</span></label>
@@ -13,20 +13,20 @@
 <label><input type="radio" name="trip_type" value="hourly"><span>By the hour</span></label>
 <label><input type="radio" name="trip_type" value="multi_day"><span>Multi-day</span></label></div></div></div></div>
 
-<div class="fieldset"><h3><i>2</i>Dates &amp; times</h3>
+<div class="fieldset"><h3 data-t="book.4"><i>2</i>Dates &amp; times</h3>
 <div class="row"><div class="field"><label for="dd">Departure date *</label><input type="date" id="dd" required></div><div class="field"><label for="dt">First pickup time *</label><input type="time" id="dt" required></div></div>
 <div class="row" id="retrow"><div class="field"><label for="rd"><span id="rl">Return date</span> *</label><input type="date" id="rd"></div><div class="field"><label for="rt">Return pickup time *</label><input type="time" id="rt"></div></div>
-<p class="hint">Times are local to the pickup location. Friday or erev Yom Tov trip? Tell us your latest arrival time in the notes below.</p></div>
+<p class="hint" data-t="book.5">Times are local to the pickup location. Friday or erev Yom Tov trip? Tell us your latest arrival time in the notes below.</p></div>
 
-<div class="fieldset"><h3><i>3</i>Route: pickups, stops &amp; drop-offs</h3>
+<div class="fieldset"><h3 data-t="book.6"><i>3</i>Route: pickups, stops &amp; drop-offs</h3>
 <div id="itn"></div></div>
 
-<div class="fieldset"><h3><i>4</i>Group &amp; vehicle</h3>
+<div class="fieldset"><h3 data-t="book.7"><i>4</i>Group &amp; vehicle</h3>
 <div class="row"><div class="field"><label for="px">Number of passengers *</label><input type="number" id="px" min="1" max="500" required></div>
 <div class="field"><label for="vh">Vehicle <span class="opt">(optional)</span></label><select id="vh"><option value="">Not sure, recommend one</option></select></div></div>
 <div id="recbox" class="alert info" hidden></div></div>
 
-<div class="fieldset"><h3><i>5</i>Your details</h3>
+<div class="fieldset"><h3 data-t="book.8"><i>5</i>Your details</h3>
 <div class="row"><div class="field"><label for="nm">Full name *</label><input id="nm" required autocomplete="name"></div><div class="field"><label for="co">Organization <span class="opt">(camp, shul, yeshiva… optional)</span></label><input id="co" autocomplete="organization"></div></div>
 <div class="row"><div class="field"><label for="em">Email *</label><input type="email" id="em" required autocomplete="email"></div><div class="field"><label for="ph2">Phone *</label><input type="tel" id="ph2" required autocomplete="tel"></div></div>
 <label id="smsrow" style="display:none;font-weight:400;margin:-4px 0 14px"><input type="checkbox" id="sms" style="width:auto;min-height:0;display:inline;margin-right:8px">Text me trip updates. Message and data rates may apply. Reply STOP anytime to opt out.</label>
@@ -37,10 +37,10 @@
 <p class="hint center" style="margin-top:10px">By submitting you agree to be contacted about this request. See our <a href="/terms">terms</a> and <a href="/privacy">privacy policy</a>.</p>
 </form>
 
-<aside class="sticky"><div class="card sum"><h3 style="margin-bottom:4px">Your request</h3><dl id="sum" style="margin:0"></dl></div>
-<div class="card" style="margin-top:16px"><h3>What happens next</h3><ol style="padding-left:18px;margin:0" class="muted"><li>We check availability with our operators.</li><li>You get an itemized quote by email: every pickup and stop is listed.</li><li>Accept and sign online, then pay a deposit to book.</li></ol></div></aside></div></div></section>
+<aside class="sticky"><div class="card sum"><h3 style="margin-bottom:4px" data-t="book.9">Your request</h3><dl id="sum" style="margin:0"></dl></div>
+<div class="card" style="margin-top:16px"><h3 data-t="book.10">What happens next</h3><ol style="padding-left:18px;margin:0" class="muted"><li data-t="book.11">We check availability with our operators.</li><li data-t="book.12">You get an itemized quote by email: every pickup and stop is listed.</li><li data-t="book.13">Accept and sign online, then pay a deposit to book.</li></ol></div></aside></div></div></section>
 
-<section id="done" hidden><div class="wrap narrow center"><div class="card" style="padding:44px 28px"><div class="ic" style="width:56px;height:56px;margin:0 auto 14px;border-radius:50%;background:var(--lime-l);color:var(--lime-d);display:grid;place-items:center" data-icon="check"></div><h1 style="font-size:2rem">Request received</h1><p>Your reference is <b id="ref"></b>. We sent a confirmation to <b id="to"></b>.</p><p class="muted">We'll email your quote, usually the same business day. Need it sooner? Call <a class="phl" href="#"></a>.</p><a class="btn btn-blue" href="/">Back to home</a></div></div></section>
+<section id="done" hidden><div class="wrap narrow center"><div class="card" style="padding:44px 28px"><div class="ic" style="width:56px;height:56px;margin:0 auto 14px;border-radius:50%;background:var(--lime-l);color:var(--lime-d);display:grid;place-items:center" data-icon="check"></div><h1 style="font-size:2rem" data-t="book.14">Request received</h1><p data-t="book.15">Your reference is <b id="ref"></b>. We sent a confirmation to <b id="to"></b>.</p><p class="muted">We'll email your quote, usually the same business day. Need it sooner? Call <a class="phl" href="#"></a>.</p><a class="btn btn-blue" href="/" data-t="book.16">Back to home</a></div></div></section>
 </main><div id="ftr"></div>
 <script type="module">
 import {boot,api,$,esc,fmtWhen} from '/js/site.js';
