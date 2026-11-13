@@ -24,6 +24,9 @@ if(!id)nf();else try{
   <div class="foot" style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn btn-blue" href="/book?vehicle=${v.id}">Request a quote</a>${shareButton(v,'btn btn-line')}</div>
  </div></div>`;
 
- document.querySelectorAll('.thumbs .th').forEach(b=>b.onclick=()=>{$('#mainpic').src=b.dataset.u;document.querySelectorAll('.thumbs .th').forEach(x=>x.classList.toggle('on',x===b));});
+ const ths=[...document.querySelectorAll('.thumbs .th')];let cur=0,tm=null;
+ const pick=k=>{cur=(k+ths.length)%ths.length;$('#mainpic').src=ths[cur].dataset.u;ths.forEach((x,j)=>x.classList.toggle('on',j===cur));};
+ ths.forEach((b,k)=>b.onclick=()=>{clearInterval(tm);tm=null;pick(k);});
+ if(ths.length>1&&!matchMedia('(prefers-reduced-motion: reduce)').matches){tm=setInterval(()=>{if(!document.hidden)pick(cur+1);},4000);const m=$('#mainpic');m.parentElement.addEventListener('mouseenter',()=>{clearInterval(tm);tm=null;});}
 }catch{nf();}
 </script></body></html>

@@ -160,11 +160,42 @@ export function initShare() {
 }
 
 export function vehicleCard(v, { showRequest = true } = {}) {
-  const pic = v.image ? `<img src="${esc(v.image)}" alt="${esc(v.name)}" loading="lazy">` : vehicleArt(v.category, v.capacity, { label: v.name });
-  return `<article class="vehicle" data-cat="${esc(v.category)}" data-cap="${v.capacity}"><a class="pic${v.image ? ' ph' : ''}" href="/bus/${v.id}" tabindex="-1" aria-hidden="true">${pic}</a><div class="body">
+  const imgs = v.images && v.images.length ? v.images : (v.image ? [v.image] : []);
+  const many = imgs.length > 1;
+  const pic = imgs.length ? imgs.map((u, i) => `<img class="sl${i ? '' : ' on'}" src="${esc(u)}" alt="${i ? '' : esc(v.name)}" ${i ? 'loading="lazy"' : ''}>`).join('') : vehicleArt(v.category, v.capacity, { label: v.name });
+  const ctl = many ? `<button type="button" class="sl-nav prev" aria-label="Previous photo of ${esc(v.name)}">&#8249;</button><button type="button" class="sl-nav next" aria-label="Next photo of ${esc(v.name)}">&#8250;</button><div class="sl-dots">${imgs.map((_, i) => `<button type="button" class="${i ? '' : 'on'}" data-d="${i}" aria-label="Photo ${i + 1} of ${imgs.length}"></button>`).join('')}</div>` : '';
+  return `<article class="vehicle" data-cat="${esc(v.category)}" data-cap="${v.capacity}"><div class="picwrap"${many ? ` data-n="${imgs.length}"` : ''}><a class="pic${imgs.length ? ' ph' : ''}" href="/bus/${v.id}" tabindex="-1" aria-hidden="true">${pic}</a>${ctl}</div><div class="body">
     <div><span class="tag">${esc(v.category)}</span></div><h3><a href="/bus/${v.id}">${esc(v.name)}</a></h3>
     <div class="spec"><div class="num"><small>SEATS</small>${v.capacity}</div><div class="seatmap">${seatMap(v.capacity)}</div></div>
     <p class="muted" style="margin:0;font-size:.94rem">${esc(v.description || '')}</p>
     <div class="pills">${(v.features || []).slice(0, 6).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
     <div class="foot">${showRequest ? `<a class="btn btn-blue btn-sm" href="/book?vehicle=${v.id}">Get a quote</a>` : ''}${shareButton(v)}</div></div></article>`;
+}
+
+
+// ---- vehicle photos that rotate on their own, with arrows, dots and swipe ----
+function wireSlides(root = document) {
+  root.querySelectorAll('.picwrap[data-n]:not([data-w])').forEach((w) => {
+    w.dataset.w = '1';
+    const sl = [...w.querySelectorAll('.sl')], dots = [...w.querySelectorAll('.sl-dots button')];
+    let i = 0, timer = null, visible = true, held = false, x0 = null, swiped = false;
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const show = (n) => { i = (n + sl.length) % sl.length; sl.forEach((s, k) => s.classList.toggle('on', k === i)); dots.forEach((d, k) => d.classList.toggle('on', k === i)); };
+    const stop = () => { clearInterval(timer); timer = null; };
+    const start = () => { if (reduce || timer || held || !visible || document.hidden) return; timer = setInterval(() => show(i + 1), 3800 + Math.round(Math.random() * 900)); };
+    w.querySelector('.prev').onclick = () => { show(i - 1); stop(); start(); };
+    w.querySelector('.next').onclick = () => { show(i + 1); stop(); start(); };
+    dots.forEach((d) => (d.onclick = () => { show(+d.dataset.d); stop(); start(); }));
+    w.addEventListener('mouseenter', () => { held = true; stop(); }); w.addEventListener('mouseleave', () => { held = false; start(); });
+    w.addEventListener('focusin', () => { held = true; stop(); }); w.addEventListener('focusout', () => { held = false; start(); });
+    w.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { x0 = e.clientX; swiped = false; } });
+    w.addEventListener('pointerup', (e) => { if (x0 == null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 40) { swiped = true; show(i + (dx < 0 ? 1 : -1)); stop(); start(); } });
+    w.addEventListener('click', (e) => { if (swiped) { e.preventDefault(); swiped = false; } }, true);
+    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+    if ('IntersectionObserver' in window) new IntersectionObserver((en) => { visible = en[0].isIntersecting; visible ? start() : stop(); }).observe(w); else start();
+  });
+}
+if (typeof document !== 'undefined') {
+  const go = () => { wireSlides(); new MutationObserver(() => wireSlides()).observe(document.body, { childList: true, subtree: true }); };
+  document.body ? go() : document.addEventListener('DOMContentLoaded', go);
 }

@@ -30,7 +30,7 @@ pub.get('/vehicle/:id', (req, res) => {
   res.json({ ...v, images: imgs, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) });
 });
 pub.get('/fleet', (req, res) => {
-  res.json(all('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE active=1 ORDER BY sort,capacity DESC').map((v) => ({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) })));
+  res.json(all('SELECT id,name,category,capacity,description,features,image,images FROM vehicles WHERE active=1 ORDER BY sort,capacity DESC').map((v) => { let imgs = []; try { imgs = JSON.parse(v.images || '[]'); } catch { /* none */ } if (!imgs.length && v.image) imgs = [v.image]; return { ...v, images: imgs, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) }; }));
 });
 
 // Operator reply link: records a price and notes on one request. It shows nothing else and has no login.
