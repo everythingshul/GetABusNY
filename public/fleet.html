@@ -12,10 +12,10 @@ import {boot,api,vehicleCard,$,$$,esc} from '/js/site.js';
 await boot('/fleet');
 const fl=await api('/fleet');let cat='All',need=0;
 const cats=['All',...new Set(fl.map(v=>v.category))];
-$('#chips').innerHTML=cats.map(c=>`<button class="chip ${c==='All'?'on':''}" data-c="${esc(c)}">${esc(c)} ${c==='All'?fl.length:fl.filter(v=>v.category===c).length}</button>`).join('');
+$('#chips').innerHTML=cats.map(c=>`<button class="chip ${c==='All'?'on':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
 function draw(){const list=fl.filter(v=>(cat==='All'||v.category===cat)&&(!need||v.capacity>=need));
 $('#fleet').innerHTML=list.map(v=>vehicleCard(v)).join('');$('#none').hidden=!!list.length;
-$('#rec').textContent=need?(list.length?`${list.length} vehicle${list.length>1?'s':''} seat ${need} or more. Smallest that fits: ${[...list].sort((a,b)=>a.capacity-b.capacity)[0].name}.`:'That is more than one vehicle seats. We can book several buses.'):'';}
+$('#rec').textContent=need?(list.length?`Smallest that seats ${need}: ${[...list].sort((a,b)=>a.capacity-b.capacity)[0].name}.`:'That is more than one vehicle seats. We can book several buses.'):'';}
 $('#chips').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;cat=b.dataset.c;$$('.chip').forEach(x=>x.classList.toggle('on',x===b));draw();};
 $('#need').oninput=e=>{need=+e.target.value||0;draw();};
 draw();

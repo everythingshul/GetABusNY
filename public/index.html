@@ -36,11 +36,13 @@
 <section class="band"><div class="wrap">
 <div style="display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:22px"><div><div class="eyebrow" data-t="home.28">The fleet</div><h2 style="margin:0" data-t="home.29">Pick a size. We match the rest.</h2></div><a class="btn btn-line" href="/fleet" data-t="home.30">All vehicles</a></div>
 <div class="strip" id="fleet"></div>
+<div class="grid-3" id="fleet-more" hidden style="margin-top:18px"></div>
+<p style="text-align:center;margin:24px 0 0" id="morewrap" hidden><button type="button" class="btn btn-line" id="more" aria-expanded="false" data-t="home.more">View more</button></p>
 </div></section>
 
 <section><div class="wrap grid-2" style="align-items:start">
-<div><div class="eyebrow" data-t="home.31">On every coach</div><h2 data-t="home.32">What is on board</h2><p class="muted" data-t="home.33">Listed on each vehicle page. Ask us if you need something specific.</p>
-<ul class="checks"><li data-t="home.34">Restrooms</li><li data-t="home.35">Reclining seats</li><li data-t="home.36">Luggage bays</li><li data-t="home.37">Wi-Fi and outlets</li><li data-t="home.38">Sound system</li><li data-t="home.39">Wheelchair access</li></ul></div>
+<div><div class="eyebrow" data-t="home.31">What you get</div><h2 data-t="home.32">Planned around your trip</h2><p class="muted" data-t="home.33">The things groups ask us about most, handled before the bus leaves.</p>
+<ul class="checks"><li data-t="home.34">Checked against Shabbos and Yom Tov</li><li data-t="home.35">Every pickup and stop on the quote</li><li data-t="home.36">One person from request to ride</li><li data-t="home.37">Deposit and balance paid online</li><li data-t="home.38">Driver gets your itinerary and contact</li><li data-t="home.39">Text and email updates, if you want them</li></ul></div>
 <div><div class="eyebrow" data-t="home.40">How it works</div><h2 data-t="home.41">From route to ride</h2>
 <div class="line">
 <div class="stop"><h3 data-t="home.42">Send the route</h3><p data-t="home.43">Pickup, every stop, destination, date and headcount.</p></div>
@@ -79,6 +81,9 @@ const fl=await api('/fleet');
 const pick=[...fl].sort((a,b)=>b.capacity-a.capacity);
 const chosen=[pick[0],pick.find(v=>v.category==='Party Bus'&&v!==pick[0]),pick.find(v=>v.category==='Trolley'),pick.find(v=>v.category==='Limo')].filter(Boolean);
 $('#fleet').innerHTML=chosen.map(v=>vehicleCard(v)).join('');
+const rest=pick.filter(v=>!chosen.includes(v));
+if(rest.length){$('#fleet-more').innerHTML=rest.map(v=>vehicleCard(v)).join('');$('#morewrap').hidden=false;const mb=$('#more'),label=mb.innerHTML;
+mb.onclick=()=>{const open=$('#fleet-more').hidden;$('#fleet-more').hidden=!open;mb.setAttribute('aria-expanded',open);mb.innerHTML=open?'Show fewer':label;if(!open)$('#fleet').scrollIntoView({behavior:'smooth',block:'start'});};}
 const today=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'long'}).format(new Date());
 $('#hrs').innerHTML=c.hours.map(h=>`<tr class="${h.day===today?'today':''}"><td>${h.day}</td><td>${h.open?`${esc(h.open)} to ${esc(h.close)}`:'<span class="closed">Closed</span>'}</td></tr>`).join('');
 $('#openline').textContent=openNow(c.hours).text+' (Eastern time)';
