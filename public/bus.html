@@ -13,7 +13,8 @@ if(!id)nf();else try{
  const v=await api('/vehicle/'+id);
  document.title=`${v.name} | Get A Bus NY`;$('#t').textContent=v.name;
  const imgs=(v.images&&v.images.length)?v.images:(v.image?[v.image]:[]);
- const pic=imgs.length?`<img id="mainpic" src="${esc(imgs[0])}" alt="${esc(v.name)}">${imgs.length>1?`<div class="thumbs" role="group" aria-label="More photos">${imgs.map((u,i)=>`<button type="button" class="th${i?'':' on'}" data-u="${esc(u)}" aria-label="Photo ${i+1} of ${imgs.length}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}`:vehicleArt(v.category,v.capacity,{label:v.name});
+ const many=imgs.length>1;
+ const pic=imgs.length?`<div class="frame" id="frame"><img id="mainpic" src="${esc(imgs[0])}" alt="${esc(v.name)}">${many?`<button type="button" class="sl-nav prev" id="gprev" aria-label="Previous photo">&#8249;</button><button type="button" class="sl-nav next" id="gnext" aria-label="Next photo">&#8250;</button><span class="count" id="gcount">1 / ${imgs.length}</span>`:''}</div>${many?`<div class="thumbs" role="group" aria-label="More photos">${imgs.map((u,i)=>`<button type="button" class="th${i?'':' on'}" data-u="${esc(u)}" aria-label="Photo ${i+1} of ${imgs.length}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div><p style="margin:12px 0 0"><button type="button" class="btn btn-line" id="morepics">View more photos (${imgs.length})</button></p>`:''}<p class="photonote" data-note>Photos are for viewing only. They are not a guarantee of the exact vehicle for your trip.</p>`:vehicleArt(v.category,v.capacity,{label:v.name});
  box.innerHTML=`<div class="busdetail"><div class="art">${pic}</div><div>
   <span class="tag">${esc(v.category)}</span>
   <div class="big" style="margin-top:14px"><small>SEATS</small>${v.capacity}</div>
@@ -24,9 +25,37 @@ if(!id)nf();else try{
   <div class="foot" style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn btn-blue" href="/book?vehicle=${v.id}">Request a quote</a>${shareButton(v,'btn btn-line')}</div>
  </div></div>`;
 
- const ths=[...document.querySelectorAll('.thumbs .th')];let cur=0,tm=null;
- const pick=k=>{cur=(k+ths.length)%ths.length;$('#mainpic').src=ths[cur].dataset.u;ths.forEach((x,j)=>x.classList.toggle('on',j===cur));};
- ths.forEach((b,k)=>b.onclick=()=>{clearInterval(tm);tm=null;pick(k);});
- if(ths.length>1&&!matchMedia('(prefers-reduced-motion: reduce)').matches){tm=setInterval(()=>{if(!document.hidden)pick(cur+1);},4000);const m=$('#mainpic');m.parentElement.addEventListener('mouseenter',()=>{clearInterval(tm);tm=null;});}
+ if(many){
+  const ths=[...document.querySelectorAll('.thumbs .th')],main=$('#mainpic'),cnt=$('#gcount');let cur=0,tm=null,sx=null;
+  const pick=k=>{cur=(k+imgs.length)%imgs.length;main.src=imgs[cur];cnt.textContent=`${cur+1} / ${imgs.length}`;ths.forEach((x,j)=>x.classList.toggle('on',j===cur));ths[cur]?.scrollIntoView({block:'nearest',inline:'nearest'});};
+  const stop=()=>{clearInterval(tm);tm=null;};
+  const go=d=>{stop();pick(cur+d);};
+  $('#gprev').onclick=()=>go(-1);$('#gnext').onclick=()=>go(1);
+  ths.forEach((t,k)=>t.onclick=()=>{stop();pick(k);});
+  const fr=$('#frame');
+  fr.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')sx=e.clientX;});
+  fr.addEventListener('pointerup',e=>{if(sx==null)return;const dx=e.clientX-sx;sx=null;if(Math.abs(dx)>40)go(dx<0?1:-1);});
+  fr.addEventListener('mouseenter',stop);
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches)tm=setInterval(()=>{if(!document.hidden)pick(cur+1);},4000);
+  // full-screen viewer: View more photos
+  $('#morepics').onclick=()=>openViewer(cur);
+  fr.style.cursor='zoom-in';fr.addEventListener('click',e=>{if(e.target.closest('.sl-nav'))return;openViewer(cur);});
+  function openViewer(start){
+   stop();let i=start;const prevFocus=document.activeElement;
+   const ov=document.createElement('div');ov.className='lbx';ov.setAttribute('role','dialog');ov.setAttribute('aria-modal','true');ov.setAttribute('aria-label',`${v.name} photos`);
+   ov.innerHTML=`<button type="button" class="lbx-x" aria-label="Close">&times;</button><button type="button" class="lbx-n prev" aria-label="Previous photo">&#8249;</button><div class="lbx-stage"><img alt="${esc(v.name)}"></div><button type="button" class="lbx-n next" aria-label="Next photo">&#8250;</button><div class="lbx-bar"><span class="lbx-c"></span><div class="lbx-t">${imgs.map((u,k)=>`<button type="button" data-k="${k}" aria-label="Photo ${k+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div><p>Photos are for viewing only. They are not a guarantee of the exact vehicle for your trip.</p></div>`;
+   document.body.appendChild(ov);document.body.style.overflow='hidden';
+   const im=ov.querySelector('.lbx-stage img'),c=ov.querySelector('.lbx-c'),tb=[...ov.querySelectorAll('.lbx-t button')];
+   const show=k=>{i=(k+imgs.length)%imgs.length;im.src=imgs[i];c.textContent=`${i+1} / ${imgs.length}`;tb.forEach((x,j)=>x.classList.toggle('on',j===i));tb[i].scrollIntoView({block:'nearest',inline:'center'});};
+   const close=()=>{ov.remove();document.body.style.overflow='';document.removeEventListener('keydown',key);pick(i);prevFocus?.focus?.();};
+   const key=e=>{if(e.key==='Escape')close();else if(e.key==='ArrowLeft')show(i-1);else if(e.key==='ArrowRight')show(i+1);else if(e.key==='Tab'){const f=[...ov.querySelectorAll('button')];const a=document.activeElement;if(e.shiftKey&&a===f[0]){e.preventDefault();f[f.length-1].focus();}else if(!e.shiftKey&&a===f[f.length-1]){e.preventDefault();f[0].focus();}}};
+   document.addEventListener('keydown',key);
+   ov.querySelector('.lbx-x').onclick=close;ov.querySelector('.prev').onclick=()=>show(i-1);ov.querySelector('.next').onclick=()=>show(i+1);
+   tb.forEach(t=>t.onclick=()=>show(+t.dataset.k));
+   ov.addEventListener('click',e=>{if(e.target===ov||e.target.classList.contains('lbx-stage'))close();});
+   let x0=null;ov.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')x0=e.clientX;});ov.addEventListener('pointerup',e=>{if(x0==null)return;const dx=e.clientX-x0;x0=null;if(Math.abs(dx)>50)show(i+(dx<0?1:-1));});
+   show(i);ov.querySelector('.lbx-x').focus();
+  }
+ }
 }catch{nf();}
 </script></body></html>

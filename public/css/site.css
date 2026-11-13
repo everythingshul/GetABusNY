@@ -297,3 +297,24 @@ footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 0 6
 @media(prefers-reduced-motion:reduce){.vehicle,.vehicle .pic.ph img,.picwrap[data-n] .pic.ph img.sl{transition:none}.vehicle:hover{transform:none}}
 
 .vehicle .pic{display:block}
+
+/* vehicle page: fixed photo frame so the card never changes size with the photo */
+.busdetail .art .frame{position:relative;aspect-ratio:3/2;background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.busdetail .art .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;border-radius:0}
+.busdetail .art .frame .count{position:absolute;right:10px;top:10px;background:rgba(13,27,38,.7);color:#fff;font:700 .78rem var(--head);padding:3px 9px;border-radius:999px}
+.busdetail .art .frame .sl-nav{opacity:1}
+.photonote{font-size:.84rem;color:var(--ink-2);margin:12px 2px 0;font-style:italic}
+.lbx{position:fixed;inset:0;z-index:2000;background:rgba(7,14,20,.98);display:grid;grid-template-columns:64px 1fr 64px;grid-template-rows:1fr auto;align-items:center}
+.lbx-stage{grid-column:2;grid-row:1;height:100%;display:grid;place-items:center;padding:56px 0 8px;min-height:0}
+.lbx-stage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px}
+.lbx-n,.lbx-x{border:0;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;border-radius:50%;font:700 2rem/1 var(--head,sans-serif);display:grid;place-items:center}
+.lbx-n{width:46px;height:46px;justify-self:center;padding:0 0 4px}.lbx-n.prev{grid-column:1;grid-row:1}.lbx-n.next{grid-column:3;grid-row:1}
+.lbx-x{position:absolute;top:14px;right:14px;width:44px;height:44px;font-size:2rem;padding:0 0 3px;z-index:2}
+.lbx-n:hover,.lbx-x:hover{background:rgba(255,255,255,.28)}.lbx button:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
+.lbx-bar{grid-column:1/-1;grid-row:2;padding:6px 14px 14px;color:#cfdce6;text-align:center}
+.lbx-c{font:700 .85rem var(--head)}
+.lbx-t{display:flex;gap:8px;justify-content:center;overflow-x:auto;padding:8px 0}
+.lbx-t button{flex:none;width:72px;height:52px;padding:0;border:2px solid transparent;border-radius:6px;overflow:hidden;background:#000;cursor:pointer;opacity:.6}
+.lbx-t button.on{border-color:var(--lime);opacity:1}.lbx-t img{width:100%;height:100%;object-fit:cover;display:block}
+.lbx-bar p{margin:2px 0 0;font-size:.8rem;font-style:italic;color:#9fb4c3}
+@media(max-width:640px){.lbx{grid-template-columns:1fr}.lbx-n{display:none}.lbx-stage{grid-column:1}.lbx-t button{width:56px;height:42px}}

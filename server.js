@@ -11,7 +11,7 @@ import { runFollowups, inQuietWindow } from './src/services.js';
 import { chatPublicRouter } from './src/chesky.js';
 import { registerPublicBanner } from './src/banner.js';
 import { staffCalendar, driverCalendar } from './src/extras.js';
-import { one, run, getSetting } from './src/db.js';
+import { one, all, run, getSetting } from './src/db.js';
 import compression from 'compression';
 import { mountSeo } from './src/seo.js';
 import { markedFile, MARKABLE } from './src/watermark.js';
@@ -48,6 +48,19 @@ app.get('/healthz', (req, res) => { one('SELECT 1 x'); res.json({ ok: true }); }
 app.get('/cal/driver/:token.ics', (req, res) => { const d = one('SELECT * FROM drivers WHERE token=? AND active=1', req.params.token); if (!d) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(driverCalendar(d)); });
 app.get('/cal/:token.ics', (req, res) => { if (req.params.token !== getSetting('cal_token')) return res.status(404).end(); res.type('text/calendar; charset=utf-8').send(staffCalendar()); });
 mountSeo(app, PUB);
+// Saved photos are named "GetABusNY.com - Vehicle name.jpg" (a number is added for a vehicle's later photos).
+function downloadName(file) {
+  const ext = path.extname(file).toLowerCase(), url = `/uploads/${file}`;
+  let label = 'Photo';
+  for (const v of all('SELECT name, image, images FROM vehicles')) {
+    let imgs = []; try { imgs = JSON.parse(v.images || '[]'); } catch { /* none */ }
+    if (v.image && !imgs.includes(v.image)) imgs.unshift(v.image);
+    const i = imgs.indexOf(url);
+    if (i >= 0) { label = i ? `${v.name} ${i + 1}` : v.name; break; }
+  }
+  const clean = `GetABusNY.com - ${label}`.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120) + ext;
+  return `inline; filename="${clean.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(clean)}`;
+}
 const UPLOADS = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 // Photos are served with the logo on them. Other file types pass straight through.
 app.get('/uploads/:name', async (req, res, next) => {
@@ -55,7 +68,8 @@ app.get('/uploads/:name', async (req, res, next) => {
   if (!MARKABLE.test(name) || !fs.existsSync(f)) return next();
   try {
     const buf = await markedFile(f);
-    res.type(path.extname(name)).setHeader('Cache-Control', 'public, max-age=604800'); res.send(buf);
+    res.type(path.extname(name)).setHeader('Cache-Control', 'public, max-age=604800');
+    res.setHeader('Content-Disposition', downloadName(name)); res.send(buf);
   } catch (e) { next(e); }
 });
 app.use('/uploads', express.static(UPLOADS, { maxAge: '7d' }));
