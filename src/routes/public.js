@@ -101,7 +101,7 @@ pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
     if (k) await signContract(k, b, { ip: req.ip, ua: req.headers['user-agent'] });
     const r = acceptQuote(q.id, 'customer');
     if (k) { update('contracts', k.id, { trip_id: r.trip_id }); }
-    if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=? WHERE id=? AND sms_optin=0', now(), q.customer_id); }
+    if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=COALESCE(sms_optin_at, ?) WHERE id=?', now(), q.customer_id); }
     res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE id=?', r.invoice_id)?.token });
   } catch (e) { fail(res, e.status || 500, e.message); }
 });

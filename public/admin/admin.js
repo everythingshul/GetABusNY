@@ -232,13 +232,13 @@ function composeText({ customer_id, name, phone }) {
     $('#go', ov).onclick = () => guard(async () => { const m = $('#tm', ov).value.trim(); if (!m) return toast('Write a message', true); await POST(`/customers/${customer_id}/text`, { message: m }); close(); }, 'Text sent');
   } });
 }
-const CUST_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'company', l: 'Company / organization' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'address', l: 'Address', full: 1, places: 1 }, { k: 'sms_optin', l: 'OK to text (customer agreed)', t: 'check' }, { k: 'tags', l: 'Tags', help: 'comma separated, e.g. camp, shul, repeat' }, { k: 'notes', l: 'Internal notes', t: 'textarea', full: 1 }];
+const CUST_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'company', l: 'Company / organization' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'address', l: 'Address', full: 1, places: 1 }, { k: 'sms_stop', l: 'Do not text this customer (they replied STOP or asked us to stop)', t: 'check', full: 1 }, { k: 'tags', l: 'Tags', help: 'comma separated, e.g. camp, shul, repeat' }, { k: 'notes', l: 'Internal notes', t: 'textarea', full: 1 }];
 async function customerModal(id, after) {
-  const c = id ? await GET('/customers/' + id) : {};
+  const c = id ? await GET('/customers/' + id) : {}; c.sms_stop = !!c.sms_stop_at;
   const h = id ? await GET(`/customers/${id}/history`) : null;
   const m = modal({
     title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
-    footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && c.sms_optin ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
+    footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && !c.sms_stop_at ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       placesFor(ov);
       if (id) GET(`/customers/${id}/card`).then((card) => {

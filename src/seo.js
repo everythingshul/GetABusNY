@@ -54,13 +54,14 @@ function headFor(req, route, meta, extra = '') {
   return `<link rel="canonical" href="${esc(url)}"><meta name="description" content="${esc(meta.desc)}">`
     + `<meta property="og:site_name" content="${esc(biz())}"><meta property="og:type" content="website"><meta property="og:title" content="${esc(meta.title)}"><meta property="og:description" content="${esc(meta.desc)}"><meta property="og:url" content="${esc(url)}"><meta property="og:image" content="${esc(ogImg)}">`
     + `<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(meta.title)}"><meta name="twitter:description" content="${esc(meta.desc)}"><meta name="twitter:image" content="${esc(ogImg)}">`
-    + `<link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="192x192" href="/img/icon-192.png"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><link rel="manifest" href="/site.webmanifest"><meta name="theme-color" content="#14110f">`
+    + `<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" type="image/png" sizes="192x192" href="/img/icon-192.png"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><link rel="manifest" href="/site.webmanifest"><meta name="theme-color" content="#14110f">`
     + extra;
 }
 
 /** Take page HTML and replace/insert the SEO head tags. */
 export function inject(html, headTags, title) {
   html = html.replace(/<title>[^<]*<\/title>/i, '').replace(/<meta\s+name=["']description["'][^>]*>/gi, '').replace(/<link\s+rel=["']canonical["'][^>]*>/gi, '').replace(/<!--OG-->/g, '');
+  if (headTags.includes('rel="icon"')) html = html.replace(/<link\s+rel="(?:icon|apple-touch-icon)"[^>]*>/gi, '');
   return html.replace(/<\/head>/i, `<title>${esc(title)}</title>${headTags}</head>`);
 }
 

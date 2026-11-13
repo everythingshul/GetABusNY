@@ -72,6 +72,7 @@ addCol('trips', 'purpose', 'TEXT');
 addCol('trips', 'review_sent_at', 'TEXT');
 addCol('customers', 'sms_optin', 'INTEGER DEFAULT 0');
 addCol('customers', 'sms_optin_at', 'TEXT');
+addCol('customers', 'sms_stop_at', 'TEXT');
 db.exec(`
 CREATE TABLE IF NOT EXISTS contracts(id INTEGER PRIMARY KEY, number TEXT UNIQUE, trip_id INTEGER, quote_id INTEGER, customer_id INTEGER, token TEXT UNIQUE, status TEXT DEFAULT 'sent', body TEXT, body_hash TEXT, total_cents INTEGER, signer_name TEXT, signer_email TEXT, signature TEXT, signed_at TEXT, signer_ip TEXT, signer_ua TEXT, pdf_file TEXT, sent_at TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS page_views(id INTEGER PRIMARY KEY, at TEXT, day TEXT, path TEXT, ref TEXT, sid TEXT, device TEXT, country TEXT);

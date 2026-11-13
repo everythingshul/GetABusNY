@@ -72,7 +72,7 @@ admin.post('/upload', express.raw({ type: 'image/*', limit: '8mb' }), wrap((req)
 // ---------- generic CRUD ----------
 const J = (...f) => f; // readability
 const RES = {
-  customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin'), sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
+  customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin', 'sms_stop'), before: (o) => { if ('sms_stop' in o) { o.sms_stop_at = o.sms_stop ? now() : null; if (o.sms_stop) o.sms_optin = 0; delete o.sms_stop; } return o; }, sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
   vehicles: { fields: J('name', 'category', 'capacity', 'description', 'features', 'image', 'images', 'hourly_cents', 'min_hours', 'active', 'sort'), before: (o) => { if ('images' in o) { let a = o.images; if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = []; } } a = [...new Set((Array.isArray(a) ? a : []).map(String).filter((u) => /^(\/uploads\/[\w.-]+|https?:\/\/[^\s"<>]+)$/.test(u)))].slice(0, 15); o.images = JSON.stringify(a); o.image = a[0] || null; } return o; }, sel: 'SELECT t.* FROM vehicles t', search: ['t.name', 't.category'], order: 't.sort, t.name', del: () => true },
   drivers: { fields: J('name', 'phone', 'email', 'vendor_id', 'active', 'notes'), sel: 'SELECT t.*, v.name vendor_name FROM drivers t LEFT JOIN vendors v ON v.id=t.vendor_id', search: ['t.name', 't.phone'], order: 't.name COLLATE NOCASE', del: () => true, create: (o) => ({ ...o, token: token(24) }), extra: (r) => ({ ...r, portal_url: `${process.env.BASE_URL || ''}/d/${r.token}` }) },
   vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active', 'insurance_carrier', 'insurance_policy', 'insurance_expires', 'dot_number', 'mc_number'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
@@ -128,7 +128,7 @@ for (const [name, cfg] of Object.entries(RES)) {
     if (cfg.before) o = cfg.before(o);
     const prev = name === 'quotes' ? one('SELECT * FROM quotes WHERE id=?', id) : null;
     if (prev && prev.status === 'accepted') throw bad('This quote was accepted and signed, so it is locked. Change the trip or add an invoice instead.', 409);
-    if (name === 'customers' && 'sms_optin' in o) o.sms_optin_at = o.sms_optin ? now() : null;
+    if (name === 'customers' && o.sms_optin) o.sms_optin_at = now();
     if (name === 'invoices' && o.status === 'sent') delete o.status; // use the Send action
     update(table, id, { ...o, ...(table !== 'followups' && table !== 'messages' ? { updated_at: now() } : {}) });
     if (name === 'followups' && o.status && o.status !== 'pending') update('followups', id, { done_at: now() });

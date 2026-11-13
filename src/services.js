@@ -84,7 +84,7 @@ export function createRequest(d, source = 'website') {
        <p>Need it faster? Call ${esc(getSetting('phone'))}.</p>`)).catch(() => {});
   }
   scheduleTask('request', id, 'lead_call', `Call new lead: ${name} (${ref})`, addHours(new Date(), 1));
-  if (d.sms_optin && phone) textCustomer(customer_id, `${getSetting('business_name')}: we got your trip request ${ref}. We'll send your quote during business hours. Reply STOP to opt out.`, 'request_received', { force: true }).catch(() => {});
+  if (phone) textCustomer(customer_id, `${getSetting('business_name')}: we got your trip request ${ref}. We'll send your quote during business hours. Reply STOP to opt out.`, 'request_received', { force: true }).catch(() => {});
   return { id, ref };
 }
 
@@ -353,7 +353,7 @@ function composeFollowup(f) {
       textCustomer(c.id, `${getSetting('business_name')}: reminder, your trip departs ${fmtWhen(t.depart_at)} from ${t.pickup || 'your pickup location'}. Questions? ${getSetting('phone')}`, 'trip_reminder', { trip_id: t.id }).catch(() => {});
       return { to: c.email, subject: `Reminder: your trip ${fmtWhen(t.depart_at)}`, html: emailShell('Your trip is coming up', `<p>Pickup: <b>${esc(t.pickup || '')}</b><br>Time: <b>${fmtWhen(t.depart_at)}</b><br>Please have your group ready 10 minutes early. Your driver will call or text you before pickup. Need to change something? Call ${esc(getSetting('phone'))}.</p>`) };
     }
-    if (f.kind === 'trip_thanks') { run('UPDATE trips SET review_sent_at=? WHERE id=?', now(), t.id); if (c.sms_optin && c.phone) textCustomer(c.id, reviewText(), 'review_request', { trip_id: t.id }).catch(() => {}); }
+    if (f.kind === 'trip_thanks') { run('UPDATE trips SET review_sent_at=? WHERE id=?', now(), t.id); if (c.phone) textCustomer(c.id, reviewText(), 'review_request', { trip_id: t.id }).catch(() => {}); }
     return { to: c.email, subject: 'Thanks for riding with us', html: reviewEmail(c) };
   }
   if (f.entity_type === 'rfq') {
@@ -461,15 +461,18 @@ function quietEndsAt() { // first real moment after the quiet window ends
 }
 export const SMS_GROUPS = { quotes: 'Quote updates', payments: 'Payment receipts', reminders: 'Trip reminders', driver: 'Driver on the way or arrived', reviews: 'Review request after the trip' };
 const KIND_GROUP = { request_received: 'quotes', quote_sent: 'quotes', payment: 'payments', trip_reminder: 'reminders', driver_en_route: 'driver', driver_arrived: 'driver', review_request: 'reviews' };
-export async function textCustomer(customer_id, body, kind, { trip_id, force = false, override = false } = {}) {
+export async function textCustomer(customer_id, bodyIn, kind, { trip_id, force = false, override = false } = {}) {
   const c = customerOf(customer_id);
   if (!c.id || !c.phone) return { ok: false, error: 'no phone' };
-  if (!override && !c.sms_optin) return { ok: false, error: 'customer has not opted in to texts' };
+  if (!override && c.sms_stop_at) return { ok: false, error: 'customer replied STOP, so no texts are sent' };
   const group = KIND_GROUP[kind];
   const on = String(getSetting('sms_groups_on') || '').split(',').map((x) => x.trim());
   if (!override && group && !on.includes(group)) return { ok: false, error: 'this kind of text is turned off in Settings' };
   if (getSetting('sms_enabled') !== '1') return { ok: false, error: 'texts are turned off' };
   const to = toE164(c.phone); if (!to) return { ok: false, error: 'invalid phone number' };
+  // the first text a customer ever gets tells them how to stop
+  let body = String(bodyIn);
+  if (!/\bSTOP\b/i.test(body) && !one("SELECT 1 x FROM sms_log WHERE customer_id=? AND direction='out'", customer_id)) body += ' Reply STOP to opt out.';
   const defer = !force && inQuietWindow();
   const id = insert('sms_log', { to_phone: to, body: String(body).slice(0, 1000), kind, status: defer ? 'queued' : 'sending', customer_id, trip_id: trip_id || null, direction: 'out', send_after: defer ? quietEndsAt().toISOString() : null, created_at: now() });
   if (defer) return { ok: true, queued: true };
@@ -483,7 +486,7 @@ async function deliverSMS(id) {
 }
 export async function flushSMS() {
   for (const m of all("SELECT id, customer_id FROM sms_log WHERE status='queued' AND send_after<=? LIMIT 25", now())) {
-    if (!customerOf(m.customer_id).sms_optin) { update('sms_log', m.id, { status: 'skipped', error: 'opted out' }); continue; }
+    if (customerOf(m.customer_id).sms_stop_at) { update('sms_log', m.id, { status: 'skipped', error: 'customer replied STOP' }); continue; }
     await deliverSMS(m.id);
   }
 }
@@ -496,12 +499,12 @@ export function handleInboundText(phone, body, provider_id) {
   insert('sms_log', { to_phone: phone, body: String(body).slice(0, 1000), kind: 'reply', status: 'received', customer_id: cust?.id || null, direction: 'in', provider_id: provider_id || null, created_at: now(), sent_at: now() });
   const word = String(body || '').trim().toUpperCase();
   if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(word)) {
-    if (cust) { update('customers', cust.id, { sms_optin: 0 }); log('customer', 'sms.opt_out', 'customer', cust.id); }
+    if (cust) { update('customers', cust.id, { sms_optin: 0, sms_stop_at: now() }); log('customer', 'sms.opt_out', 'customer', cust.id); }
     if (smsConfigured()) smsRaw(phone, 'You are unsubscribed and will not get more texts from us.').catch(() => {});
     return true;
   }
   if (['START', 'YES', 'UNSTOP'].includes(word)) {
-    if (cust) { update('customers', cust.id, { sms_optin: 1, sms_optin_at: now() }); log('customer', 'sms.opt_in', 'customer', cust.id); }
+    if (cust) { update('customers', cust.id, { sms_optin: 1, sms_optin_at: now(), sms_stop_at: null }); log('customer', 'sms.opt_in', 'customer', cust.id); }
     return true;
   }
   notifyOwner(`Text from ${cust?.name || phone}`, String(body), 'sms_reply').catch(() => {});
@@ -542,7 +545,7 @@ export async function sendReviewRequest(trip_id) {
   if (!getSetting('google_review_url')) throw Object.assign(new Error('Add your Google review link in Settings first.'), { status: 400 });
   const out = { email: null, sms: null };
   if (t.customer.email) out.email = await sendEmail(t.customer.email, 'Thanks for riding with us', reviewEmail(t.customer));
-  if (t.customer.sms_optin && t.customer.phone) out.sms = await textCustomer(t.customer.id, reviewText(), 'review_request', { trip_id, force: true });
+  if (t.customer.phone) out.sms = await textCustomer(t.customer.id, reviewText(), 'review_request', { trip_id, force: true });
   run('UPDATE trips SET review_sent_at=? WHERE id=?', now(), trip_id);
   log('admin', 'review.requested', 'trip', trip_id);
   return out;
