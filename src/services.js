@@ -72,7 +72,7 @@ export function createRequest(d, source = 'website') {
     vehicle_id: d.vehicle_id ? Number(d.vehicle_id) : null, vehicle_pref: d.vehicle_pref, comments: String(d.comments || '').slice(0, 3000),
   };
   const ref = randomRef('REQ', 'requests', 'ref');
-  const id = insert('requests', { ref, seq: nextSeq('requests'), customer_id, name, email, phone, details, status: 'new', source, referred_by: d.referred_by, created_at: now(), updated_at: now() });
+  const id = insert('requests', { ref, seq: nextSeq('requests'), customer_id, name, email, phone, details, status: 'new', source, referred_by: d.referred_by, notes: source === 'admin' ? String(d.internal_notes || '').trim().slice(0, 3000) || null : null, created_at: now(), updated_at: now() });
   log(source, 'request.created', 'request', id, `${name} ${details.depart_at || ''}`);
   const veh = details.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', details.vehicle_id)?.name : 'No preference';
   notifyOwner(`New quote request ${ref} - ${name}`,
@@ -110,10 +110,10 @@ export function quoteFromRequest(request_id) {
 }
 function customerOf(id) { return one('SELECT * FROM customers WHERE id=?', id) || {}; }
 
-export async function sendQuote(id, actor) {
+export async function sendQuote(id, actor, { skip_email = false, skip_sms = false } = {}) {
   const q = one('SELECT * FROM quotes WHERE id=?', id);
   const c = customerOf(q.customer_id);
-  if (!c.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
+  if (!c.email && !skip_email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
   if (!q.total_cents) throw Object.assign(new Error('Quote total is $0, add pricing first.'), { status: 400 });
   const t = parse(q.trip, {});
   const unsent = all('SELECT * FROM quote_revisions WHERE quote_id=? AND sent_at IS NULL ORDER BY revision', id);
@@ -124,14 +124,14 @@ export async function sendQuote(id, actor) {
      <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
      ${qIt.length ? `<p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(qIt, fmtWhen)}` : ''}
      <p>The quote is good until ${q.valid_until ? fmtDate(q.valid_until) : 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
-  const r = await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
+  const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
   if (unsent.length) run('UPDATE quote_revisions SET sent_at=? WHERE quote_id=? AND sent_at IS NULL', now(), id);
   update('quotes', id, { status: 'sent', sent_at: now(), updated_at: now() });
-  textCustomer(q.customer_id, `${getSetting('business_name')}: your quote ${q.number} is ready: ${link.quote(q)}`, 'quote_sent', { force: true }).catch(() => {});
+  if (!skip_sms) textCustomer(q.customer_id, `${getSetting('business_name')}: your quote ${q.number} is ready: ${link.quote(q)}`, 'quote_sent', { force: true }).catch(() => {});
   if (q.request_id) update('requests', q.request_id, { status: 'quoted', updated_at: now() });
   const days = nums(getSetting('fu_quote_days'));
-  if (getSetting('fu_enabled') === '1') days.forEach((n) => scheduleAuto('quote', id, 'quote_nudge', addDays(new Date(), n)));
-  log(actor, 'quote.sent', 'quote', id, c.email);
+  if (getSetting('fu_enabled') === '1' && !skip_email) days.forEach((n) => scheduleAuto('quote', id, 'quote_nudge', addDays(new Date(), n)));
+  log(actor, 'quote.sent', 'quote', id, skip_email ? 'marked sent, not emailed' : c.email);
   return r;
 }
 
@@ -180,37 +180,37 @@ export function recalcInvoice(id) {
 export const biz = () => getSetting('business_name');
 export const invoiceBalance = (i) => Math.max(0, i.total_cents - i.amount_paid_cents);
 
-export async function sendInvoice(id, actor) {
+export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   recalcInvoice(id);
   let i = one('SELECT * FROM invoices WHERE id=?', id);
   const c = customerOf(i.customer_id);
-  if (!c.email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
+  if (!c.email && !skip_email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
   if (i.status === 'draft') update('invoices', id, { status: 'sent', sent_at: now() });
   recalcInvoice(id);
   i = one('SELECT * FROM invoices WHERE id=?', id);
   const due = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
-  const r = await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
+  const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
      <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>`, { label: 'Pay securely online', url: link.pay(i) }));
-  if (!one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
+  if (!skip_email && !one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
     const due0 = new Date(i.due_date + 'T14:00:00Z');
     nums(getSetting('fu_invoice_before_days')).forEach((n) => scheduleAuto('invoice', id, 'invoice_reminder', addDays(due0, -n)));
     scheduleAuto('invoice', id, 'invoice_reminder', due0);
     nums(getSetting('fu_invoice_after_days')).forEach((n) => scheduleAuto('invoice', id, 'invoice_reminder', addDays(due0, n)));
   }
-  log(actor, 'invoice.sent', 'invoice', id, c.email);
+  log(actor, 'invoice.sent', 'invoice', id, skip_email ? 'marked sent, not emailed' : c.email);
   return r;
 }
 
-export function recordPayment(invoice_id, { amount_cents, method = 'manual', reference, stripe_session, stripe_pi, note }, actor = 'admin') {
+export function recordPayment(invoice_id, { amount_cents, method = 'manual', reference, stripe_session, stripe_pi, note, skip_email = false, skip_sms = false }, actor = 'admin') {
   if (stripe_session && one('SELECT 1 x FROM payments WHERE stripe_session=?', stripe_session)) return null; // webhook replay
   const pid = insert('payments', { invoice_id, amount_cents, method, reference, stripe_session, stripe_pi, status: 'succeeded', note, created_at: now() });
-  afterPayment(invoice_id, amount_cents, method, actor);
+  afterPayment(invoice_id, amount_cents, method, actor, { skip_email, skip_sms });
   return pid;
 }
 
 /** Everything that follows money arriving: invoice status, trip confirmation, receipt email/text, owner alert. */
-function afterPayment(invoice_id, amount_cents, method, actor) {
+function afterPayment(invoice_id, amount_cents, method, actor, { skip_email = false, skip_sms = false } = {}) {
   const before = one('SELECT status FROM invoices WHERE id=?', invoice_id).status;
   if (before === 'draft') update('invoices', invoice_id, { status: 'sent' });
   recalcInvoice(invoice_id);
@@ -220,8 +220,8 @@ function afterPayment(invoice_id, amount_cents, method, actor) {
   }
   const c = customerOf(i.customer_id);
   log(actor, 'payment.recorded', 'invoice', invoice_id, `${money(amount_cents)} ${method}`);
-  if (c.email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
-  textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
+  if (c.email && !skip_email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
+  if (!skip_sms) textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
   notifyOwner(`Payment ${money(amount_cents)} - ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
 }
 

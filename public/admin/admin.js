@@ -44,6 +44,16 @@ function modal({ title, body, footer = '', small = false, onMount }) {
 }
 const button = (label, cls = '', attrs = '') => `<button class="btn ${cls}" ${attrs}>${label}</button>`;
 async function confirmBox(msg) { return confirm(msg); }
+/** Ask how a send should go. Resolves { skip_email, skip_sms }; never resolves if the box is closed. */
+function askSend(what, { sms = true, verb = 'Send' } = {}) {
+  return new Promise((resolve) => {
+    modal({ title: `${verb} ${what}`, small: true, body: `<p class="mut sm">Tick a box to skip that message. The item is still marked as done, and you can copy the customer link to send it yourself.</p>
+      <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:8px 0"><input type="checkbox" id="noem"> Do not email the customer</label>
+      ${sms ? '<label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:8px 0"><input type="checkbox" id="nosm"> Do not text the customer</label>' : ''}`,
+      footer: `<span class="sp"></span>${button(verb, 'primary', 'id="go"')}`,
+      onMount(ov, close) { $('#go', ov).onclick = () => { const o = { skip_email: $('#noem', ov).checked, skip_sms: !!$('#nosm', ov)?.checked }; close(); resolve(o); }; } });
+  });
+}
 
 // ---------- forms ----------
 const opts = (list, label, blank = '(none)') => [['', blank], ...list.map((x) => [x.id, label(x)])];
@@ -288,7 +298,7 @@ VIEWS.leads = async (el) => {
   await draw();
 };
 function manualLead() {
-  const F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'company', l: 'Organization' }, { k: 'purpose', l: 'Purpose', t: 'select', o: purposeOpts() }, { k: 'passengers', l: 'Passengers', t: 'number' }, { k: 'depart_at', l: 'Departure', t: 'datetime' }, { k: 'return_at', l: 'Return', t: 'datetime' }, { k: 'vehicle_id', l: 'Vehicle', t: 'select', o: vehOpts() }, { k: '_i', t: 'custom', html: '<div class="fsec">Route</div><div id="itn_box"></div>' }, { k: 'comments', l: 'Notes', t: 'textarea', full: 1 }];
+  const F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'company', l: 'Organization' }, { k: 'purpose', l: 'Purpose', t: 'select', o: purposeOpts() }, { k: 'passengers', l: 'Passengers', t: 'number' }, { k: 'depart_at', l: 'Departure', t: 'datetime' }, { k: 'return_at', l: 'Return', t: 'datetime' }, { k: 'vehicle_id', l: 'Vehicle', t: 'select', o: vehOpts() }, { k: '_i', t: 'custom', html: '<div class="fsec">Route</div><div id="itn_box"></div>' }, { sec: 'INTERNAL ONLY. Never shown to the customer or to operators.' }, { k: 'internal_notes', l: 'Internal notes', t: 'textarea', full: 1 }];
   modal({ title: 'Add lead (phone / walk-in)', body: formHTML(F), footer: `<span class="sp"></span>${button('Save lead', 'primary', 'id="s"')}`, onMount(ov, close) {
     const ed = itineraryEditor($('#itn_box', ov), { staff: false, roundTrip: true });
     $('#s', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; if (!o.email && !o.phone) return toast('Phone or email required', true); const it = ed.get(); if (!it.length) return toast('Add at least a pickup and destination', true); await POST('/requests/manual', { ...o, itinerary: it, trip_type: it.some((x) => x.kind === 'return_pickup') ? 'round_trip' : 'one_way' }); close(); await refresh(); }, 'Lead added'); } });
@@ -298,7 +308,7 @@ function leadModal(r) {
   const v = S.L.vehicles.find((x) => x.id === d.vehicle_id);
   modal({
     title: `${r.ref} - ${r.name}`, body: `<dl class="kv"><div><dt>Contact</dt><dd>${esc(r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
-    ${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
+    ${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes (INTERNAL ONLY, never shown to the customer)<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
     footer: `${button('Delete', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
     onMount(ov, close) {
       $('#save', ov).onclick = () => guard(async () => { await PUT('/requests/' + r.id, { status: $('#st', ov).value, notes: $('#nt', ov).value }); close(); reload(); }, 'Saved');
@@ -356,7 +366,7 @@ async function quoteModal(id, preset = {}) {
       };
       const save = async () => { const body = collect(); if (!body) return null; if (id) { await PUT('/quotes/' + id, body); return id; } const r = await POST('/quotes', { ...body, request_id: preset.request_id }); return r.id; };
       $('#save', ov)?.addEventListener('click', () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved'));
-      $('#send', ov)?.addEventListener('click', () => guard(async () => { const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`); close(); reload(); }, 'Quote sent to customer'));
+      $('#send', ov)?.addEventListener('click', () => guard(async () => { const o = await askSend('this quote'); const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`, o); close(); reload(); }, 'Quote marked as sent'));
       const _unused = () => guard(async () => { const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`); close(); reload(); }, 'Quote sent to customer');
       if (id) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft?')) return; await DEL('/quotes/' + id); close(); reload(); }));
@@ -458,11 +468,11 @@ async function invoiceModal(id) {
       if (id && i.customer_id && bal > 0) GET(`/customers/${i.customer_id}/card`).then((card) => { if (!card) return; const f = document.createElement('form'); f.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)'; f.innerHTML = `<label>Charge card on file, ${esc(card.brand)} ${esc(card.last4)} ($)<input id="cc" type="number" step="0.01" min="1" value="${c2d(bal)}" style="width:130px"></label><button class="btn sm primary">Charge now</button><span class="hint">Uses the card the customer saved with their permission.</span>`; $('.mb', ov).append(f); f.onsubmit = (e) => { e.preventDefault(); const amt = d2c($('#cc', ov).value); if (!confirm(`Charge ${card.brand} ending ${card.last4} ${usd(amt)} now?`)) return; guard(async () => { await POST(`/invoices/${id}/charge-saved`, { amount_cents: amt }); close(); reload(); }, 'Charged'); }; }).catch(() => {});
       const save = async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return null; o.items = readItems(ov); if (!o.items.length) { toast('Add at least one line item', true); return null; } if (id) { await PUT('/invoices/' + id, o); return id; } return (await POST('/invoices', o)).id; };
       $('#save', ov).onclick = () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved');
-      $('#send', ov).onclick = () => guard(async () => { const x = await save(); if (!x) return; await POST(`/invoices/${x}/send`); close(); reload(); }, 'Invoice emailed');
+      $('#send', ov).onclick = () => guard(async () => { const o = await askSend('this invoice', { sms: false }); const x = await save(); if (!x) return; await POST(`/invoices/${x}/send`, { skip_email: o.skip_email }); close(); reload(); }, 'Invoice marked as sent');
       if (id) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft invoice?')) return; await DEL('/invoices/' + id); close(); reload(); }));
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/invoices/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer payment link:', r.url); });
-        $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value }); close(); reload(); }, 'Payment recorded'); };
+        $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { const o = await askSend('this payment', { verb: 'Record' }); await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...o }); close(); reload(); }, 'Payment recorded'); };
         ov.addEventListener('click', (e) => {
           const b = e.target.closest('[data-refund]');
           if (b) { const amt = prompt(`Refund amount ($), up to ${c2d(b.dataset.amt)}. Leave as is for a full refund; enter less for a partial refund.`, c2d(b.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${b.dataset.refund}/refund`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Refund sent'); return; }
@@ -591,10 +601,10 @@ VIEWS.banner = async (el) => {
 };
 
 // ---------- fleet ----------
-const VEH_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'category', l: 'Category', t: 'select', o: ['Coach Bus', 'Party Bus', 'Trolley', 'Limo', 'Sprinter / Shuttle', 'Executive Coach', 'Double Decker', 'Other'].map((x) => [x, x]) }, { k: 'capacity', l: 'Seats', t: 'number' }, { k: 'sort', l: 'Sort order', t: 'number', help: 'Lower shows first' }, { k: 'features', l: 'Features', help: 'comma separated', full: 1 }, { k: 'description', l: 'Description (public)', t: 'textarea', full: 1 }, { k: 'active', l: 'Show on website', t: 'check' }];
+const VEH_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'category', l: 'Category', t: 'select', o: ['Coach Bus', 'Party Bus', 'Trolley', 'Limo', 'Sprinter / Shuttle', 'Executive Coach', 'Double Decker', 'Other'].map((x) => [x, x]) }, { k: 'capacity', l: 'Seats', t: 'number' }, { k: 'sort', l: 'Sort order', t: 'number', help: 'Lower shows first' }, { k: 'features', l: 'Features', help: 'comma separated', full: 1 }, { k: 'description', l: 'Description (public)', t: 'textarea', full: 1 }, { k: 'active', l: 'Show on website', t: 'check' }, { sec: 'INTERNAL ONLY. Never shown on the website, in emails, or to customers or drivers.' }, { k: 'operator_url', l: 'Operator site (internal link)', t: 'url', full: 1, help: 'Where you check this vehicle or the operator, e.g. https://...' }, { k: 'internal_pricing', l: 'Marked pricing (internal)', t: 'textarea', rows: 3, full: 1, help: 'What it costs us and what we mark it up to, e.g. cost $150/hr, we charge $195/hr, 5 hr minimum' }, { k: 'internal_notes', l: 'Internal notes', t: 'textarea', rows: 3, full: 1 }];
 VIEWS.fleet = async (el) => {
   const rows = await GET('/vehicles');
-  el.innerHTML = `<div class="toolbar">${button('+ Vehicle', 'primary', 'id="new"')}${exportBtn('fleet')}<span class="mut sm">Order with the sort number. Upload vehicle photos only: no people in any picture.</span></div>${table([{ h: '', f: (v) => (v.image ? `<img src="${esc(v.image)}" alt="" style="width:64px;height:40px;object-fit:cover;border-radius:6px">` : '') }, { h: 'Vehicle', f: (v) => `<span class="bold">${esc(v.name)}</span>` }, { h: 'Category', f: (v) => esc(v.category) }, { h: 'Seats', f: (v) => v.capacity, cls: 'r' }, { h: 'Order', f: (v) => v.sort, cls: 'r' }, { h: 'Site', f: (v) => (v.active ? badge('live') : badge('hidden')) }], rows, { onClick: 1 })}`;
+  el.innerHTML = `<div class="toolbar">${button('+ Vehicle', 'primary', 'id="new"')}${exportBtn('fleet')}<span class="mut sm">Order with the sort number. Upload vehicle photos only: no people in any picture.</span></div>${table([{ h: '', f: (v) => (v.image ? `<img src="${esc(v.image)}" alt="" style="width:64px;height:40px;object-fit:cover;border-radius:6px">` : '') }, { h: 'Vehicle', f: (v) => `<span class="bold">${esc(v.name)}</span>` }, { h: 'Category', f: (v) => esc(v.category) }, { h: 'Seats', f: (v) => v.capacity, cls: 'r' }, { h: 'Operator', f: (v) => (v.operator_url ? `<a href="${esc(v.operator_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open</a>` : '') }, { h: 'Order', f: (v) => v.sort, cls: 'r' }, { h: 'Site', f: (v) => (v.active ? badge('live') : badge('hidden')) }], rows, { onClick: 1 })}`;
   $('#new', el).onclick = () => vehModal();
   bindRows(el, rows, vehModal);
 };
@@ -692,12 +702,26 @@ VIEWS.messages = async (el) => {
     $('#list', el).innerHTML = table([{ h: 'When', f: (m) => `${ago(m.at)}<br><span class="mut sm">${fmt(m.at)}</span>` }, { h: 'Type', f: (m) => (m.type === 'email' ? '<span class="badge b-b">email</span>' : `<span class="badge b-a">text${m.direction === 'in' ? ' in' : ''}</span>`) }, { h: 'To', f: (m) => esc(m.to) }, { h: 'Subject or message', f: (m) => `<span class="clip">${esc(m.title)}</span>` }, { h: 'Status', f: (m) => badge(m.status === 'sent' || m.status === 'received' ? 'paid' : m.status === 'logged' || m.status === 'queued' ? 'pending' : m.status).replace(/>[^<]*</, `>${esc(m.status)}<`) }], rows, { onClick: 1, empty: 'No messages yet.' });
     bindRows($('#list', el), rows, (m) => (m.type === 'email' ? emailView(m.id) : smsView(m.id)));
   };
-  el.innerHTML = `<div class="toolbar">${chips([['all', 'Everything'], ['email', 'Emails'], ['sms', 'Texts']], type)}<input type="search" id="q" placeholder="Search recipient, subject or text...">${button('Write email', 'primary', 'id="w"')}${exportBtn('emails', 'Export emails')}${exportBtn('texts', 'Export texts')}</div><p class="mut sm">Every email and text the system sends, exactly as the person received it. Click one to see it.</p><div id="list"></div>`;
+  el.innerHTML = `<div class="toolbar">${chips([['all', 'Everything'], ['email', 'Emails'], ['sms', 'Texts']], type)}<input type="search" id="q" placeholder="Search recipient, subject or text...">${button('Write email', 'primary', 'id="w"')}${button('Write text', 'primary', 'id="wt"')}${exportBtn('emails', 'Export emails')}${exportBtn('texts', 'Export texts')}</div><p class="mut sm">Every email and text the system sends, exactly as the person received it. Click one to see it.</p><div id="list"></div>`;
   $('#chips', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; type = b.dataset.k; $$('.chip', el).forEach((x) => x.classList.toggle('on', x === b)); draw(); };
   let tm; $('#q', el).oninput = (e) => { q = e.target.value; clearTimeout(tm); tm = setTimeout(draw, 250); };
   $('#w', el).onclick = () => composeEmail({});
+  $('#wt', el).onclick = () => composeSms({ onDone: draw });
   await draw();
 };
+/** Write a text to a customer or to any phone number. */
+function composeSms({ to = '', customer_id = '', onDone } = {}) {
+  modal({ title: 'Write a text', small: true, body: `<p class="mut sm">Sent from your SimpleSender number. Customers who replied STOP cannot be texted.</p>
+    <div class="fgrid"><label class="full">Customer (optional)<select id="tc">${custOpts().map(([k, l], i) => [k, i === 0 ? '(none, use the number below)' : l]).map(([k, l]) => `<option value="${esc(k)}" ${String(k) === String(customer_id) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    <label class="full">Or a phone number<input id="tp" type="tel" value="${esc(to)}" placeholder="10 digit number"></label>
+    <label class="full">Message<textarea id="tm" rows="5" maxlength="600" placeholder="Type your text"></textarea><span class="hint" id="tn">0 characters</span></label></div>`,
+  footer: `<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+    $('#tm', ov).oninput = (e) => { const n = e.target.value.length; $('#tn', ov).textContent = `${n} characters, ${Math.max(1, Math.ceil(n / 160))} text${n > 160 ? 's' : ''}`; };
+    $('#tc', ov).onchange = (e) => { $('#tp', ov).disabled = !!e.target.value; };
+    $('#tp', ov).disabled = !!customer_id;
+    $('#go', ov).onclick = () => guard(async () => { await POST('/messages/text', { customer_id: $('#tc', ov).value || null, to: $('#tp', ov).value, message: $('#tm', ov).value }); close(); onDone?.(); }, 'Text sent');
+  } });
+}
 async function emailView(id) {
   const m = await GET(`/messages-sent/email/${id}`);
   modal({ title: m.subject, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>To</dt><dd>${esc(m.to_addr)}</dd></div><div><dt>From</dt><dd>${esc(m.from_addr || '')}</dd></div><div><dt>Sent</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Sent through</dt><dd>${esc(m.provider || '')}</dd></div>${m.attachments ? `<div><dt>Attachments</dt><dd>${esc(m.attachments)}</dd></div>` : ''}</dl>
@@ -715,7 +739,7 @@ async function emailView(id) {
 async function smsView(id) {
   const m = await GET(`/messages-sent/sms/${id}`);
   modal({ title: m.direction === 'in' ? 'Text received' : 'Text sent', small: true, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>${m.direction === 'in' ? 'From' : 'To'}</dt><dd>${esc(m.customer_name ? m.customer_name + ' ' : '')}${esc(m.to_phone)}</dd></div><div><dt>Time</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Type</dt><dd>${esc((m.kind || '').replace('_', ' '))}</dd></div></dl>
-    <div class="phone"><div class="bubble ${m.direction === 'in' ? 'in' : 'out'}">${esc(m.body)}</div><div class="bubble-t">${fmt(m.created_at)}</div></div>` });
+    <div class="phone"><div class="bubble ${m.direction === 'in' ? 'in' : 'out'}">${esc(m.body)}</div><div class="bubble-t">${fmt(m.created_at)}</div></div>`, footer: `<span class="sp"></span>${button(m.direction === 'in' ? 'Reply' : 'Text again', 'primary', 'id="rp"')}`, onMount(ov, close) { $('#rp', ov).onclick = () => { close(); composeSms({ to: m.to_phone, customer_id: m.customer_id || '' }); }; } });
 }
 
 VIEWS.chesky = (el) => renderChat(el, { GET, POST, PUT, DEL, esc, toast, badge, table, modal, button, ago });

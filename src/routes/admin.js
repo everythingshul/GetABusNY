@@ -15,7 +15,7 @@ import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
-import { routeEstimate, NOTIFY_EVENTS, adminPrefs, fmcsaLookup, saferLinks } from '../integrations.js';
+import { routeEstimate, NOTIFY_EVENTS, adminPrefs, fmcsaLookup, saferLinks, sendSMS, smsConfigured } from '../integrations.js';
 
 export const admin = express.Router();
 const wrap = (fn) => async (req, res) => { try { res.json(await fn(req, res)); } catch (e) { if (e.status) res.status(e.status).json({ error: e.message }); else { console.error(e); res.status(500).json({ error: e.message || 'Server error' }); } } };
@@ -73,7 +73,7 @@ admin.post('/upload', express.raw({ type: 'image/*', limit: '8mb' }), wrap((req)
 const J = (...f) => f; // readability
 const RES = {
   customers: { fields: J('name', 'email', 'phone', 'company', 'address', 'notes', 'tags', 'sms_optin', 'sms_stop'), before: (o) => { if ('sms_stop' in o) { o.sms_stop_at = o.sms_stop ? now() : null; if (o.sms_stop) o.sms_optin = 0; delete o.sms_stop; } return o; }, sel: 'SELECT t.*, (SELECT COUNT(*) FROM trips x WHERE x.customer_id=t.id) trip_count FROM customers t', search: ['t.name', 't.email', 't.phone', 't.company'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE customer_id=? UNION SELECT 1 FROM invoices WHERE customer_id=?', id, id) },
-  vehicles: { fields: J('name', 'category', 'capacity', 'description', 'features', 'image', 'images', 'hourly_cents', 'min_hours', 'active', 'sort'), before: (o) => { if ('images' in o) { let a = o.images; if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = []; } } a = [...new Set((Array.isArray(a) ? a : []).map(String).filter((u) => /^(\/uploads\/[\w.-]+|https?:\/\/[^\s"<>]+)$/.test(u)))].slice(0, 15); o.images = JSON.stringify(a); o.image = a[0] || null; } return o; }, sel: 'SELECT t.* FROM vehicles t', search: ['t.name', 't.category'], order: 't.sort, t.name', del: () => true },
+  vehicles: { fields: J('name', 'category', 'capacity', 'description', 'features', 'image', 'images', 'operator_url', 'internal_pricing', 'internal_notes', 'hourly_cents', 'min_hours', 'active', 'sort'), before: (o) => { if ('operator_url' in o) { const u = String(o.operator_url || '').trim(); o.operator_url = /^https?:\/\/[^\s"<>]+$/i.test(u) ? u : null; } if ('images' in o) { let a = o.images; if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = []; } } a = [...new Set((Array.isArray(a) ? a : []).map(String).filter((u) => /^(\/uploads\/[\w.-]+|https?:\/\/[^\s"<>]+)$/.test(u)))].slice(0, 15); o.images = JSON.stringify(a); o.image = a[0] || null; } return o; }, sel: 'SELECT t.* FROM vehicles t', search: ['t.name', 't.category'], order: 't.sort, t.name', del: () => true },
   drivers: { fields: J('name', 'phone', 'email', 'vendor_id', 'active', 'notes'), sel: 'SELECT t.*, v.name vendor_name FROM drivers t LEFT JOIN vendors v ON v.id=t.vendor_id', search: ['t.name', 't.phone'], order: 't.name COLLATE NOCASE', del: () => true, create: (o) => ({ ...o, token: token(24) }), extra: (r) => ({ ...r, portal_url: `${process.env.BASE_URL || ''}/d/${r.token}` }) },
   vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active', 'insurance_carrier', 'insurance_policy', 'insurance_expires', 'dot_number', 'mc_number'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
   requests: { fields: J('name', 'email', 'phone', 'status', 'notes', 'referred_by', 'details'), sel: 'SELECT t.*, c.name customer_name FROM requests t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.name', 't.email', 't.ref', 't.phone'], order: 't.id DESC', del: () => true },
@@ -156,7 +156,7 @@ admin.get('/customers/:id/history', wrap((req) => ({
 // ---------- actions ----------
 admin.post('/requests/manual', wrap((req) => S.createRequest(req.body || {}, 'admin')));
 admin.post('/requests/:id/quote', wrap((req) => ({ quote_id: S.quoteFromRequest(Number(req.params.id)) })));
-admin.post('/quotes/:id/send', wrap(async (req) => { S.recalcQuote(req.params.id); const r = await S.sendQuote(Number(req.params.id), req.user.email); return { ok: true, email: r }; }));
+admin.post('/quotes/:id/send', wrap(async (req) => { S.recalcQuote(req.params.id); const r = await S.sendQuote(Number(req.params.id), req.user.email, { skip_email: !!req.body?.skip_email, skip_sms: !!req.body?.skip_sms }); return { ok: true, email: r }; }));
 admin.post('/quotes/:id/accept', wrap((req) => S.acceptQuote(Number(req.params.id), req.user.email)));
 admin.post('/quotes/:id/duplicate', wrap((req) => {
   const q = one('SELECT * FROM quotes WHERE id=?', req.params.id);
@@ -166,7 +166,7 @@ admin.post('/quotes/:id/duplicate', wrap((req) => {
 }));
 admin.get('/quotes/:id/link', wrap((req) => ({ url: S.link.quote(one('SELECT token FROM quotes WHERE id=?', req.params.id)) })));
 
-admin.post('/invoices/:id/send', wrap(async (req) => ({ ok: true, email: await S.sendInvoice(Number(req.params.id), req.user.email) })));
+admin.post('/invoices/:id/send', wrap(async (req) => ({ ok: true, email: await S.sendInvoice(Number(req.params.id), req.user.email, { skip_email: !!req.body?.skip_email }) })));
 admin.get('/invoices/:id/link', wrap((req) => ({ url: S.link.pay(one('SELECT token FROM invoices WHERE id=?', req.params.id)) })));
 admin.get('/invoices/:id/payments', wrap((req) => all('SELECT * FROM payments WHERE invoice_id=? ORDER BY id', req.params.id)));
 admin.post('/invoices/:id/payments', wrap((req) => {
@@ -174,7 +174,7 @@ admin.post('/invoices/:id/payments', wrap((req) => {
   if (!Number.isFinite(amt) || amt <= 0) throw bad('Enter a payment amount');
   const inv = one('SELECT status FROM invoices WHERE id=?', req.params.id);
   if (inv?.status === 'void') throw bad('Invoice is void');
-  return { id: S.recordPayment(Number(req.params.id), { amount_cents: amt, method: req.body.method || 'cash', reference: req.body.reference, note: req.body.note }, req.user.email) };
+  return { id: S.recordPayment(Number(req.params.id), { amount_cents: amt, method: req.body.method || 'cash', reference: req.body.reference, note: req.body.note, skip_email: !!req.body.skip_email, skip_sms: !!req.body.skip_sms }, req.user.email) };
 }));
 admin.post('/payments/:id/refund', wrap(async (req) => {
   const p = one('SELECT * FROM payments WHERE id=?', req.params.id);
@@ -272,6 +272,20 @@ admin.post('/customers/:id/text', wrap(async (req) => {
   const body = String(req.body?.message || '').trim().slice(0, 500); if (!body) throw bad('Write a message');
   const r = await S.textCustomer(Number(req.params.id), body, 'manual', { trip_id: req.body?.trip_id, force: true });
   if (!r.ok) throw bad(r.error); log(req.user.email, 'sms.sent', 'customer', Number(req.params.id), body); return r;
+}));
+// Write a text from the Messages page: to a customer, or to any number (replies, operators, drivers).
+admin.post('/messages/text', wrap(async (req) => {
+  const message = String(req.body?.message || '').trim().slice(0, 600); if (!message) throw bad('Write a message');
+  if (!smsConfigured()) throw bad('Texts are not set up yet. Add SMS_API_BASE and SMS_API_KEY on the server.');
+  const cid = Number(req.body?.customer_id) || null;
+  if (cid) { const r = await S.textCustomer(cid, message, 'manual', { force: true }); if (!r.ok) throw bad(r.error); log(req.user.email, 'sms.sent', 'customer', cid, message); return { ok: true }; }
+  const ten = String(req.body?.to || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+  if (ten.length !== 10) throw bad('Enter a 10 digit phone number, or pick a customer.');
+  const cust = one("SELECT id, name, sms_stop_at FROM customers WHERE replace(replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ?", `%${ten}`);
+  if (cust?.sms_stop_at) throw bad(`${cust.name} replied STOP, so no texts can be sent to this number.`);
+  const r = await sendSMS(ten, message, { kind: 'manual', customer_id: cust?.id || null });
+  if (!r.ok) throw bad(r.error || 'The text did not send.'); log(req.user.email, 'sms.sent', 'number', null, `${ten.slice(0, 3)}***${ten.slice(-2)}`);
+  return { ok: true };
 }));
 admin.get('/texts', wrap(() => all('SELECT m.*, c.name customer_name FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id ORDER BY m.id DESC LIMIT 200')));
 
