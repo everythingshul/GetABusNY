@@ -318,3 +318,9 @@ footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 0 6
 .lbx-t button.on{border-color:var(--lime);opacity:1}.lbx-t img{width:100%;height:100%;object-fit:cover;display:block}
 .lbx-bar p{margin:2px 0 0;font-size:.8rem;font-style:italic;color:#9fb4c3}
 @media(max-width:640px){.lbx{grid-template-columns:1fr}.lbx-n{display:none}.lbx-stage{grid-column:1}.lbx-t button{width:56px;height:42px}}
+
+.btn-all{display:inline-flex;align-items:center;gap:10px;background:var(--navy);color:#fff;border:0;padding:12px 22px;border-radius:999px;font-weight:700;text-decoration:none;box-shadow:0 8px 20px -10px rgba(13,27,38,.6);transition:transform .18s ease,box-shadow .18s ease,background .18s ease}
+.btn-all::after{content:'';width:22px;height:22px;border-radius:50%;background:var(--lime) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d1b26' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12h12M13 6l6 6-6 6'/%3E%3C/svg%3E") center/13px no-repeat;transition:transform .18s ease}
+.btn-all:hover,.btn-all:focus-visible{background:var(--navy-2);transform:translateY(-2px);box-shadow:0 14px 24px -12px rgba(13,27,38,.7)}
+.btn-all:hover::after,.btn-all:focus-visible::after{transform:translateX(4px)}
+@media(prefers-reduced-motion:reduce){.btn-all,.btn-all::after{transition:none}.btn-all:hover{transform:none}}

@@ -31,7 +31,7 @@ function orgSchema(base) {
   const socials = Object.values(soc).filter((u) => /^https?:\/\//.test(u || ''));
   const phone = getSetting('phone'), email = getSetting('email');
   const o = {
-    '@context': 'https://schema.org', '@type': 'TravelAgency', '@id': `${base}/#business`, name: biz(), url: base + '/', logo: `${base}/img/logo.png`, image: `${base}/img/logo.png`,
+    '@context': 'https://schema.org', '@type': 'TravelAgency', '@id': `${base}/#business`, name: biz(), url: base + '/', logo: `${base}/img/icon-512.png`, image: `${base}/img/og-default.png`,
     description: 'Charter bus, party bus and trolley rentals for camp trips, Shabbatons, Kehila trips, Kivrei Tzadikim, yeshiva and school trips, and simchas.',
     foundingDate: '2016', areaServed: AREAS.map((a) => ({ '@type': 'Place', name: a.name.replace(/^the /, '') })),
     openingHoursSpecification: days.map(([a, b, o1, c1]) => ({ '@type': 'OpeningHoursSpecification', dayOfWeek: dayList(a, b), opens: o1, closes: c1 })),
@@ -50,9 +50,9 @@ function vehicleList(base) {
 function headFor(req, route, meta, extra = '') {
   const base = baseUrl(req);
   const url = base + (route === '/' ? '/' : route);
-  const ogImg = `${base}/img/logo.png`;
+  const ogImg = `${base}/img/og-default.png`;
   return `<link rel="canonical" href="${esc(url)}"><meta name="description" content="${esc(meta.desc)}">`
-    + `<meta property="og:site_name" content="${esc(biz())}"><meta property="og:type" content="website"><meta property="og:title" content="${esc(meta.title)}"><meta property="og:description" content="${esc(meta.desc)}"><meta property="og:url" content="${esc(url)}"><meta property="og:image" content="${esc(ogImg)}">`
+    + `<meta property="og:site_name" content="${esc(biz())}"><meta property="og:type" content="website"><meta property="og:title" content="${esc(meta.title)}"><meta property="og:description" content="${esc(meta.desc)}"><meta property="og:url" content="${esc(url)}"><meta property="og:image" content="${esc(ogImg)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="${esc(biz())}: charter buses for camp trips, Shabbatons, Kehila trips and simchas">`
     + `<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(meta.title)}"><meta name="twitter:description" content="${esc(meta.desc)}"><meta name="twitter:image" content="${esc(ogImg)}">`
     + `<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" type="image/png" sizes="192x192" href="/img/icon-192.png"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><link rel="manifest" href="/site.webmanifest"><meta name="theme-color" content="#14110f">`
     + extra;
@@ -102,7 +102,8 @@ export function mountSeo(app, PUB) {
   app.get('/sitemap.xml', (req, res) => {
     const b = baseUrl(req), day = new Date().toISOString().slice(0, 10);
     const urls = [['/', 1.0], ['/fleet', 0.9], ['/book', 0.9], ...TRIPS.map((t) => ['/trips/' + t.slug, 0.8]), ...AREAS.map((a) => ['/areas/' + a.slug, 0.7]), ['/about', 0.6], ['/contact', 0.7], ...vehicleList().map((v) => ['/bus/' + v.id, 0.7]), ['/terms', 0.3], ['/privacy', 0.3]];
-    res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(([p, pr]) => `<url><loc>${esc(b + (p === '/' ? '/' : p))}</loc><lastmod>${day}</lastmod><priority>${pr}</priority></url>`).join('\n')}\n</urlset>\n`);
+    const photos = {}; for (const v of all('SELECT id, name, image, images FROM vehicles WHERE active=1')) { let a = []; try { a = JSON.parse(v.images || '[]'); } catch { /* none */ } if (!a.length && v.image) a = [v.image]; photos['/bus/' + v.id] = a.filter((u) => String(u).startsWith('/')).map((u) => `<image:image><image:loc>${esc(b + u)}</image:loc><image:title>${esc(v.name)}</image:title></image:image>`).join(''); }
+    res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.map(([p, pr]) => `<url><loc>${esc(b + (p === '/' ? '/' : p))}</loc><lastmod>${day}</lastmod><priority>${pr}</priority>${photos[p] || ''}</url>`).join('\n')}\n</urlset>\n`);
   });
   app.get('/site.webmanifest', (req, res) => {
     res.type('application/manifest+json').send(JSON.stringify({ name: biz(), short_name: biz(), start_url: '/', display: 'browser', background_color: '#14110f', theme_color: '#14110f', icons: [{ src: '/img/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/img/icon-512.png', sizes: '512x512', type: 'image/png' }] }));
@@ -165,7 +166,7 @@ export function mountSeo(app, PUB) {
     let feats = []; try { feats = JSON.parse(v.features || '[]'); } catch { feats = String(v.features || '').split(','); }
     const title = `${v.name}, Seats ${v.capacity} | ${biz()}`;
     const desc = `${v.name}: ${v.category.toLowerCase()} seating ${v.capacity}. ${v.description || ''} Request a quote from ${biz()}.`.replace(/\s+/g, ' ').trim().slice(0, 300);
-    const img = v.image ? (v.image.startsWith('http') ? v.image : base + v.image) : `${base}/img/logo.png`;
+    const img = v.image ? (v.image.startsWith('http') ? v.image : base + v.image) : `${base}/img/og-default.png`;
     const route = '/bus/' + v.id;
     const extra = crumb(base, [['Home', '/'], ['Fleet', '/fleet'], [v.name, route]])
       + jsonLd({ '@context': 'https://schema.org', '@type': 'Product', name: v.name, category: v.category, description: v.description, image: (() => { let a = []; try { a = JSON.parse(v.images || '[]'); } catch { /* none */ } const abs = (u) => (String(u).startsWith('http') ? u : base + u); return a.length ? a.map(abs) : img; })(), brand: { '@type': 'Brand', name: biz() }, additionalProperty: [{ '@type': 'PropertyValue', name: 'Seats', value: v.capacity }, ...feats.slice(0, 20).map((f) => ({ '@type': 'PropertyValue', name: 'Amenity', value: String(f) }))] });

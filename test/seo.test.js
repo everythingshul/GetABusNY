@@ -21,6 +21,8 @@ try {
   const ld = [...home.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
   const org = ld.find((x) => x['@type'] === 'TravelAgency'); assert.ok(org && org.openingHoursSpecification.length === 2); assert.equal(org.foundingDate, '2016');
   assert.match(home, /href="\/trips\/camp-trips"/); for (const a of ['boro-park', 'williamsburg', 'flatbush', 'monsey', 'lakewood', 'linden', 'jackson', 'toms-river', 'monroe', 'catskills', 'jersey-city', 'manhattan', 'new-square', 'cleveland', 'chicago', 'indiana', 'michigan']) { assert.match(home, new RegExp(`href="/areas/${a}"`), a); const ar = await get('/areas/' + a); assert.equal(ar.status, 200, a); const at = await ar.text(); assert.match(at, /FAQPage/); assert.ok(!at.includes('<!--TRIP-->')); }
+  assert.match(home, /og:image" content="[^"]+\/img\/og-default\.png"/); assert.match(home, /og:image:width" content="1200"/); assert.equal((await get('/img/og-default.png')).status, 200);
+  assert.ok(ld.find((x) => x['@type'] === 'TravelAgency').logo.endsWith('/img/icon-512.png'));
   const fleet = await (await get('/fleet')).text(); assert.match(fleet, /ItemList/); assert.match(fleet, /\/bus\/1/);
   const bus = await get('/bus/1'); const bt = await bus.text(); assert.equal(bus.status, 200); assert.match(bt, /"@type":"Product"/); assert.match(bt, /og:image/); assert.ok(!bt.includes('<!--OG-->'));
   assert.equal((await get('/bus/9999')).status, 404);
@@ -28,7 +30,7 @@ try {
   assert.equal((await get('/trips/nope')).status, 404);
   const sm = await (await get('/sitemap.xml')).text();
   for (const p of ['/', '/fleet', '/book', '/contact', '/trips/camp-trips', '/areas/boro-park', '/areas/michigan', '/bus/1']) assert.ok(sm.includes(`<loc>${base}${p}</loc>`), p);
-  assert.ok(!sm.includes('/admin') && !sm.includes('/pay'));
+  assert.ok(!sm.includes('/admin') && !sm.includes('/pay')); assert.ok(sm.includes('xmlns:image'));
   const rb = await (await get('/robots.txt')).text(); assert.match(rb, /Disallow: \/admin/); assert.match(rb, /Sitemap: .*\/sitemap\.xml/);
   assert.equal((await get('/quote/abc')).headers.get('x-robots-tag'), 'noindex, nofollow');
   assert.equal((await get('/site.webmanifest')).status, 200); assert.equal((await get('/favicon.ico')).status, 200); assert.equal((await get('/img/apple-touch-icon.png')).status, 200);
