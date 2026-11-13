@@ -23,9 +23,11 @@ pub.get('/config', (req, res) => {
 });
 
 pub.get('/vehicle/:id', (req, res) => {
-  const v = one('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE id=? AND active=1', req.params.id);
+  const v = one('SELECT id,name,category,capacity,description,features,image,images FROM vehicles WHERE id=? AND active=1', req.params.id);
   if (!v) return fail(res, 404, 'Vehicle not found');
-  res.json({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) });
+  let imgs = []; try { imgs = JSON.parse(v.images || '[]'); } catch { /* none */ }
+  if (!imgs.length && v.image) imgs = [v.image];
+  res.json({ ...v, images: imgs, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) });
 });
 pub.get('/fleet', (req, res) => {
   res.json(all('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE active=1 ORDER BY sort,capacity DESC').map((v) => ({ ...v, features: (v.features || '').split(',').map((s) => s.trim()).filter(Boolean) })));

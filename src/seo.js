@@ -157,7 +157,7 @@ export function mountSeo(app, PUB) {
 
   // 7. Vehicle pages
   app.get('/bus/:id', (req, res) => {
-    const v = one('SELECT id,name,category,capacity,description,features,image FROM vehicles WHERE id=? AND active=1', req.params.id);
+    const v = one('SELECT id,name,category,capacity,description,features,image,images FROM vehicles WHERE id=? AND active=1', req.params.id);
     let html; try { html = read('bus.html'); } catch { return res.status(404).sendFile(path.join(PUB, '404.html')); }
     const base = baseUrl(req);
     if (!v) return res.status(404).type('html').send(inject(html, '<meta name="robots" content="noindex">', `Vehicle not found | ${biz()}`));
@@ -167,7 +167,7 @@ export function mountSeo(app, PUB) {
     const img = v.image ? (v.image.startsWith('http') ? v.image : base + v.image) : `${base}/img/logo.png`;
     const route = '/bus/' + v.id;
     const extra = crumb(base, [['Home', '/'], ['Fleet', '/fleet'], [v.name, route]])
-      + jsonLd({ '@context': 'https://schema.org', '@type': 'Product', name: v.name, category: v.category, description: v.description, image: img, brand: { '@type': 'Brand', name: biz() }, additionalProperty: [{ '@type': 'PropertyValue', name: 'Seats', value: v.capacity }, ...feats.slice(0, 20).map((f) => ({ '@type': 'PropertyValue', name: 'Amenity', value: String(f) }))] });
+      + jsonLd({ '@context': 'https://schema.org', '@type': 'Product', name: v.name, category: v.category, description: v.description, image: (() => { let a = []; try { a = JSON.parse(v.images || '[]'); } catch { /* none */ } const abs = (u) => (String(u).startsWith('http') ? u : base + u); return a.length ? a.map(abs) : img; })(), brand: { '@type': 'Brand', name: biz() }, additionalProperty: [{ '@type': 'PropertyValue', name: 'Seats', value: v.capacity }, ...feats.slice(0, 20).map((f) => ({ '@type': 'PropertyValue', name: 'Amenity', value: String(f) }))] });
     const tags = headFor(req, route, { title, desc }, extra).replace(/(<meta property="og:image" content=")[^"]*/, `$1${esc(img)}`).replace(/(<meta name="twitter:image" content=")[^"]*/, `$1${esc(img)}`);
     res.type('html').send(inject(html, tags, title));
   });

@@ -599,12 +599,29 @@ VIEWS.fleet = async (el) => {
   bindRows(el, rows, vehModal);
 };
 function vehModal(v) {
-  const upload = `<div class="full" style="margin-top:12px"><label>Photo (vehicle only, no people)<input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="prev" style="margin-top:8px">${v?.image ? `<img src="${esc(v.image)}" style="max-height:120px;border-radius:8px">` : ''}</div><input type="hidden" id="imgurl" value="${esc(v?.image || '')}"></div>`;
+  let imgs = []; try { imgs = JSON.parse(v?.images || '[]'); } catch { /* none */ } if (!imgs.length && v?.image) imgs = [v.image];
   const m = simpleModal(v ? v.name : 'New vehicle', VEH_F, v, '/vehicles');
-  $('.mb', m.ov).insertAdjacentHTML('beforeend', upload);
-  $('#img', m.ov).onchange = (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; const r = await fetch('/api/admin/upload', { method: 'POST', headers: { 'content-type': f.type }, body: f }); const j = await r.json(); if (!r.ok) throw new Error(j.error); $('#imgurl', m.ov).value = j.url; $('#prev', m.ov).innerHTML = `<img src="${j.url}" style="max-height:120px;border-radius:8px">`; }, 'Uploaded, click Save');
+  $('.mb', m.ov).insertAdjacentHTML('beforeend', `<div class="full" style="margin-top:14px"><div class="fsec">Photos (vehicle only, no people)</div>
+    <p class="mut sm" style="margin:4px 0 8px">The first photo is the cover shown on cards. Drag a photo to reorder, or use the arrows. Every photo gets the logo on it when shown on the site.</p>
+    <label class="btn" style="cursor:pointer">+ Add photos<input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden></label>
+    <div id="gal" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:10px"></div></div>`);
+  let dragFrom = -1;
+  const draw = () => {
+    $('#gal', m.ov).innerHTML = imgs.length ? imgs.map((u, i) => `<div draggable="true" data-i="${i}" style="border:2px solid ${i === 0 ? '#94bf33' : 'var(--line,#dfe8ee)'};border-radius:10px;padding:6px;background:#fff;cursor:grab"><img src="${esc(u)}" alt="" draggable="false" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;display:block;pointer-events:none">
+      <div class="sm" style="margin:5px 0 3px;font-weight:700">${i === 0 ? 'Cover' : `Photo ${i + 1}`}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${i > 0 ? `<button type="button" class="btn sm" data-mk="${i}">Make cover</button>` : ''}<button type="button" class="btn sm" data-mv="${i}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move earlier">&larr;</button><button type="button" class="btn sm" data-mv="${i}" data-d="1" ${i === imgs.length - 1 ? 'disabled' : ''} aria-label="Move later">&rarr;</button><button type="button" class="btn sm danger" data-rm="${i}">Remove</button></div></div>`).join('') : '<div class="empty" style="grid-column:1/-1">No photos yet. The site shows a drawing of the vehicle until you add one.</div>';
+  };
+  const move = (from, to) => { if (from === to || from < 0 || to < 0 || to >= imgs.length) return; const [x] = imgs.splice(from, 1); imgs.splice(to, 0, x); draw(); };
+  const gal = $('#gal', m.ov);
+  gal.addEventListener('click', (e) => { const mk = e.target.closest('[data-mk]'), mv = e.target.closest('[data-mv]'), rm = e.target.closest('[data-rm]'); if (mk) move(+mk.dataset.mk, 0); if (mv) move(+mv.dataset.mv, +mv.dataset.mv + +mv.dataset.d); if (rm) { imgs.splice(+rm.dataset.rm, 1); draw(); } });
+  gal.addEventListener('dragstart', (e) => { const t = e.target.closest('[data-i]'); if (!t) return; dragFrom = +t.dataset.i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(dragFrom)); });
+  gal.addEventListener('dragover', (e) => { if (dragFrom >= 0) { e.preventDefault(); const t = e.target.closest('[data-i]'); gal.querySelectorAll('[data-i]').forEach((x) => { x.style.outline = x === t ? '2px dashed #0078c0' : ''; }); } });
+  gal.addEventListener('drop', (e) => { e.preventDefault(); const t = e.target.closest('[data-i]'); if (t) move(dragFrom, +t.dataset.i); dragFrom = -1; });
+  gal.addEventListener('dragend', () => { dragFrom = -1; gal.querySelectorAll('[data-i]').forEach((x) => { x.style.outline = ''; }); });
+  $('#img', m.ov).onchange = (e) => guard(async () => { for (const f of e.target.files) { const r = await fetch('/api/admin/upload', { method: 'POST', headers: { 'content-type': f.type }, body: f }); const j = await r.json(); if (!r.ok) throw new Error(j.error); imgs.push(j.url); draw(); } e.target.value = ''; }, 'Uploaded. Click Save to keep them.');
   const old = $('#save', m.ov); const nb = old.cloneNode(true); old.replaceWith(nb);
-  nb.onclick = () => guard(async () => { const o = readForm(VEH_F, m.ov); if (!reqCheck(VEH_F, o)) return; o.image = $('#imgurl', m.ov).value; v ? await PUT('/vehicles/' + v.id, o) : await POST('/vehicles', o); m.close(); await refresh(); }, 'Saved');
+  nb.onclick = () => guard(async () => { const o = readForm(VEH_F, m.ov); if (!reqCheck(VEH_F, o)) return; o.images = imgs; o.image = imgs[0] || ''; v ? await PUT('/vehicles/' + v.id, o) : await POST('/vehicles', o); m.close(); await refresh(); }, 'Saved');
+  draw();
 }
 
 // ---------- drivers ----------

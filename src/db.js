@@ -79,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_pv_day ON page_views(day);
 CREATE TABLE IF NOT EXISTS sms_log(id INTEGER PRIMARY KEY, to_phone TEXT, body TEXT, kind TEXT, status TEXT, error TEXT, customer_id INTEGER, trip_id INTEGER, send_after TEXT, created_at TEXT, sent_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_sms_q ON sms_log(status, send_after);
 `);
+addCol('vehicles', 'images', 'TEXT'); db.exec("UPDATE vehicles SET images=json_array(image) WHERE images IS NULL AND image IS NOT NULL AND image<>''");
 addCol('contracts', 'seq', 'INTEGER'); db.exec('UPDATE contracts SET seq=id WHERE seq IS NULL');
 export const token = (n = 18) => crypto.randomBytes(n).toString('base64url');
 export const all = (sql, ...p) => db.prepare(sql).all(...p);

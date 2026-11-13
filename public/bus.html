@@ -12,7 +12,8 @@ function nf(){document.title='Vehicle not found | Get A Bus NY';$('#t').textCont
 if(!id)nf();else try{
  const v=await api('/vehicle/'+id);
  document.title=`${v.name} | Get A Bus NY`;$('#t').textContent=v.name;
- const pic=v.image?`<img src="${esc(v.image)}" alt="${esc(v.name)}">`:vehicleArt(v.category,v.capacity,{label:v.name});
+ const imgs=(v.images&&v.images.length)?v.images:(v.image?[v.image]:[]);
+ const pic=imgs.length?`<img id="mainpic" src="${esc(imgs[0])}" alt="${esc(v.name)}">${imgs.length>1?`<div class="thumbs" role="group" aria-label="More photos">${imgs.map((u,i)=>`<button type="button" class="th${i?'':' on'}" data-u="${esc(u)}" aria-label="Photo ${i+1} of ${imgs.length}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}`:vehicleArt(v.category,v.capacity,{label:v.name});
  box.innerHTML=`<div class="busdetail"><div class="art">${pic}</div><div>
   <span class="tag">${esc(v.category)}</span>
   <div class="big" style="margin-top:14px"><small>SEATS</small>${v.capacity}</div>
@@ -22,5 +23,7 @@ if(!id)nf();else try{
   <p class="muted" style="margin-top:14px">Pricing is quoted by hand for each trip.</p>
   <div class="foot" style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn btn-blue" href="/book?vehicle=${v.id}">Request a quote</a>${shareButton(v,'btn btn-line')}</div>
  </div></div>`;
+
+ document.querySelectorAll('.thumbs .th').forEach(b=>b.onclick=()=>{$('#mainpic').src=b.dataset.u;document.querySelectorAll('.thumbs .th').forEach(x=>x.classList.toggle('on',x===b));});
 }catch{nf();}
 </script></body></html>
