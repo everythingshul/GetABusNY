@@ -245,7 +245,7 @@ footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 0 6
 .terms h2{font-size:1.2rem;margin-top:1.7em}.terms li{margin:.4em 0}
 .toc{columns:2;font-size:.95rem}@media(max-width:600px){.toc{columns:1}}
 
-@media print{header.site,.topbar,footer.site,.noprint,#chesky-root{display:none!important}body{background:#fff}.card{box-shadow:none}}
+@media print{header.site,.topbar,footer.site,.powered,.noprint,#chesky-root{display:none!important}body{background:#fff}.card{box-shadow:none}}
 
 /* phones: modest type, tighter spacing */
 @media(max-width:600px){
@@ -324,3 +324,8 @@ footer.site .legal{border-top:1px solid #213547;margin-top:32px;padding:16px 0 6
 .btn-all:hover,.btn-all:focus-visible{background:var(--navy-2);transform:translateY(-2px);box-shadow:0 14px 24px -12px rgba(13,27,38,.7)}
 .btn-all:hover::after,.btn-all:focus-visible::after{transform:translateX(4px)}
 @media(prefers-reduced-motion:reduce){.btn-all,.btn-all::after{transition:none}.btn-all:hover{transform:none}}
+
+.powered{background:#fff;border-top:1px solid var(--line);text-align:center;padding:14px 16px 18px}
+.powered-by{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font-size:.78rem;text-decoration:none}
+.powered-by img{height:32px;width:auto;display:block}
+.powered-by:hover,.powered-by:focus-visible{color:var(--blue-d)}

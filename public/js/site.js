@@ -78,7 +78,8 @@ export async function boot(active) {
     <div><h4 data-t="footer.h.trips">Trips</h4><ul><li><a href="/trips/camp-trips">Camp trips</a></li><li><a href="/trips/shabbatons">Shabbatons</a></li><li><a href="/trips/kehila-trips">Kehila trips</a></li><li><a href="/trips/kivrei-tzadikim">Kivrei Tzadikim</a></li><li><a href="/trips/yeshiva-and-school-trips">Yeshiva and school</a></li><li><a href="/trips/weddings">Weddings</a></li><li><a href="/trips/simchas">Simchas</a></li></ul></div>
     <div><h4 data-t="footer.h.customers">Customers</h4><ul><li><a href="/book">Request a quote</a></li><li><a href="/pay">Pay an invoice</a></li><li><a href="/driver">Driver portal</a></li></ul></div>
     <div><h4 data-t="footer.h.office">Office</h4><ul><li><a href="tel:${tel}">${esc(c.phone)}</a></li><li><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></li>${c.address ? `<li>${esc(c.address)}</li>` : ''}${hoursLines(c.hours).map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>
-  </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span></div></div></footer>`;
+  </div><div class="legal"><span>&copy; ${new Date().getFullYear()} ${esc(c.business_name)}</span></div></div></footer>
+  <div class="powered"><a class="powered-by" href="https://everythingshul.com" target="_blank" rel="noopener">Powered By <img src="/img/everythingshul-logo.png" alt="everythingshul"></a></div>`;
   for (const [k, v] of Object.entries(c.texts || {})) document.querySelectorAll(`[data-t="${k}"]`).forEach((e) => { e.innerHTML = v; });
   if (c.chesky) import('/js/chesky.js').then((m) => m.initChesky({ name: c.chesky_name, phone: c.phone })).catch(() => {});
   beacon();
