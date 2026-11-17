@@ -60,6 +60,13 @@ try {
   r = await api('GET', `/api/admin/contact-context?type=customer&id=${lead.customer_id}`); assert.ok(r.body.subject.length > 0, 'a customer with past emails gets the last subject');
   assert.equal((await api('GET', '/api/admin/contact-context?type=nope&id=1')).status, 400);
 
+  // analytics for any date range
+  r = await api('GET', '/api/admin/analytics/range?from=2026-01-01&to=2026-01-31'); assert.equal(r.status, 200); assert.equal(r.body.range.days, 31); assert.equal(r.body.range.unit, 'day'); assert.equal(r.body.series.length, 31); assert.ok(r.body.range.prev && r.body.range.prev.to === '2025-12-31');
+  r = await api('GET', '/api/admin/analytics/range?from=all&to=all'); assert.equal(r.status, 200); assert.equal(r.body.range.all_time, true); assert.equal(r.body.prev, null); assert.ok(r.body.cur.leads >= 2);
+  r = await api('GET', '/api/admin/analytics/range?from=2025-01-01&to=2026-06-30'); assert.equal(r.body.range.unit, 'month');
+  r = await api('GET', '/api/admin/analytics/range?from=2026-03-10&to=2026-03-02'); assert.equal(r.body.range.from, '2026-03-02', 'a backwards range is put in order');
+  r = await api('GET', '/api/admin/analytics/range'); assert.equal(r.status, 200); assert.equal(r.body.range.days, 30, 'defaults to the last 30 days');
+
   // writing a text from Messages
   r = await api('POST', '/api/admin/messages/text', { to: '5557654321', message: 'Hi' }); assert.equal(r.status, 400); assert.match(r.body.error, /not set up/);
   r = await api('POST', '/api/admin/messages/text', { to: '5557654321', message: '' }); assert.equal(r.status, 400);

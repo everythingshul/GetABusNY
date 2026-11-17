@@ -185,31 +185,94 @@ VIEWS.dashboard = async (el) => {
 };
 
 // ---------- analytics ----------
+// ---------- analytics ----------
+const tzToday = () => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: window.TZ || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map((x) => [x.type, x.value])); return `${p.year}-${p.month}-${p.day}`; };
+const dAdd = (s, n) => { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+const AN_PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['all', 'All time'], ['custom', 'Custom']];
+function anRange(k, custom) {
+  const t = tzToday();
+  if (k === 'today') return [t, t];
+  if (k === 'yesterday') return [dAdd(t, -1), dAdd(t, -1)];
+  if (k === '7') return [dAdd(t, -6), t];
+  if (k === '30') return [dAdd(t, -29), t];
+  if (k === 'month') return [t.slice(0, 8) + '01', t];
+  if (k === 'lastmonth') { const first = t.slice(0, 8) + '01'; const last = dAdd(first, -1); return [last.slice(0, 8) + '01', last]; }
+  if (k === 'year') return [t.slice(0, 5) + '01-01', t];
+  if (k === 'all') return ['all', 'all'];
+  return custom && custom[0] && custom[1] ? custom : [dAdd(t, -29), t];
+}
+const niceMax = (v) => { if (v <= 4) return 4; const p = Math.pow(10, Math.floor(Math.log10(v))); const f = v / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; };
+/** Small SVG chart. defs: [{ k, name, color, type: 'area' | 'bar', fmt }] */
+function anChart(rows, defs, { h = 230, w = 760, fmtY = (v) => Math.round(v).toLocaleString() } = {}) {
+  const W = w, H = h, L = 52, Rr = 12, T = 14, B = 28, n = rows.length;
+  if (!n || !rows.some((r) => defs.some((d) => (r[d.k] || 0) > 0))) return '<div class="empty" style="padding:34px 0">No activity in this period.</div>';
+  const max = niceMax(Math.max(1, ...defs.flatMap((d) => rows.map((r) => r[d.k] || 0))));
+  const step = (W - L - Rr) / Math.max(1, n);
+  const x = (i) => L + step * i + step / 2, y = (v) => T + (H - T - B) * (1 - v / max);
+  const grid = [0, 1, 2, 3, 4].map((i) => { const v = (max * i) / 4, yy = y(v); return `<line x1="${L}" x2="${W - Rr}" y1="${yy}" y2="${yy}" stroke="#e3ebf1" stroke-width="1"/><text x="${L - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#6b7f8e">${esc(fmtY(v))}</text>`; }).join('');
+  const every = Math.max(1, Math.ceil(n / (W > 500 ? 7 : 4)));
+  const xl = rows.map((r, i) => (i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="#6b7f8e">${esc(r.label)}</text>` : '')).join('');
+  const shapes = defs.map((d, di) => {
+    const f = d.fmt || fmtY;
+    if (d.type === 'bar') { const bw = Math.max(2, Math.min(34, step * 0.64)); return rows.map((r, i) => { const v = r[d.k] || 0; return `<rect x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${Math.max(0, H - B - y(v))}" rx="3" fill="${d.color}"><title>${esc(r.label)}: ${esc(f(v))}</title></rect>`; }).join(''); }
+    const pts = rows.map((r, i) => [x(i), y(r[d.k] || 0)]);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${pts[n - 1][0].toFixed(1)} ${H - B} L${pts[0][0].toFixed(1)} ${H - B} Z`;
+    return `<path d="${area}" fill="${d.color}" opacity="${di ? 0.08 : 0.16}"/><path d="${line}" fill="none" stroke="${d.color}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>${rows.map((r, i) => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="${n > 40 ? 2.2 : 3.4}" fill="#fff" stroke="${d.color}" stroke-width="2"><title>${esc(r.label)}: ${esc(f(r[d.k] || 0))}</title></circle>`).join('')}`;
+  }).join('');
+  const legend = defs.length > 1 ? `<div class="legend">${defs.map((d) => `<span><i style="background:${d.color}"></i>${esc(d.name)}</span>`).join('')}</div>` : '';
+  return `${legend}<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(defs.map((d) => d.name).join(' and '))} over time">${grid}${shapes}${xl}</svg>`;
+}
+const anDelta = (cur, prev, money) => { if (prev == null) return ''; if (!prev) return cur ? '<span class="dl up">new</span>' : ''; const p = Math.round(((cur - prev) / prev) * 100); if (!p) return '<span class="dl">no change</span>'; return `<span class="dl ${p > 0 ? 'up' : 'down'}">${p > 0 ? '+' : ''}${p}%</span>`; };
 VIEWS.analytics = async (el) => {
-  const [a, tr] = await Promise.all([GET('/analytics'), GET('/traffic?days=30')]);
-  const bars = (rows, key, cls = '', fmtv = (x) => x) => { const max = Math.max(1, ...rows.map((r) => r[key])); return `<div class="bars">${rows.map((r) => `<div class="b ${cls}" title="${esc(lab(r.m))}: ${fmtv(r[key])}"><em>${fmtv(r[key])}</em><i style="height:${Math.max(2, (r[key] / max) * 100)}%"></i><span>${esc(lab(r.m))}</span></div>`).join('')}</div>`; };
-  const hb = (rows, vf = (r) => r.c, cls = '') => { const max = Math.max(1, ...rows.map((r) => Number(vf(r)) || 0)); return rows.length ? rows.map((r) => `<div class="hbar ${cls}"><span>${esc(r.k)}</span><div><i style="width:${((Number(vf(r)) || 0) / max) * 100}%"></i></div><b>${esc(r.label ?? vf(r))}</b></div>`).join('') : '<p class="mut">No data yet.</p>'; };
-  const f = a.funnel, pct = (x, y) => (y ? Math.round((x / y) * 100) + '%' : '-');
-  const mg = a.margin.rev - a.margin.cost;
-  el.innerHTML = `<div class="tiles">
-   <div class="tile"><div class="l">Quote win rate</div><div class="v">${Math.round(a.win_rate * 100)}%</div><div class="s">${f.accepted} of ${f.quoted} quotes</div></div>
-   <div class="tile"><div class="l">Avg quote</div><div class="v">${usd(a.quoteStats.avg)}</div><div class="s">${a.quoteStats.n} sent</div></div>
-   <div class="tile"><div class="l">Open receivables</div><div class="v">${usd(a.ar.open)}</div><div class="s">${usd(a.ar.overdue)} overdue</div></div>
-   <div class="tile"><div class="l">Vendor margin</div><div class="v">${usd(mg)}</div><div class="s">${a.margin.rev ? Math.round((mg / a.margin.rev) * 100) : 0}% on vendor trips</div></div>
-   <div class="tile"><div class="l">Vendor reply rate</div><div class="v">${pct(a.vendorResp.replied || 0, a.vendorResp.sent)}</div><div class="s">${a.vendorResp.replied || 0} of ${a.vendorResp.sent} RFQs</div></div></div>
-  <div class="cols"><div class="panel"><h3>Money collected by month</h3>${bars(a.revenue, 'c', '', (c) => '$' + Math.round(c / 100).toLocaleString())}</div>
-  <div class="panel"><h3>Leads by month</h3>${bars(a.leads, 'c', 'lime')}</div>
-  <div class="panel"><h3>Sales funnel</h3>${hb([{ k: 'Leads', c: f.leads }, { k: 'Quoted', c: f.quoted, label: `${f.quoted} (${pct(f.quoted, f.leads)})` }, { k: 'Accepted', c: f.accepted, label: `${f.accepted} (${pct(f.accepted, f.quoted)})` }, { k: 'Completed', c: f.completed }], (r) => r.c, 'bl')}</div>
-  <div class="panel"><h3>Lead sources</h3>${hb(a.bySource)}<h3 style="margin-top:16px">Referred by</h3>${hb(a.byRef)}</div>
-  <div class="panel"><h3>Top vehicles</h3>${hb(a.topVehicles.map((r) => ({ ...r, label: `${r.c} · ${usd(r.rev)}` })), (r) => r.c)}</div>
-  <div class="panel"><h3>Top customers</h3>${hb(a.topCustomers.map((r) => ({ ...r, label: usd(r.rev) })), (r) => r.rev, 'bl')}</div>
-  <div class="panel"><h3>Website traffic · 30 days <span class="mut sm">${tr.totals.visitors} visitors · ${tr.totals.views} page views</span></h3>${bars(tr.daily.map((d) => ({ m: d.day.slice(5), c: d.visitors })), 'c', '')}<h3 style="margin-top:14px">Top pages</h3>${hb(tr.pages)}<h3 style="margin-top:14px">Where visitors come from</h3>${hb(tr.refs, (r) => r.c, 'bl')}<h3 style="margin-top:14px">Devices</h3>${hb(tr.devices)}</div>
-  <div class="panel"><h3>Gratuity collected <span class="mut sm">${usd(a.gratuity.total)} on paid invoices</span></h3>${hb(a.gratuity.byDriver.map((r) => ({ k: r.k, c: r.c, label: usd(r.c) })), (r) => r.c, "bl")}<p class="hint">Gratuity added at payment, grouped by the driver on the trip. Pass it on to your drivers.</p></div>
-  <div class="panel"><h3>Vendors by volume</h3>${table([{ h: 'Vendor', f: (r) => esc(r.k) }, { h: 'Trips', f: (r) => r.c, cls: 'r' }, { h: 'Cost', f: (r) => usd(r.cost), cls: 'r' }, { h: 'Revenue', f: (r) => usd(r.rev), cls: 'r' }, { h: 'Margin', f: (r) => usd(r.rev - r.cost), cls: 'r' }], a.topVendors)}</div></div>`;
+  let sel; try { sel = JSON.parse(sessionStorage.getItem('an_range') || 'null'); } catch { sel = null; }
+  sel = sel || { k: '30', custom: null };
+  const pct = (x, y) => (y ? Math.round((x / y) * 100) + '%' : '-');
+  const hb = (rows, vf = (r) => r.c, cls = '', lbl) => { const max = Math.max(1, ...rows.map((r) => Number(vf(r)) || 0)); return rows.length ? rows.map((r) => `<div class="hbar ${cls}"><span>${r.html || esc(r.k)}</span><div><i style="width:${((Number(vf(r)) || 0) / max) * 100}%"></i></div><b>${esc(lbl ? lbl(r) : r.label ?? vf(r))}</b></div>`).join('') : '<div class="empty" style="padding:14px 0">Nothing yet.</div>'; };
+  const draw = async () => {
+    const [from, to] = anRange(sel.k, sel.custom);
+    $('#an', el).innerHTML = '<div class="empty">Loading...</div>';
+    const a = await GET(`/analytics/range?from=${from}&to=${to}`);
+    const c = a.cur, p = a.prev, r = a.range;
+    const when = r.from === r.to ? fmt(r.from) : `${fmt(r.from)} to ${fmt(r.to)}`;
+    const tile = (l, v, s, d) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${d || ''} ${s || ''}</div></div>`;
+    const f = a.funnel;
+    $('#an', el).innerHTML = `<p class="mut" style="margin:0 0 12px">${when} <span class="sm">(${r.days} day${r.days > 1 ? 's' : ''})</span>${r.prev ? ` <span class="sm">compared with ${r.prev.from === r.prev.to ? fmt(r.prev.from) : fmt(r.prev.from) + ' to ' + fmt(r.prev.to)}</span>` : ''}</p>
+    <div class="tiles">
+      ${tile('Visitors', c.visitors.toLocaleString(), '', anDelta(c.visitors, p?.visitors))}
+      ${tile('Page views', c.views.toLocaleString(), c.visitors ? `${(c.views / c.visitors).toFixed(1)} per visitor` : '', anDelta(c.views, p?.views))}
+      ${tile('Requests', c.leads.toLocaleString(), c.visitors ? `${pct(c.leads, c.visitors)} of visitors` : '', anDelta(c.leads, p?.leads))}
+      ${tile('Quotes sent', c.quotes_sent.toLocaleString(), c.quotes_sent ? `avg ${usd(c.avg_quote_cents)}` : '', anDelta(c.quotes_sent, p?.quotes_sent))}
+      ${tile('Quotes accepted', c.accepted.toLocaleString(), c.quotes_sent ? `${pct(c.accepted, c.quotes_sent)} win rate` : '', anDelta(c.accepted, p?.accepted))}
+      ${tile('Money collected', usd(c.revenue_cents), `${c.paid_invoices} invoice${c.paid_invoices === 1 ? '' : 's'}`, anDelta(c.revenue_cents, p?.revenue_cents))}
+      ${tile('New customers', c.new_customers.toLocaleString(), `${c.trips_booked} trip${c.trips_booked === 1 ? '' : 's'} booked`, anDelta(c.new_customers, p?.new_customers))}
+      ${tile('Owed to you now', usd(a.ar.open), `${usd(a.ar.overdue)} overdue`, '')}
+    </div>
+    <div class="cols">
+      <div class="panel wide"><h3>Website visitors</h3>${anChart(a.series, [{ k: 'visitors', name: 'Visitors', color: '#0078c0' }, { k: 'views', name: 'Page views', color: '#7fb3d8' }])}</div>
+      <div class="panel"><h3>Requests</h3>${anChart(a.series, [{ k: 'leads', name: 'Requests', color: '#7aa51c', type: 'bar' }], { h: 230, w: 330 })}</div>
+      <div class="panel"><h3>Money collected</h3>${anChart(a.series, [{ k: 'revenue_cents', name: 'Collected', color: '#14293a', type: 'bar', fmt: (v) => usd(v) }], { h: 230, w: 330, fmtY: (v) => '$' + Math.round(v / 100).toLocaleString() })}</div>
+      <div class="panel"><h3>From visit to payment</h3>${hb([{ k: 'Visitors', c: f.visitors, label: f.visitors.toLocaleString() }, { k: 'Requests', c: f.leads, label: `${f.leads} (${pct(f.leads, f.visitors)})` }, { k: 'Quotes sent', c: f.quotes_sent, label: `${f.quotes_sent} (${pct(f.quotes_sent, f.leads)})` }, { k: 'Accepted', c: f.accepted, label: `${f.accepted} (${pct(f.accepted, f.quotes_sent)})` }, { k: 'Paid', c: f.paid, label: `${f.paid} (${pct(f.paid, f.accepted)})` }])}<p class="hint">Percentages are of the step before it. People who accept in one period may pay in the next.</p></div>
+      <div class="panel"><h3>Most viewed pages</h3>${hb(a.pages)}</div>
+      <div class="panel"><h3>Where visitors come from</h3>${hb(a.refs, (x) => x.c, 'bl')}<h3 style="margin-top:16px">Devices</h3>${hb(a.devices, (x) => x.c, 'lime')}</div>
+      <div class="panel"><h3>Request sources</h3>${hb(a.sources)}<h3 style="margin-top:16px">Kinds of trips asked for</h3>${hb(a.purposes, (x) => x.c, 'lime')}</div>
+      <div class="panel"><h3>Top vehicles</h3>${hb(a.topVehicles, (x) => x.c, '', (x) => `${x.c} · ${usd(x.rev)}`)}</div>
+      <div class="panel"><h3>Top customers</h3>${hb(a.topCustomers.map((x) => ({ ...x, html: custLink(x.id, x.k) })), (x) => x.rev, 'bl', (x) => usd(x.rev))}</div>
+      <div class="panel"><h3>Gratuity <span class="mut sm">${usd(a.gratuity.total)} on invoices paid in this period</span></h3>${hb(a.gratuity.byDriver, (x) => x.c, 'bl', (x) => usd(x.c))}</div>
+      <div class="panel"><h3>Messages sent</h3><div class="kv"><div><dt>Emails</dt><dd>${a.messages.emails.toLocaleString()}</dd></div><div><dt>Texts sent</dt><dd>${a.messages.texts_out.toLocaleString()}</dd></div><div><dt>Texts received</dt><dd>${a.messages.texts_in.toLocaleString()}</dd></div></div></div>
+    </div>
+    <p class="hint" style="margin-top:14px">Days run midnight to midnight in ${esc(r.tz.replace('_', ' '))}. Visitors are counted without cookies, so a person on two devices counts twice.</p>`;
+  };
+  el.innerHTML = `<div class="toolbar an-bar"><div class="chips" id="anchips">${AN_PRESETS.map(([k, l]) => `<button class="chip ${k === sel.k ? 'on' : ''}" data-k="${k}">${l}</button>`).join('')}</div>
+    <span id="ancustom" class="an-custom" ${sel.k === 'custom' ? '' : 'hidden'}><input type="date" id="anfrom" value="${esc(sel.custom?.[0] || dAdd(tzToday(), -29))}" aria-label="From"> <span class="mut">to</span> <input type="date" id="anto" value="${esc(sel.custom?.[1] || tzToday())}" aria-label="To"> ${button('Show', 'primary sm', 'id="ango"')}</span></div><div id="an"></div>`;
+  const save = () => { try { sessionStorage.setItem('an_range', JSON.stringify(sel)); } catch { /* ignore */ } };
+  $('#anchips', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; sel.k = b.dataset.k; $$('.chip', el).forEach((x) => x.classList.toggle('on', x === b)); $('#ancustom', el).hidden = sel.k !== 'custom'; save(); if (sel.k !== 'custom') draw().catch((x) => toast(x.message, true)); };
+  $('#ango', el).onclick = () => { const f1 = $('#anfrom', el).value, t1 = $('#anto', el).value; if (!f1 || !t1) return toast('Pick both dates', true); sel.custom = f1 <= t1 ? [f1, t1] : [t1, f1]; save(); draw().catch((x) => toast(x.message, true)); };
+  await draw();
 };
 
 // ---------- customers ----------
-const insDays = (exp) => (exp ? Math.round((Date.parse(exp + 'T00:00:00Z') - Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z')) / 864e5) : null);
+const insDays = (exp) => (exp ? Math.round((Date.parse(exp + 'T00:00:00Z') - Date.parse(tzToday() + 'T00:00:00Z')) / 864e5) : null);
 const insBadge = (v) => { const d = insDays(v.insurance_expires); if (d === null) return '<span class="badge">no date</span>'; if (d < 0) return `<span class="badge b-r">expired ${esc(fmt(v.insurance_expires))}</span>`; if (d <= 30) return `<span class="badge b-a">expires in ${d} day${d === 1 ? '' : 's'}</span>`; return `<span class="badge b-g">to ${esc(fmt(v.insurance_expires))}</span>`; };
 const SMS_GROUP_LABELS = { quotes: 'Quote updates', payments: 'Payment receipts', reminders: 'Trip reminders', driver: 'Driver on the way or arrived', reviews: 'Review request after the trip' };
 /** Zmanim strip: shows the day's times, flags Shabbos / Yom Tov, and keeps the latest issues for the save check. */

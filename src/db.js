@@ -186,6 +186,15 @@ export function localDate(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tzName(), year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
+/** The moment a calendar day begins (00:00) in the business time zone, as a Date. */
+export function localStart(dateStr) {
+  const [y, m, dd] = dateStr.split('-').map(Number);
+  const guess = new Date(Date.UTC(y, m - 1, dd, 0, 0, 0));
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: tzName(), hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const p = Object.fromEntries(f.formatToParts(guess).map((x) => [x.type, x.value]));
+  const asLocal = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second);
+  return new Date(guess.getTime() - (asLocal - guess.getTime()));
+}
 export function nextNumber(prefix, start = 1001) {
   const key = `seq_${prefix}`;
   const cur = Number(one('SELECT value FROM settings WHERE key=?', key)?.value || start - 1) + 1;

@@ -9,6 +9,7 @@ import * as S from '../services.js';
 import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
+import { analyticsRange } from '../report.js';
 import { bannerAdminRouter } from '../banner.js';
 import { chargeInvoice, removeCard, cardOf } from '../cards.js';
 import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
@@ -49,6 +50,7 @@ admin.delete('/users/:id', wrap((req) => { if (Number(req.params.id) === req.use
 // ---------- dashboards ----------
 admin.get('/dashboard', wrap(() => S.dashboard()));
 admin.get('/analytics', wrap((req) => S.analytics(Number(req.query.months) || 12)));
+admin.get('/analytics/range', wrap((req) => analyticsRange({ from: req.query.from, to: req.query.to })));
 admin.get('/activity', wrap(() => all('SELECT * FROM activity ORDER BY id DESC LIMIT 200')));
 admin.get('/outbox', wrap(() => all('SELECT id,to_addr,subject,status,error,created_at FROM outbox ORDER BY id DESC LIMIT 100')));
 

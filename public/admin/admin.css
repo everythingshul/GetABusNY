@@ -136,3 +136,13 @@ input[type=checkbox]{width:auto;min-height:0}
 .modal>header .who{margin-right:auto;margin-left:14px;font-size:.92rem}
 .clink{color:inherit;text-decoration:underline;text-decoration-color:var(--blue,#0078c0);text-underline-offset:3px}
 .clink:hover{color:var(--blue,#0078c0)}
+
+/* analytics */
+.an-bar{flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.an-bar .chips{flex-wrap:wrap}.an-custom{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap}.an-custom input{width:auto;min-height:36px}
+.tile .s{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dl{display:inline-block;font-size:.74rem;font-weight:700;padding:1px 8px;border-radius:999px;background:#eef2f5;color:#51606c}
+.dl.up{background:#e4f3d0;color:#3b5d0a}.dl.down{background:#fbe4e1;color:#a3281b}
+.panel.wide{grid-column:1/-1}
+svg.chart{width:100%;height:auto;display:block}
+.legend{display:flex;gap:16px;font-size:.82rem;color:var(--ink2);margin:0 0 6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
