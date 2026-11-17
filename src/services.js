@@ -1,5 +1,5 @@
 // Business logic shared by public, admin, driver and bot routes.
-import { db, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
+import { db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
 import { normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
@@ -84,7 +84,7 @@ export function createRequest(d, source = 'website') {
        <p>Need it faster? Call ${esc(getSetting('phone'))}.</p>`)).catch(() => {});
   }
   scheduleTask('request', id, 'lead_call', `Call new lead: ${name} (${ref})`, addHours(new Date(), 1));
-  if (phone) textCustomer(customer_id, `${getSetting('business_name')}: we got your trip request ${ref}. We'll send your quote during business hours. Reply STOP to opt out.`, 'request_received', { force: true }).catch(() => {});
+  if (phone) textCustomer(customer_id, `${getSetting('business_name')}\nWe got your trip request ${ref}.\nWe'll send your quote during business hours.\n\nReply STOP to opt out.`, 'request_received', { force: true }).catch(() => {});
   return { id, ref };
 }
 
@@ -102,7 +102,7 @@ export function quoteFromRequest(request_id) {
     number: randomRef('Q', 'quotes', 'number'), seq: nextSeq('quotes'), customer_id: r.customer_id, request_id: r.id, status: 'draft',
     title: `${d.pickup || 'Charter'} → ${d.dropoff || ''}`.trim(), items: [{ desc: 'Charter service', qty: 1, unit_cents: 0 }],
     tax_rate: Number(getSetting('tax_rate')) || 0, deposit_pct: Number(getSetting('deposit_pct')) || 50,
-    valid_until: addDays(new Date(), days).toISOString().slice(0, 10), trip: { purpose: d.purpose, itinerary: d.itinerary?.length ? d.itinerary : fromLegacy(d), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle_id: d.vehicle_id, notes: d.comments },
+    valid_until: localDate(addDays(new Date(), days)), trip: { purpose: d.purpose, itinerary: d.itinerary?.length ? d.itinerary : fromLegacy(d), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle_id: d.vehicle_id, notes: d.comments },
     token: token(), created_at: now(), updated_at: now(),
   });
   update('requests', r.id, { status: 'quoting', updated_at: now() });
@@ -127,7 +127,7 @@ export async function sendQuote(id, actor, { skip_email = false, skip_sms = fals
   const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
   if (unsent.length) run('UPDATE quote_revisions SET sent_at=? WHERE quote_id=? AND sent_at IS NULL', now(), id);
   update('quotes', id, { status: 'sent', sent_at: now(), updated_at: now() });
-  if (!skip_sms) textCustomer(q.customer_id, `${getSetting('business_name')}: your quote ${q.number} is ready: ${link.quote(q)}`, 'quote_sent', { force: true }).catch(() => {});
+  if (!skip_sms) textCustomer(q.customer_id, `${getSetting('business_name')}\nYour quote ${q.number} is ready:\n${link.quote(q)}`, 'quote_sent', { force: true }).catch(() => {});
   if (q.request_id) update('requests', q.request_id, { status: 'quoted', updated_at: now() });
   const days = nums(getSetting('fu_quote_days'));
   if (getSetting('fu_enabled') === '1' && !skip_email) days.forEach((n) => scheduleAuto('quote', id, 'quote_nudge', addDays(new Date(), n)));
@@ -148,7 +148,7 @@ export function acceptQuote(id, actor = 'customer') {
       depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers, vehicle_id: t.vehicle_id, price_cents: q.total_cents, notes: t.notes, created_at: now(), updated_at: now(),
     });
     const deposit = Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
-    const due = addDays(new Date(), Number(getSetting('invoice_due_days')) || 7).toISOString().slice(0, 10);
+    const due = localDate(addDays(new Date(), Number(getSetting('invoice_due_days')) || 7));
     const invId = insert('invoices', {
       number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate,
       ...totals(parse(q.items, []), q.tax_rate), deposit_cents: deposit, due_date: due, token: token(), created_at: now(), updated_at: now(),
@@ -221,7 +221,7 @@ function afterPayment(invoice_id, amount_cents, method, actor, { skip_email = fa
   const c = customerOf(i.customer_id);
   log(actor, 'payment.recorded', 'invoice', invoice_id, `${money(amount_cents)} ${method}`);
   if (c.email && !skip_email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
-  if (!skip_sms) textCustomer(i.customer_id, `${getSetting('business_name')}: payment of ${money(amount_cents)} received for ${i.number}. Balance: ${money(invoiceBalance(i))}. Thank you!`, 'payment', { force: true }).catch(() => {});
+  if (!skip_sms) textCustomer(i.customer_id, `${getSetting('business_name')}\nPayment of ${money(amount_cents)} received for ${i.number}.\nBalance: ${money(invoiceBalance(i))}\nThank you!`, 'payment', { force: true }).catch(() => {});
   notifyOwner(`Payment ${money(amount_cents)} - ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
 }
 
@@ -257,7 +257,7 @@ export function tripDetail(id) {
 export async function sendDriverLink(driver_id, via = 'email') {
   const d = one('SELECT * FROM drivers WHERE id=?', driver_id);
   const url = link.driver(d);
-  if (via === 'sms') return sendSMS(d.phone, `Get A Bus NY driver portal (no password needed): ${url}`, { kind: 'driver_link' });
+  if (via === 'sms') return sendSMS(d.phone, `Get A Bus NY driver portal (no password needed):\n${url}`, { kind: 'driver_link' });
   return sendEmail(d.email, 'Your Get A Bus NY driver portal link', emailShell('Your driver portal', `<p>Hi ${esc(d.name.split(' ')[0])}, this link shows your assigned trips and customer contact info on the day of the trip. No password needed, don't share it.</p>`, { label: 'Open driver portal', url }));
 }
 export async function sendTripConfirmation(trip_id) {
@@ -341,7 +341,7 @@ function composeFollowup(f) {
     const i = one('SELECT * FROM invoices WHERE id=?', f.entity_id);
     if (!i || !['sent', 'partial'].includes(i.status)) return null;
     const c = customerOf(i.customer_id);
-    const late = i.due_date && i.due_date < new Date().toISOString().slice(0, 10);
+    const late = i.due_date && i.due_date < localDate();
     return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${fmtDate(i.due_date)}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${fmtDate(i.due_date)}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
   }
   if (f.entity_type === 'trip') {
@@ -350,7 +350,7 @@ function composeFollowup(f) {
     const c = customerOf(t.customer_id);
     if (f.kind === 'trip_confirm') {
       if (!['booked', 'confirmed'].includes(t.status)) return null;
-      textCustomer(c.id, `${getSetting('business_name')}: reminder, your trip departs ${fmtWhen(t.depart_at)} from ${t.pickup || 'your pickup location'}. Questions? ${getSetting('phone')}`, 'trip_reminder', { trip_id: t.id }).catch(() => {});
+      textCustomer(c.id, `${getSetting('business_name')}\nReminder: your trip departs ${fmtWhen(t.depart_at)}\nfrom ${t.pickup || 'your pickup location'}.\n\nQuestions? ${getSetting('phone')}`, 'trip_reminder', { trip_id: t.id }).catch(() => {});
       return { to: c.email, subject: `Reminder: your trip ${fmtWhen(t.depart_at)}`, html: emailShell('Your trip is coming up', `<p>Pickup: <b>${esc(t.pickup || '')}</b><br>Time: <b>${fmtWhen(t.depart_at)}</b><br>Please have your group ready 10 minutes early. Your driver will call or text you before pickup. Need to change something? Call ${esc(getSetting('phone'))}.</p>`) };
     }
     if (f.kind === 'trip_thanks') { run('UPDATE trips SET review_sent_at=? WHERE id=?', now(), t.id); if (c.phone) textCustomer(c.id, reviewText(), 'review_request', { trip_id: t.id }).catch(() => {}); }
@@ -393,7 +393,7 @@ export async function runFollowups() {
 // ---------- analytics ----------
 export function analytics(months = 12) {
   const since = new Date(); since.setMonth(since.getMonth() - months + 1); since.setDate(1);
-  const s = since.toISOString().slice(0, 10);
+  const s = localDate(since);
   const revenue = all("SELECT substr(created_at,1,7) m, SUM(amount_cents) c FROM payments WHERE status='succeeded' AND created_at>=? GROUP BY m ORDER BY m", s);
   const leads = all('SELECT substr(created_at,1,7) m, COUNT(*) c FROM requests WHERE created_at>=? GROUP BY m ORDER BY m', s);
   const bySource = all('SELECT COALESCE(source,\'unknown\') k, COUNT(*) c FROM requests GROUP BY k ORDER BY c DESC');
@@ -409,7 +409,7 @@ export function analytics(months = 12) {
   const topVehicles = all("SELECT v.name k, COUNT(*) c, SUM(t.price_cents) rev FROM trips t JOIN vehicles v ON v.id=t.vehicle_id WHERE t.status<>'cancelled' GROUP BY v.id ORDER BY c DESC LIMIT 8");
   const topVendors = all("SELECT v.name k, COUNT(*) c, SUM(t.vendor_cost_cents) cost, SUM(t.price_cents) rev FROM trips t JOIN vendors v ON v.id=t.vendor_id WHERE t.status<>'cancelled' GROUP BY v.id ORDER BY c DESC LIMIT 8");
   const topCustomers = all("SELECT c.name k, COUNT(*) c, SUM(t.price_cents) rev FROM trips t JOIN customers c ON c.id=t.customer_id WHERE t.status<>'cancelled' GROUP BY c.id ORDER BY rev DESC LIMIT 8");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const ar = one("SELECT COALESCE(SUM(total_cents-amount_paid_cents),0) open, COALESCE(SUM(CASE WHEN due_date<? THEN total_cents-amount_paid_cents ELSE 0 END),0) overdue FROM invoices WHERE status IN ('sent','partial')", today);
   const vendorResp = one("SELECT COUNT(*) sent, SUM(CASE WHEN status IN ('responded','accepted','closed') THEN 1 ELSE 0 END) replied FROM rfqs");
   const gratuity = { total: one("SELECT COALESCE(SUM(gratuity_cents),0) s FROM invoices WHERE status='paid'").s, byDriver: all("SELECT COALESCE(d.name,'No driver assigned') k, SUM(i.gratuity_cents) c FROM invoices i LEFT JOIN trips t ON t.id=i.trip_id LEFT JOIN drivers d ON d.id=t.driver_id WHERE i.status='paid' AND i.gratuity_cents>0 GROUP BY k ORDER BY c DESC LIMIT 12") };
@@ -417,9 +417,9 @@ export function analytics(months = 12) {
 }
 
 export function dashboard() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const ym = today.slice(0, 7);
-  const weekEnd = addDays(new Date(), 7).toISOString().slice(0, 10);
+  const weekEnd = localDate(addDays(new Date(), 7));
   return {
     new_leads: one("SELECT COUNT(*) c FROM requests WHERE status='new'").c,
     quotes_out: one("SELECT COUNT(*) c, COALESCE(SUM(total_cents),0) v FROM quotes WHERE status='sent'"),
@@ -472,7 +472,7 @@ export async function textCustomer(customer_id, bodyIn, kind, { trip_id, force =
   const to = toE164(c.phone); if (!to) return { ok: false, error: 'invalid phone number' };
   // the first text a customer ever gets tells them how to stop
   let body = String(bodyIn);
-  if (!/\bSTOP\b/i.test(body) && !one("SELECT 1 x FROM sms_log WHERE customer_id=? AND direction='out'", customer_id)) body += ' Reply STOP to opt out.';
+  if (!/\bSTOP\b/i.test(body) && !one("SELECT 1 x FROM sms_log WHERE customer_id=? AND direction='out'", customer_id)) body += '\n\nReply STOP to opt out.';
   const defer = !force && inQuietWindow();
   const id = insert('sms_log', { to_phone: to, body: String(body).slice(0, 1000), kind, status: defer ? 'queued' : 'sending', customer_id, trip_id: trip_id || null, direction: 'out', send_after: defer ? quietEndsAt().toISOString() : null, created_at: now() });
   if (defer) return { ok: true, queued: true };
@@ -536,7 +536,7 @@ export async function syncInboundSms() {
 
 // ---------- review requests ----------
 const reviewUrl = () => getSetting('google_review_url');
-export const reviewText = () => `Thank you for riding with ${getSetting('business_name')}!${reviewUrl() ? ` If we did a good job, a quick Google review helps us a lot: ${reviewUrl()}` : ''} Reply STOP to opt out.`;
+export const reviewText = () => `Thank you for riding with ${getSetting('business_name')}!${reviewUrl() ? `\n\nIf we did a good job, a quick Google review helps us a lot:\n${reviewUrl()}` : ''}\n\nReply STOP to opt out.`;
 export function reviewEmail(c) {
   return emailShell('Thank you', `<p>Hi ${esc((c.name || '').split(' ')[0])}, thank you for choosing ${esc(getSetting('business_name'))}. If anything about your trip wasn't right, reply to this email and we'll make it right.</p>${reviewUrl() ? '<p>If it went well, a short Google review helps other groups find us.</p>' : ''}`, reviewUrl() ? { label: 'Leave a Google review', url: reviewUrl() } : null);
 }
@@ -556,7 +556,7 @@ import crypto from 'node:crypto';
 export const icsKey = (id) => crypto.createHmac('sha256', getSetting('cal_token')).update(String(id)).digest('hex').slice(0, 16);
 
 // ---------- operator insurance tracking (plain dates, no guessing) ----------
-export function insuranceStatus(expires, on = new Date().toISOString().slice(0, 10)) {
+export function insuranceStatus(expires, on = localDate()) {
   if (!expires) return { status: 'none', days: null };
   const days = Math.round((Date.parse(expires + 'T00:00:00Z') - Date.parse(on + 'T00:00:00Z')) / 86400000);
   return { status: days < 0 ? 'expired' : days <= 30 ? 'expiring' : 'ok', days };
@@ -567,7 +567,7 @@ export function insuranceAlerts() {
 }
 /** Once a day: tell the admins about insurance that is expired or about to be, at 30, 14, 7 and 3 days and when it lapses. */
 export function checkInsuranceDaily() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   if (getSetting('ins_last_check') === today) return 0;
   setSetting('ins_last_check', today);
   const done = new Set(String(getSetting('ins_alerted') || '').split(',').filter(Boolean));

@@ -38,8 +38,8 @@ export function socialLinks(socials) {
 }
 
 /** Is the business open right now (Eastern)? Returns text. */
-export function openNow(hours) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'long', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+export function openNow(hours, tz = 'America/New_York') {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date()).map((x) => [x.type, x.value]));
   const t = (s) => { const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(s || ''); if (!m) return null; let h = +m[1] % 12; if (m[3].toUpperCase() === 'PM') h += 12; return h * 60 + +m[2]; };
   const row = hours.find((h) => h.day === p.weekday);
   const mins = (+p.hour % 24) * 60 + +p.minute;
@@ -66,7 +66,7 @@ export async function boot(active) {
   document.documentElement.lang = 'en-US';
   const nav = [['/', 'Home'], ['/fleet', 'Fleet'], ['/about', 'About'], ['/contact', 'Contact'], ['/pay', 'Pay invoice'], ['/driver', 'Drivers']];
   const tel = c.phone.replace(/[^+\d]/g, '');
-  const st = openNow(c.hours);
+  const st = openNow(c.hours, c.timezone);
   $('#hdr').innerHTML = `<div class="topbar"><div class="wrap"><span><span class="open-dot ${st.open ? 'on' : ''}"></span>${esc(st.text)}</span><span><a href="tel:${tel}">${esc(c.phone)}</a> &nbsp;&middot;&nbsp; <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></span></div></div>
   <header class="site"><div class="wrap"><a class="logo" href="/"><img src="/img/logo.png" alt="${esc(c.business_name)}" width="190" height="44"></a>
   <button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>

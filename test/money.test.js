@@ -61,7 +61,8 @@ const co = await I.createCheckout({ invoice: inv, amount_cents: 5000, email: 'pa
 const sent = stripeCalls.filter((x) => x.u.endsWith('/v1/checkout/sessions')).pop().body; assert.equal(sent['payment_intent_data[setup_future_usage]'], 'off_session'); assert.equal(sent.customer, 'cus_1');
 
 // --- operator insurance ---
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+const { localDate: ld } = await import('../src/db.js');
+const day = (n) => ld(new Date(Date.now() + n * 864e5));
 const v1 = insert('vendors', { name: 'Hudson Coach', insurance_carrier: 'Acme Mutual', insurance_expires: day(10), active: 1, created_at: now(), updated_at: now() });
 const v2 = insert('vendors', { name: 'Old Line', insurance_expires: day(-3), active: 1, created_at: now(), updated_at: now() });
 const v3 = insert('vendors', { name: 'Fine Bus', insurance_expires: day(200), active: 1, created_at: now(), updated_at: now() });
@@ -105,5 +106,11 @@ assert.equal(S.fmtWhen('2099-06-01T19:05'), 'June 1, 2099, 7:05 PM'); assert.equ
   const { emailSender } = await import('../src/integrations.js'); process.env.EMAIL_FROM = 'Old Name <quotes@getabusny.com>'; delete process.env.EMAIL_FROM_NAME;
   assert.deepEqual(emailSender(), { name: 'Old Name', email: 'quotes@getabusny.com' });
   process.env.EMAIL_FROM_NAME = 'Get A Bus NY Office <script>'; assert.deepEqual(emailSender(), { name: 'Get A Bus NY Office script', email: 'quotes@getabusny.com' }); delete process.env.EMAIL_FROM; delete process.env.EMAIL_FROM_NAME;
+}
+{
+  const { localDate } = await import('../src/db.js');
+  assert.equal(localDate(new Date('2026-11-17T03:00:00Z')), '2026-11-16', 'evening in New York is still the same day');
+  assert.equal(localDate(new Date('2026-11-17T15:00:00Z')), '2026-11-17');
+  assert.equal(localDate(new Date('2026-07-04T03:30:00Z')), '2026-07-03', 'summer time too');
 }
 console.log('Money checks passed.');

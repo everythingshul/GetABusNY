@@ -53,6 +53,13 @@ try {
   await api('PUT', `/api/admin/quotes/${q2}`, { items: [{ desc: 'Coach', qty: 1, unit_cents: 100000 }] });
   await api('POST', `/api/admin/quotes/${q2}/send`, {}); assert.ok(await outbox() > before, 'without the box ticked it still emails');
 
+  // email or text a customer from any item: the subject of the last email about it is reused
+  r = await api('GET', `/api/admin/contact-context?type=quote&id=${q2}`); assert.equal(r.status, 200);
+  assert.equal(r.body.email, 'walk@example.com'); assert.match(r.body.subject, /^Quote Q-\d{6} from /); assert.equal(r.body.name, 'Walk In'); assert.ok(r.body.customer_id);
+  r = await api('GET', `/api/admin/contact-context?type=invoice&id=${inv}`); assert.equal(r.status, 200); assert.match(r.body.subject, /^Quote Q-\d{6}/, 'no invoice email was sent, so it reuses the last email to this customer');
+  r = await api('GET', `/api/admin/contact-context?type=customer&id=${lead.customer_id}`); assert.ok(r.body.subject.length > 0, 'a customer with past emails gets the last subject');
+  assert.equal((await api('GET', '/api/admin/contact-context?type=nope&id=1')).status, 400);
+
   // writing a text from Messages
   r = await api('POST', '/api/admin/messages/text', { to: '5557654321', message: 'Hi' }); assert.equal(r.status, 400); assert.match(r.body.error, /not set up/);
   r = await api('POST', '/api/admin/messages/text', { to: '5557654321', message: '' }); assert.equal(r.status, 400);

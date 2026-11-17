@@ -179,6 +179,13 @@ export function randomRef(prefix, table, col) {
 /** Internal consecutive number shown only in the admin. */
 export const nextSeq = (table) => (db.prepare(`SELECT COALESCE(MAX(seq),0)+1 n FROM ${table}`).get().n);
 
+/** The business time zone (Settings). All "today", due dates and daily reports use it, never the server's UTC clock. */
+export const tzName = () => getSetting('timezone') || 'America/New_York';
+/** YYYY-MM-DD for a moment, as the calendar reads in the business time zone. */
+export function localDate(d = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tzName(), year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
 export function nextNumber(prefix, start = 1001) {
   const key = `seq_${prefix}`;
   const cur = Number(one('SELECT value FROM settings WHERE key=?', key)?.value || start - 1) + 1;

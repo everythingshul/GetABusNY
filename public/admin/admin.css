@@ -130,3 +130,9 @@ input[type=checkbox]{width:auto;min-height:0}
 .zm-t{display:flex;gap:6px 18px;flex-wrap:wrap;margin-top:4px;font-weight:600}.zm-t small{font-weight:500;color:var(--ink2);margin-right:3px}
 .rev{border-left:3px solid var(--lime);padding:4px 0 4px 12px;margin:10px 0}.rev ul{margin:4px 0 0;padding-left:18px}
 .cardbox{background:var(--blue-l);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+
+/* one window at a time */
+.ov.under{display:none}
+.modal>header .who{margin-right:auto;margin-left:14px;font-size:.92rem}
+.clink{color:inherit;text-decoration:underline;text-decoration-color:var(--blue,#0078c0);text-underline-offset:3px}
+.clink:hover{color:var(--blue,#0078c0)}

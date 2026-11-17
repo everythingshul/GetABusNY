@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, getSetting, parse, log, totals } from './db.js';
+import { localDate, all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, getSetting, parse, log, totals } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner } from './integrations.js';
 import { tripDetail, fmtWhen, fmtDate, localToDate, link, icsKey, naiveMs } from './services.js';
 import { normItinerary, fromLegacy, itineraryText, KINDS, summarize } from './itinerary.js';
@@ -242,10 +242,10 @@ export function trackView({ path: p, ref, sid, ua, country }) {
   if (host === new URL(BASE_URL()).hostname.replace(/^www\./, '')) host = '';
   if (/bot|crawl|spider|preview|lighthouse/i.test(ua || '')) return;
   const d = new Date();
-  run('INSERT INTO page_views(at,day,path,ref,sid,device,country) VALUES(?,?,?,?,?,?,?)', d.toISOString(), d.toISOString().slice(0, 10), p, host, String(sid || '').slice(0, 40), /mobile|iphone|android/i.test(ua || '') ? 'mobile' : 'desktop', String(country || '').slice(0, 2));
+  run('INSERT INTO page_views(at,day,path,ref,sid,device,country) VALUES(?,?,?,?,?,?,?)', d.toISOString(), localDate(d), p, host, String(sid || '').slice(0, 40), /mobile|iphone|android/i.test(ua || '') ? 'mobile' : 'desktop', String(country || '').slice(0, 2));
 }
 export function trafficReport(days = 30) {
-  const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  const since = localDate(new Date(Date.now() - days * 864e5));
   return {
     daily: all('SELECT day, COUNT(*) views, COUNT(DISTINCT sid) visitors FROM page_views WHERE day>=? GROUP BY day ORDER BY day', since),
     pages: all('SELECT path k, COUNT(*) c FROM page_views WHERE day>=? GROUP BY path ORDER BY c DESC LIMIT 10', since),

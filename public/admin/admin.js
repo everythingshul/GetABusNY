@@ -12,7 +12,7 @@ const lab = (m) => (/^\d{4}-\d\d$/.test(m) ? `${m.slice(5)}/${m.slice(0, 4)}` : 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const p12 = (h, m) => `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 /** June 1, 2099 or June 1, 2099, 7:00 AM. Naive local values ('YYYY-MM-DDTHH:MM') are shown as written; ISO timestamps in the viewer's time zone. */
-const fmt = (s) => { if (!s) return '-'; const n = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d))?$/.exec(s); if (n) return `${MONTHS[+n[2] - 1]} ${+n[3]}, ${n[1]}${n[4] ? ', ' + p12(+n[4], +n[5]) : ''}`; const d = new Date(s); if (isNaN(d)) return String(s); return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}, ${p12(d.getHours(), d.getMinutes())}`; };
+const fmt = (s) => { if (!s) return '-'; const n = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d))?$/.exec(s); if (n) return `${MONTHS[+n[2] - 1]} ${+n[3]}, ${n[1]}${n[4] ? ', ' + p12(+n[4], +n[5]) : ''}`; const d = new Date(s); if (isNaN(d)) return String(s); const q = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: window.TZ || 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value])); return `${MONTHS[+q.month - 1]} ${+q.day}, ${q.year}, ${p12(+q.hour % 24, +q.minute)}`; };
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? 'now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
 const J = (o) => { try { return typeof o === 'string' ? JSON.parse(o) : o || {}; } catch { return {}; } };
 
@@ -31,17 +31,31 @@ const SB = { new: 'b', quoting: 'b', quoted: 'b', converted: 'g', lost: 'r', dra
 const badge = (s) => `<span class="badge b-${SB[s] ?? ''}">${esc(String(s || '').replace('_', ' '))}</span>`;
 
 // ---------- modal ----------
-function modal({ title, body, footer = '', small = false, onMount }) {
+const MODALS = [];
+function modal({ title, body, footer = '', small = false, onMount, contact = null }) {
   const ov = document.createElement('div'); ov.className = 'ov';
   ov.innerHTML = `<div class="modal ${small ? 'sm' : ''}" role="dialog" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><button aria-label="Close">×</button></header><div class="mb">${body}</div>${footer ? `<footer>${footer}</footer>` : ''}</div>`;
-  document.body.append(ov);
-  const close = () => ov.remove();
+  // only one window is shown at a time: the one underneath is tucked away and comes back when this one closes
+  MODALS[MODALS.length - 1]?.classList.add('under');
+  document.body.append(ov); MODALS.push(ov);
+  const close = () => { const i = MODALS.indexOf(ov); if (i >= 0) MODALS.splice(i, 1); ov.remove(); MODALS[MODALS.length - 1]?.classList.remove('under'); };
   ov.querySelector('header button').onclick = close;
   ov.addEventListener('mousedown', (e) => { if (e.target === ov && !ov.querySelector(':focus')?.matches('input,textarea,select')) ov._down = true; else ov._down = false; });
   ov.addEventListener('mouseup', (e) => { if (e.target === ov && ov._down) close(); });
   onMount?.(ov, close);
+  if (contact) GET(`/contact-context?type=${contact.type}&id=${contact.id}`).then((c) => {
+    const h = ov.querySelector('header h2');
+    if (c.customer_id && h) h.insertAdjacentHTML('afterend', `<span class="who">${custLink(c.customer_id, c.name)}</span>`);
+    const f = ov.querySelector('.modal > footer'); if (!f) return;
+    const btns = [c.email ? '<button type="button" class="btn" data-ctx="email">Email customer</button>' : '', c.phone && !c.sms_stop ? '<button type="button" class="btn" data-ctx="text">Text customer</button>' : ''].join('');
+    if (btns) f.insertAdjacentHTML('afterbegin', btns);
+    f.addEventListener('click', (e) => { const x = e.target.closest('[data-ctx]'); if (!x) return; if (x.dataset.ctx === 'email') composeEmail({ to: c.email, subject: c.subject, entity_type: contact.type, entity_id: contact.id }); else composeSms({ customer_id: c.customer_id, to: c.phone }); });
+  }).catch(() => {});
   return { ov, close };
 }
+/** A customer's name that opens their profile, wherever it appears. */
+const custLink = (id, name) => (id ? `<a href="#" class="clink" data-cust="${id}" title="Open customer profile">${esc(name || 'Customer')}</a>` : esc(name || ''));
+document.addEventListener('click', (e) => { const a = e.target.closest('[data-cust]'); if (!a) return; e.preventDefault(); e.stopPropagation(); customerModal(+a.dataset.cust); }, true);
 const button = (label, cls = '', attrs = '') => `<button class="btn ${cls}" ${attrs}>${label}</button>`;
 async function confirmBox(msg) { return confirm(msg); }
 /** Ask how a send should go. Resolves { skip_email, skip_sms }; never resolves if the box is closed. */
@@ -164,7 +178,7 @@ VIEWS.dashboard = async (el) => {
   ${tile('Collected this month', usd(d.revenue_mtd), '', '#/payments')}
   ${tile('Trips next 7 days', d.trips_week.length, d.unassigned ? `${d.unassigned} need driver/vehicle` : 'all assigned', '#/trips', d.unassigned > 0)}
   ${tile('Vendor replies', d.rfqs_waiting, 'to review', '#/rfqs')}</div>
-  <div class="cols"><div class="panel"><h3>Next 7 days</h3>${table([{ h: 'When', f: (t) => fmt(t.depart_at) }, { h: 'Customer', f: (t) => esc(t.customer_name) }, { h: 'Route', f: (t) => `${esc(t.pickup || '')} → ${esc(t.dropoff || '')}` }, { h: 'Driver', f: (t) => (t.driver_name ? esc(t.driver_name) : '<span class="badge b-r">none</span>') }, { h: 'Status', f: (t) => badge(t.status) }], d.trips_week, { onClick: 1, empty: 'No trips scheduled.' })}</div>
+  <div class="cols"><div class="panel"><h3>Next 7 days</h3>${table([{ h: 'When', f: (t) => fmt(t.depart_at) }, { h: 'Customer', f: (t) => custLink(t.customer_id, t.customer_name) }, { h: 'Route', f: (t) => `${esc(t.pickup || '')} → ${esc(t.dropoff || '')}` }, { h: 'Driver', f: (t) => (t.driver_name ? esc(t.driver_name) : '<span class="badge b-r">none</span>') }, { h: 'Status', f: (t) => badge(t.status) }], d.trips_week, { onClick: 1, empty: 'No trips scheduled.' })}</div>
   <div class="panel"><h3>Follow-ups due <a href="#/followups" class="sm">All →</a></h3>${table([{ h: 'Task', f: (f) => esc(f.subject || f.kind) }, { h: 'Due', f: (f) => ago(f.due_at) }], d.followups_due, { empty: 'Nothing due. 🎉' })}</div></div>
   ${d.insurance.length ? `<div class="panel"><h3>Operator insurance <a href="#/vendors" class="sm">Vendors</a></h3>${table([{ h: 'Operator', f: (v) => esc(v.name) }, { h: 'Carrier', f: (v) => esc(v.insurance_carrier || '') }, { h: 'Status', f: (v) => insBadge(v) }], d.insurance)}</div>` : ''}<div class="panel"><h3>Recent activity</h3>${table([{ h: 'When', f: (a) => ago(a.at) }, { h: 'Who', f: (a) => esc(a.actor) }, { h: 'What', f: (a) => esc(a.action) }, { h: 'Detail', f: (a) => esc(a.detail) }], d.activity)}</div>`;
   const tripsTbl = $('.cols .panel', el); bindRows(tripsTbl, d.trips_week, (t) => tripModal(t.id));
@@ -288,7 +302,7 @@ VIEWS.leads = async (el) => {
   let st = 'new'; let q = '';
   const draw = async () => {
     const rows = await GET('/requests?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.ref)}</span>` }, { h: 'Customer', f: (r) => `<span class="bold">${esc(r.name)}</span><br><span class="mut sm">${esc(r.email || r.phone)}</span>` }, { h: 'Trip', f: (r) => { const d = J(r.details); return `${esc(d.pickup || '')} → ${esc(d.dropoff || '')}<br><span class="mut sm">${fmt(d.depart_at)} · ${d.passengers || '?'} pax</span>`; } }, { h: 'Source', f: (r) => esc(r.source) }, { h: 'Received', f: (r) => ago(r.created_at) }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No leads in this view.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.ref)}</span>` }, { h: 'Customer', f: (r) => `<span class="bold">${custLink(r.customer_id, r.name)}</span><br><span class="mut sm">${esc(r.email || r.phone)}</span>` }, { h: 'Trip', f: (r) => { const d = J(r.details); return `${esc(d.pickup || '')} → ${esc(d.dropoff || '')}<br><span class="mut sm">${fmt(d.depart_at)} · ${d.passengers || '?'} pax</span>`; } }, { h: 'Source', f: (r) => esc(r.source) }, { h: 'Received', f: (r) => ago(r.created_at) }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No leads in this view.' });
     bindRows($('#list', el), rows, (r) => leadModal(r));
   };
   el.innerHTML = `<div class="toolbar">${chips(LEAD_STATUS, st)}<input type="search" id="q" placeholder="Search…">${button('+ Add lead', 'primary', 'id="new"')}${exportBtn('leads')}</div><div id="list"></div>`;
@@ -307,7 +321,7 @@ function leadModal(r) {
   const d = J(r.details);
   const v = S.L.vehicles.find((x) => x.id === d.vehicle_id);
   modal({
-    title: `${r.ref} - ${r.name}`, body: `<dl class="kv"><div><dt>Contact</dt><dd>${esc(r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
+    title: `${r.ref} - ${r.name}`, contact: { type: 'request', id: r.id }, body: `<dl class="kv"><div><dt>Contact</dt><dd>${custLink(r.customer_id, r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
     ${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes (INTERNAL ONLY, never shown to the customer)<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
     footer: `${button('Delete', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
     onMount(ov, close) {
@@ -325,7 +339,7 @@ VIEWS.quotes = async (el) => {
   let st = ''; let q = '';
   const draw = async () => {
     const rows = await GET('/quotes?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => esc(r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '-') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '-') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '-') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '-') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.' });
     bindRows($('#list', el), rows, (r) => quoteModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(QUOTE_ST, st)}<input type="search" id="q" placeholder="Search…">${button('+ New quote', 'primary', 'id="new"')}${exportBtn('quotes')}</div><div id="list"></div>`;
@@ -347,7 +361,7 @@ async function quoteModal(id, preset = {}) {
   const F2 = [...(resend ? [{ k: 'revision_note', l: 'Reason for this change (optional, goes in the history)', full: 1 }] : []), { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Deposit % due to book', t: 'number', step: 1 }, { k: 'valid_until', l: 'Valid until', t: 'date' }, { k: 'notes', l: 'Note to customer (shown on quote)', t: 'textarea', full: 1 }];
   const locked = id && ['accepted'].includes(q.status);
   modal({
-    title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote',
+    title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote', contact: id ? { type: 'quote', id } : null,
     body: `<div style="margin-bottom:10px">${id ? badge(q.status) + (q.viewed_at ? ` <span class="mut sm">viewed ${ago(q.viewed_at)}</span>` : '') : ''} <button class="link sm" id="newcust" type="button">+ new customer</button></div>${formHTML(F, { ...q, ...trip })}${itemsEditor(items, q.tax_rate)}<div style="margin-top:14px">${formHTML(F2, q)}</div>${id ? '<div class="fsec" style="margin-top:18px">Revision history</div><div id="revhist" class="mut">Loading...</div>' : ''}`,
     footer: `${id && q.status === 'draft' ? button('Delete', 'danger', 'id="del"') : ''}${id ? button('Duplicate', '', 'id="dup"') : ''}${id ? button('Copy customer link', '', 'id="lnk"') : ''}<span class="sp"></span>${id && !locked ? button('Mark accepted', '', 'id="acc"') : ''}${locked ? '<span class="mut sm">Accepted and signed, so this quote is locked.</span>' : button('Save', '', 'id="save"') + button(q.status === 'sent' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
     onMount(ov, close) {
@@ -385,7 +399,7 @@ VIEWS.trips = async (el) => {
   const draw = async () => {
     const rows = await GET('/trips?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : '') + (upcoming ? '&from=' + new Date().toISOString().slice(0, 10) : ''));
     if (upcoming) rows.reverse();
-    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `<span class="bold">#${r.seq || r.id}</span> <span class="mut sm">${esc(r.ref)}</span><br><span class="mut sm">${esc(r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '-') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.' });
+    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `<span class="bold">#${r.seq || r.id}</span> <span class="mut sm">${esc(r.ref)}</span><br><span class="mut sm">${custLink(r.customer_id, r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '-') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.' });
     bindRows($('#list', el), rows, (r) => tripModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(TRIP_ST, st)}<label style="display:flex;gap:6px;align-items:center;flex-direction:row"><input type="checkbox" id="up" checked> upcoming only</label><input type="search" id="q" placeholder="Search…">${button('+ Trip', 'primary', 'id="new"')}${exportBtn('trips')}${exportBtn('stops', 'Export stops')}</div><div id="list"></div>`;
@@ -401,7 +415,7 @@ async function tripModal(id) {
   const margin = (t.price_cents || 0) - (t.vendor_cost_cents || 0);
   const cons = t.contracts || [];
   modal({
-    title: id ? `${t.ref} - ${t.customer?.name || ''}` : 'New trip',
+    title: id ? `${t.ref} - ${t.customer?.name || ''}` : 'New trip', contact: id ? { type: 'trip', id } : null,
     body: `${id ? `<p class="mut">${badge(t.status)} ${t.driver_status ? `Driver: <b>${esc(t.driver_status.replace('_', ' '))}</b> ${ago(t.driver_status_at)}` : ''} ${t.vendor_id ? `· margin <b>${usd(margin)}</b>` : ''} ${t.maps_url ? `· <a href="${esc(t.maps_url)}" target="_blank" rel="noopener">Open route in Google Maps</a>` : ''}</p>` : ''}${formHTML(F, t)}
     ${id ? `<div class="fsec" style="margin-top:18px">Agreement (e-signature)</div>${cons.length ? cons.map((k) => `<div>${esc(k.number)} ${badge(k.status === 'signed' ? 'accepted' : k.status)} ${usd(k.total_cents)} ${k.status === 'signed' ? `signed by ${esc(k.signer_name)} ${ago(k.signed_at)} · <a href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="link" data-send-con="${k.id}">send to customer</button> · <button class="link" data-copy-con="${k.id}">copy link</button>`}</div>`).join('') : '<p class="mut">No agreement yet. Customers sign automatically when they accept a quote online. For other trips, create one:</p>'}<p><button class="btn sm" id="mkcon" type="button">Create agreement to sign</button></p>
     <div class="fsec">Invoices</div>${t.invoices.length ? t.invoices.map((i) => `<div><a href="#" data-inv="${i.id}">${esc(i.number)}</a> ${badge(i.status)} ${usd(i.total_cents)} (paid ${usd(i.amount_paid_cents)})</div>`).join('') : '<p class="mut">None yet.</p>'}
@@ -441,7 +455,7 @@ VIEWS.invoices = async (el) => {
   const today = new Date().toISOString().slice(0, 10);
   const draw = async () => {
     const rows = await GET('/invoices?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => esc(r.customer_name) }, { h: 'Title', f: (r) => esc(r.title) }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Paid', f: (r) => usd(r.amount_paid_cents), cls: 'r' }, { h: 'Balance', f: (r) => `<b>${usd(r.total_cents - r.amount_paid_cents)}</b>`, cls: 'r' }, { h: 'Due', f: (r) => `${fmt(r.due_date)}${['sent', 'partial'].includes(r.status) && r.due_date < today ? ' <span class="badge b-r">overdue</span>' : ''}` }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No invoices.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Title', f: (r) => esc(r.title) }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Paid', f: (r) => usd(r.amount_paid_cents), cls: 'r' }, { h: 'Balance', f: (r) => `<b>${usd(r.total_cents - r.amount_paid_cents)}</b>`, cls: 'r' }, { h: 'Due', f: (r) => `${fmt(r.due_date)}${['sent', 'partial'].includes(r.status) && r.due_date < today ? ' <span class="badge b-r">overdue</span>' : ''}` }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No invoices.' });
     bindRows($('#list', el), rows, (r) => invoiceModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(INV_ST, st)}<input type="search" id="q" placeholder="Search…">${button('+ Invoice', 'primary', 'id="new"')}${exportBtn('invoices')}</div><div id="list"></div>`;
@@ -456,7 +470,7 @@ async function invoiceModal(id) {
   const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title / description' }, { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_cents', l: 'Deposit due now', t: 'money', help: 'Customers can pay this amount or the full balance' }, { k: 'gratuity_cents', l: 'Gratuity (not taxed)', t: 'money', help: 'Added by you only. Customers cannot add gratuity themselves.' }, { k: 'due_date', l: 'Due date', t: 'date' }, { k: 'status', l: 'Status', t: 'select', o: [['draft', 'draft'], ['sent', 'sent (use Send)'], ['void', 'void']] }, { k: 'notes', l: 'Note shown on invoice', t: 'textarea', full: 1 }];
   const bal = (i.total_cents || 0) - (i.amount_paid_cents || 0);
   modal({
-    title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice',
+    title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null,
     body: `${id ? `<p>${badge(i.status)} <b>${usd(i.total_cents)}</b> total · <b>${usd(i.amount_paid_cents)}</b> paid · balance <b>${usd(bal)}</b></p>` : ''}${formHTML(F, i)}<div style="margin-top:12px">${itemsEditor(J(i.items).length ? J(i.items) : [], i.tax_rate)}</div>
     ${id ? `<div class="fsec" style="margin-top:18px">Payments</div>${pays.length ? table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Ref', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => usd(p.amount_cents), cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }, { h: '', f: (p) => (p.status === 'authorized' ? `<button class="btn sm primary" data-capture="${p.id}" data-amt="${p.amount_cents}">Capture</button> <button class="btn sm" data-release="${p.id}">Release hold</button>` : p.status === 'succeeded' && p.amount_cents > 0 && p.method !== 'refund' ? `<button class="btn sm danger" data-refund="${p.id}" data-amt="${p.amount_cents}">Refund…</button>` : '') }], pays) : '<p class="mut">No payments yet.</p>'}
     <form id="payf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px"><label>Record payment ($)<input id="pa" type="number" step="0.01" min="0" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label>Method<select id="pm"><option>cash</option><option>check</option><option>zelle</option><option>venmo</option><option>wire</option><option>card</option><option>other</option></select></label><label>Reference<input id="pr" style="width:150px"></label><button class="btn sm primary">Record</button></form>
@@ -489,7 +503,7 @@ async function invoiceModal(id) {
 VIEWS.payments = async (el) => {
   const rows = await GET('/payments');
   const tot = rows.filter((p) => p.status === 'succeeded').reduce((s, p) => s + p.amount_cents, 0);
-  el.innerHTML = `<p class="mut">Net received (last 300 entries): <b>${usd(tot)}</b> &nbsp; ${exportBtn('payments')}</p>${table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Invoice', f: (p) => esc(p.invoice_number) }, { h: 'Customer', f: (p) => esc(p.customer_name) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Reference', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => `<span style="color:${p.amount_cents < 0 ? 'var(--red)' : 'inherit'}">${usd(p.amount_cents)}</span>`, cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }], rows, { empty: 'No payments yet.' })}`;
+  el.innerHTML = `<p class="mut">Net received (last 300 entries): <b>${usd(tot)}</b> &nbsp; ${exportBtn('payments')}</p>${table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Invoice', f: (p) => esc(p.invoice_number) }, { h: 'Customer', f: (p) => custLink(p.customer_id, p.customer_name) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Reference', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => `<span style="color:${p.amount_cents < 0 ? 'var(--red)' : 'inherit'}">${usd(p.amount_cents)}</span>`, cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }], rows, { empty: 'No payments yet.' })}`;
 };
 
 // ---------- vendors / RFQs ----------
@@ -674,6 +688,7 @@ function composeEmail({ to = '', subject = '', body = '', entity_type, entity_id
     <div class="rte-bar">${tb.map(([c, h, t]) => `<button type="button" class="btn sm" data-cmd="${c}" title="${t}">${h}</button>`).join('')}</div>
     <div id="rte" class="rte" contenteditable="true" role="textbox" aria-multiline="true">${body ? esc(body).replace(/\n/g, '<br>') : ''}</div><p class="hint">Bold, lists, links and line breaks are kept. It is sent in the Get A Bus NY email design. Find it afterwards under Sent messages.</p>`,
   footer: `<span class="sp"></span>${button('Send', 'primary', 'id="s"')}`, onMount(ov, close) {
+    if (!subject && entity_type && entity_id) GET(`/contact-context?type=${entity_type}&id=${entity_id}`).then((c) => { if (c.subject && !$('#sub', ov).value) $('#sub', ov).value = c.subject; }).catch(() => {});
     ov.addEventListener('click', (e) => { const b = e.target.closest('[data-cmd]'); if (!b) return; e.preventDefault(); $('#rte', ov).focus(); if (b.dataset.cmd === 'createLink') { const u = prompt('Link address (https://...)'); if (u) document.execCommand('createLink', false, u); } else document.execCommand(b.dataset.cmd); });
     $('#s', ov).onclick = () => guard(async () => { const t = $('#to', ov).value.trim(), sub = $('#sub', ov).value.trim(), html = $('#rte', ov).innerHTML.trim(); if (!t || !sub || !$('#rte', ov).textContent.trim()) return toast('Recipient, subject and message are required', true); const r = await POST('/messages/email', { to: t, subject: sub, html, entity_type, entity_id }); if (!r.ok) throw new Error(r.error || 'Failed'); close(); toast(r.status === 'logged' ? 'Saved to Sent messages (no email provider connected)' : 'Sent'); });
   } });
@@ -692,7 +707,7 @@ VIEWS.activity = async (el) => {
 // ---------- contracts ----------
 VIEWS.contracts = async (el) => {
   const rows = await GET('/contracts');
-  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">#${k.seq || k.id}</span><br><span class="mut sm">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => esc(k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
+  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">#${k.seq || k.id}</span><br><span class="mut sm">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => custLink(k.customer_id, k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
   el.addEventListener('click', (e) => { const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent'); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
 };
 VIEWS.messages = async (el) => {
@@ -738,7 +753,7 @@ async function emailView(id) {
 }
 async function smsView(id) {
   const m = await GET(`/messages-sent/sms/${id}`);
-  modal({ title: m.direction === 'in' ? 'Text received' : 'Text sent', small: true, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>${m.direction === 'in' ? 'From' : 'To'}</dt><dd>${esc(m.customer_name ? m.customer_name + ' ' : '')}${esc(m.to_phone)}</dd></div><div><dt>Time</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Type</dt><dd>${esc((m.kind || '').replace('_', ' '))}</dd></div></dl>
+  modal({ title: m.direction === 'in' ? 'Text received' : 'Text sent', small: true, body: `<dl class="kv" style="margin-bottom:12px"><div><dt>${m.direction === 'in' ? 'From' : 'To'}</dt><dd>${m.customer_id ? custLink(m.customer_id, m.customer_name) + ' ' : ''}${esc(m.to_phone)}</dd></div><div><dt>Time</dt><dd>${fmt(m.created_at)}</dd></div><div><dt>Status</dt><dd>${esc(m.status)}${m.error ? `<br><span class="mut sm">${esc(m.error)}</span>` : ''}</dd></div><div><dt>Type</dt><dd>${esc((m.kind || '').replace('_', ' '))}</dd></div></dl>
     <div class="phone"><div class="bubble ${m.direction === 'in' ? 'in' : 'out'}">${esc(m.body)}</div><div class="bubble-t">${fmt(m.created_at)}</div></div>`, footer: `<span class="sp"></span>${button(m.direction === 'in' ? 'Reply' : 'Text again', 'primary', 'id="rp"')}`, onMount(ov, close) { $('#rp', ov).onclick = () => { close(); composeSms({ to: m.to_phone, customer_id: m.customer_id || '' }); }; } });
 }
 
@@ -808,7 +823,7 @@ function initChesky() {
 // ---------- boot ----------
 function showLogin() { $('#shell').hidden = true; $('#login').hidden = false; }
 async function start() {
-  try { const me = await GET('/me'); S.me = me.user; } catch { return showLogin(); }
+  try { const me = await GET('/me'); S.me = me.user; window.TZ = me.timezone; } catch { return showLogin(); }
   $('#login').hidden = true; $('#shell').hidden = false;
   S.settings = await GET('/settings'); S.cfg = await (await fetch('/api/public/config')).json(); await lookups();
   if (!window.__started) { window.__started = true; initChesky(); window.addEventListener('hashchange', route); $('#menu').onclick = () => $('#side').classList.toggle('open'); }

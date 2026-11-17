@@ -30,7 +30,7 @@ admin.post('/login', limit('login', 10, 900000), (req, res) => {
 });
 admin.post('/logout', (req, res) => { res.setHeader('Set-Cookie', 'gab_admin=; HttpOnly; Path=/; Max-Age=0'); res.json({ ok: true }); });
 admin.use(requireAdmin);
-admin.get('/me', (req, res) => res.json({ user: req.user, integrations: integ() }));
+admin.get('/me', (req, res) => res.json({ user: req.user, integrations: integ(), timezone: getSettingSafe('timezone') || 'America/New_York' }));
 admin.post('/password', wrap((req) => {
   const u = one('SELECT * FROM users WHERE id=?', req.user.id);
   if (!checkPassword(String(req.body.current || ''), u.pass_hash)) throw bad('Current password is wrong');
@@ -191,7 +191,7 @@ admin.post('/payments/:id/refund', wrap(async (req) => {
   log(req.user.email, 'payment.refunded', 'invoice', p.invoice_id, money(amt));
   return { ok: true };
 }));
-admin.get('/payments', wrap(() => all('SELECT p.*, i.number invoice_number, c.name customer_name FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id ORDER BY p.id DESC LIMIT 300')));
+admin.get('/payments', wrap(() => all('SELECT p.*, i.number invoice_number, c.id customer_id, c.name customer_name FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id ORDER BY p.id DESC LIMIT 300')));
 
 admin.get('/trips/:id/detail', wrap((req) => ({ ...S.tripDetail(Number(req.params.id)), events: all('SELECT * FROM trip_events WHERE trip_id=? ORDER BY id DESC', req.params.id), rfqs: all('SELECT r.*, v.name vendor_name FROM rfqs r JOIN vendors v ON v.id=r.vendor_id WHERE r.trip_id=?', req.params.id), invoices: all('SELECT id,number,status,total_cents,amount_paid_cents FROM invoices WHERE trip_id=?', req.params.id), contracts: all('SELECT id,number,status,signer_name,signed_at,total_cents FROM contracts WHERE trip_id=? ORDER BY id DESC', req.params.id), maps_url: mapsDirUrl(normItinerary(parse(one('SELECT itinerary FROM trips WHERE id=?', req.params.id)?.itinerary, []))) })));
 admin.post('/trips/:id/confirm-email', wrap(async (req) => ({ ok: true, email: await S.sendTripConfirmation(Number(req.params.id)) })));
@@ -255,7 +255,7 @@ admin.post('/route-estimate', wrap(async (req) => {
 }));
 
 // ---------- contracts / e-signature ----------
-admin.get('/contracts', wrap(() => all("SELECT k.id,k.number,k.status,k.total_cents,k.signer_name,k.signed_at,k.sent_at,k.created_at,k.trip_id,c.name customer_name, t.ref trip_ref FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id LEFT JOIN trips t ON t.id=k.trip_id ORDER BY k.id DESC LIMIT 300")));
+admin.get('/contracts', wrap(() => all("SELECT k.id,k.number,k.status,k.total_cents,k.signer_name,k.signed_at,k.sent_at,k.created_at,k.trip_id,k.customer_id,c.name customer_name, t.ref trip_ref FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id LEFT JOIN trips t ON t.id=k.trip_id ORDER BY k.id DESC LIMIT 300")));
 admin.post('/contracts', wrap((req) => { const k = createContract({ quote_id: req.body?.quote_id, trip_id: req.body?.trip_id }); log(req.user.email, 'contract.created', 'contract', k.id); return { id: k.id }; }));
 admin.post('/contracts/:id/send', wrap(async (req) => ({ ok: true, email: await sendContract(Number(req.params.id)) })));
 admin.get('/contracts/:id/link', wrap((req) => ({ url: `${integ_base()}/contract/${one('SELECT token FROM contracts WHERE id=?', req.params.id)?.token}` })));
@@ -367,9 +367,24 @@ admin.put('/site-text', wrap((req) => { const n = saveTexts(req.body?.texts || {
 admin.get('/messages-sent', wrap((req) => {
   const q = `%${String(req.query.q || '').trim()}%`; const lim = Math.min(Number(req.query.limit) || 200, 500);
   const type = req.query.type || 'all';
-  const mails = type === 'sms' ? [] : all("SELECT id, created_at at, to_addr to_, subject title, status, error, kind, provider FROM outbox WHERE (to_addr LIKE ? OR subject LIKE ?) ORDER BY id DESC LIMIT ?", q, q, lim).map((m) => ({ type: 'email', id: m.id, at: m.at, to: m.to_, title: m.title, status: m.status, error: m.error, kind: m.kind || 'customer', provider: m.provider }));
-  const texts = type === 'email' ? [] : all("SELECT m.id, m.created_at at, m.to_phone, m.body, m.status, m.error, m.kind, m.direction, c.name cn FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id WHERE (m.to_phone LIKE ? OR m.body LIKE ? OR c.name LIKE ?) ORDER BY m.id DESC LIMIT ?", q, q, q, lim).map((m) => ({ type: 'sms', id: m.id, at: m.at, to: m.cn ? `${m.cn} (${m.to_phone})` : m.to_phone, title: m.body, status: m.status, error: m.error, kind: m.kind, direction: m.direction }));
+  const mails = type === 'sms' ? [] : all("SELECT id, created_at at, to_addr to_, subject title, status, error, kind, provider, (SELECT c.id FROM customers c WHERE lower(c.email)=lower(outbox.to_addr) LIMIT 1) customer_id FROM outbox WHERE (to_addr LIKE ? OR subject LIKE ?) ORDER BY id DESC LIMIT ?", q, q, lim).map((m) => ({ type: 'email', customer_id: m.customer_id, id: m.id, at: m.at, to: m.to_, title: m.title, status: m.status, error: m.error, kind: m.kind || 'customer', provider: m.provider }));
+  const texts = type === 'email' ? [] : all("SELECT m.id, m.created_at at, m.to_phone, m.body, m.status, m.error, m.kind, m.direction, m.customer_id, c.name cn FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id WHERE (m.to_phone LIKE ? OR m.body LIKE ? OR c.name LIKE ?) ORDER BY m.id DESC LIMIT ?", q, q, q, lim).map((m) => ({ type: 'sms', customer_id: m.customer_id, id: m.id, at: m.at, to: m.cn ? `${m.cn} (${m.to_phone})` : m.to_phone, title: m.body, status: m.status, error: m.error, kind: m.kind, direction: m.direction }));
   return [...mails, ...texts].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, lim);
+}));
+// Who to contact for a quote, invoice, trip, lead, agreement or customer, and the subject of the last email already sent about it.
+admin.get('/contact-context', wrap((req) => {
+  const type = String(req.query.type || ''), id = Number(req.query.id);
+  const row = { quote: ['SELECT customer_id, number ref FROM quotes WHERE id=?', 'Quote'], invoice: ['SELECT customer_id, number ref FROM invoices WHERE id=?', 'Invoice'], trip: ['SELECT customer_id, ref FROM trips WHERE id=?', 'Trip'], request: ['SELECT customer_id, ref FROM requests WHERE id=?', 'Request'], lead: ['SELECT customer_id, ref FROM requests WHERE id=?', 'Request'], contract: ['SELECT customer_id, number ref FROM contracts WHERE id=?', 'Agreement'], customer: ['SELECT id customer_id, NULL ref FROM customers WHERE id=?', ''] }[type];
+  if (!row || !id) throw bad('Unknown item');
+  const it = one(row[0], id); if (!it) throw bad('Not found', 404);
+  const c = it.customer_id ? one('SELECT id, name, email, phone, sms_stop_at FROM customers WHERE id=?', it.customer_id) : null;
+  let subject = '';
+  if (c?.email) {
+    if (it.ref) subject = one('SELECT subject FROM outbox WHERE lower(to_addr)=lower(?) AND subject LIKE ? ORDER BY id DESC LIMIT 1', c.email, `%${it.ref}%`)?.subject || '';
+    if (!subject) subject = one("SELECT subject FROM outbox WHERE lower(to_addr)=lower(?) AND kind<>'test' ORDER BY id DESC LIMIT 1", c.email)?.subject || '';
+  }
+  if (!subject && it.ref) subject = `${row[1]} ${it.ref}`;
+  return { customer_id: c?.id || null, name: c?.name || '', email: c?.email || '', phone: c?.phone || '', sms_stop: !!c?.sms_stop_at, subject, ref: it.ref || '' };
 }));
 admin.get('/messages-sent/email/:id', wrap((req) => { const m = one('SELECT * FROM outbox WHERE id=?', req.params.id); if (!m) throw bad('Not found', 404); return m; }));
 admin.get('/messages-sent/sms/:id', wrap((req) => { const m = one('SELECT m.*, c.name customer_name FROM sms_log m LEFT JOIN customers c ON c.id=m.customer_id WHERE m.id=?', req.params.id); if (!m) throw bad('Not found', 404); return m; }));
