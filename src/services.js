@@ -271,10 +271,22 @@ export async function sendTripConfirmation(trip_id) {
 }
 
 // ---------- vendors / RFQs ----------
-export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
+// Staff may revise the trip details before a company sees them. Optionally the revision is kept on the customer's request,
+// with the original preserved and an internal note added.
+function applyEdits(base, e) {
+  const itinerary = normItinerary(e.itinerary);
+  const flat = summarize(itinerary);
+  const out = { ...base, purpose: String(e.purpose ?? base.purpose ?? '').slice(0, 80), passengers: Number(e.passengers) || null, vehicle_id: e.vehicle_id ? Number(e.vehicle_id) : null, comments: String(e.comments ?? base.comments ?? '').slice(0, 3000) };
+  if (itinerary.length) Object.assign(out, { itinerary, pickup: flat.pickup, dropoff: flat.dropoff, stops: flat.stops, depart_at: e.depart_at || flat.depart_at, return_at: e.return_at || flat.return_at, trip_type: itinerary.some((x) => x.kind === 'return_pickup') ? 'round_trip' : 'one_way' });
+  else Object.assign(out, { depart_at: e.depart_at || base.depart_at, return_at: e.return_at || '' });
+  return out;
+}
+export async function sendRFQs({ request_id, trip_id, vendor_ids, message, edits, save_to_request }) {
   let snap;
   if (trip_id) { const t = one('SELECT * FROM trips WHERE id=?', trip_id); snap = { purpose: t.purpose, itinerary: normItinerary(parse(t.itinerary, [])), pickup: t.pickup, dropoff: t.dropoff, stops: t.stops, depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers, vehicle: one('SELECT name FROM vehicles WHERE id=?', t.vehicle_id)?.name, notes: t.notes }; }
-  else { const r = one('SELECT * FROM requests WHERE id=?', request_id); const d = parse(r.details, {}); snap = { purpose: d.purpose, itinerary: normItinerary(d.itinerary), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle: d.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', d.vehicle_id)?.name : d.vehicle_pref, notes: d.comments }; }
+  else { const r = one('SELECT * FROM requests WHERE id=?', request_id); let d = parse(r.details, {});
+    if (edits && request_id) { d = applyEdits(d, edits); if (save_to_request) saveRevision(r, d); } snap = { purpose: d.purpose, itinerary: normItinerary(d.itinerary), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle: d.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', d.vehicle_id)?.name : d.vehicle_pref, notes: d.comments }; }
+  if (edits && trip_id) { const d = applyEdits({}, edits); snap = { ...snap, purpose: d.purpose, passengers: d.passengers, depart_at: d.depart_at, return_at: d.return_at, itinerary: d.itinerary || snap.itinerary, pickup: d.pickup ?? snap.pickup, dropoff: d.dropoff ?? snap.dropoff, stops: d.stops ?? snap.stops, vehicle: d.vehicle_id ? one('SELECT name FROM vehicles WHERE id=?', d.vehicle_id)?.name : snap.vehicle, notes: d.comments || snap.notes }; }
   const out = [];
   for (const vid of vendor_ids) {
     const v = one('SELECT * FROM vendors WHERE id=?', vid);
@@ -295,6 +307,13 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message }) {
   }
   log('admin', 'rfq.sent', trip_id ? 'trip' : 'request', trip_id || request_id, `${out.length} vendors`);
   return out;
+}
+
+function saveRevision(r, d) {
+  const first = r.original_details == null;
+  const note = `Revised by staff before sending to vendors (${localDate()}). The customer's original request is kept; open the lead and choose "View original request".`;
+  update('requests', r.id, { details: d, original_details: first ? r.details : r.original_details, notes: [r.notes, note].filter(Boolean).join('\n'), updated_at: now() });
+  log('admin', 'request.revised', 'request', r.id);
 }
 
 export async function acceptRFQ(id) {

@@ -230,9 +230,9 @@ admin.post('/drivers/:id/regenerate', wrap((req) => { update('drivers', req.para
 // vendors / RFQs
 admin.get('/rfqs', wrap((req) => all(`SELECT r.*, v.name vendor_name, v.phone vendor_phone, rq.ref request_ref, t.ref trip_ref FROM rfqs r JOIN vendors v ON v.id=r.vendor_id LEFT JOIN requests rq ON rq.id=r.request_id LEFT JOIN trips t ON t.id=r.trip_id ${req.query.status ? 'WHERE r.status=?' : ''} ORDER BY r.id DESC LIMIT 300`, ...(req.query.status ? [req.query.status] : []))));
 admin.post('/rfqs', wrap(async (req) => {
-  const { request_id, trip_id, vendor_ids, message } = req.body || {};
+  const { request_id, trip_id, vendor_ids, message, edits, save_to_request } = req.body || {};
   if (!(request_id || trip_id) || !Array.isArray(vendor_ids) || !vendor_ids.length) throw bad('Choose a trip/request and at least one vendor');
-  return { sent: await S.sendRFQs({ request_id, trip_id, vendor_ids, message }) };
+  return { sent: await S.sendRFQs({ request_id, trip_id, vendor_ids, message, edits, save_to_request: !!save_to_request }) };
 }));
 // Operators answer by email or phone. Staff record what they said; there is no operator portal.
 admin.post('/rfqs/:id/reply', wrap((req) => {
