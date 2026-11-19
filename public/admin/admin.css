@@ -146,3 +146,7 @@ input[type=checkbox]{width:auto;min-height:0}
 .panel.wide{grid-column:1/-1}
 svg.chart{width:100%;height:auto;display:block}
 .legend{display:flex;gap:16px;font-size:.82rem;color:var(--ink2);margin:0 0 6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+
+.led-in{color:#2d6a1f;font-weight:700}.led-out{color:#b3261e;font-weight:700}
+
+input[type=radio]{width:auto;min-height:0;flex:none}

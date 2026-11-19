@@ -10,6 +10,7 @@ import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, e
 import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { analyticsRange } from '../report.js';
+import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
 import { bannerAdminRouter } from '../banner.js';
 import { chargeInvoice, removeCard, cardOf } from '../cards.js';
 import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
@@ -193,6 +194,17 @@ admin.post('/payments/:id/refund', wrap(async (req) => {
   log(req.user.email, 'payment.refunded', 'invoice', p.invoice_id, money(amt));
   return { ok: true };
 }));
+// ---- ledger: every dollar in and out
+admin.get('/ledger', wrap((req) => ledgerList({ from: req.query.from, to: req.query.to, direction: req.query.direction, account: req.query.account, category: req.query.category, q: req.query.q })));
+admin.get('/ledger/options', wrap(() => ledgerOptions()));
+admin.post('/ledger', wrap((req) => ledgerCreate(req.body || {}, req.user.email)));
+admin.put('/ledger/:id', wrap((req) => ledgerUpdate(Number(req.params.id), req.body || {}, req.user.email)));
+admin.delete('/ledger/:id', wrap((req) => { ledgerDelete(Number(req.params.id), req.user.email); return { ok: true }; }));
+admin.post('/ledger/:id/file', express.raw({ type: ['application/pdf', 'image/*'], limit: '10mb' }), wrap((req) => { ledgerAttach(Number(req.params.id), req.body, decodeURIComponent(String(req.headers['x-file-name'] || '')), req.user.email); return { ok: true }; }));
+admin.delete('/ledger/:id/file', wrap((req) => { ledgerRemoveFile(Number(req.params.id), req.user.email); return { ok: true }; }));
+admin.get('/ledger/:id/file', (req, res) => { const f = ledgerFile(Number(req.params.id)); if (!f) return res.status(404).json({ error: 'No file attached' }); res.setHeader('Content-Type', f.type); res.setHeader('Content-Disposition', `inline; filename="${f.name.replace(/[^\x20-\x7e]/g, '_')}"`); res.setHeader('X-Content-Type-Options', 'nosniff'); res.sendFile(f.path); });
+admin.get('/invoices/:id/pdf', async (req, res) => { try { const i = one('SELECT number FROM invoices WHERE id=?', req.params.id); if (!i) return res.status(404).json({ error: 'Invoice not found' }); const buf = await invoicePdf(Number(req.params.id)); res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="${i.number}.pdf"`); res.send(buf); } catch (e) { res.status(e.status || 500).json({ error: e.message }); } });
+admin.post('/payments/quick', wrap((req) => quickPayment(req.body || {}, req.user.email)));
 admin.get('/payments', wrap(() => all('SELECT p.*, i.number invoice_number, c.id customer_id, c.name customer_name FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id ORDER BY p.id DESC LIMIT 300')));
 
 admin.get('/trips/:id/detail', wrap((req) => ({ ...S.tripDetail(Number(req.params.id)), events: all('SELECT * FROM trip_events WHERE trip_id=? ORDER BY id DESC', req.params.id), rfqs: all('SELECT r.*, v.name vendor_name FROM rfqs r JOIN vendors v ON v.id=r.vendor_id WHERE r.trip_id=?', req.params.id), invoices: all('SELECT id,number,status,total_cents,amount_paid_cents FROM invoices WHERE trip_id=?', req.params.id), contracts: all('SELECT id,number,status,signer_name,signed_at,total_cents FROM contracts WHERE trip_id=? ORDER BY id DESC', req.params.id), maps_url: mapsDirUrl(normItinerary(parse(one('SELECT itinerary FROM trips WHERE id=?', req.params.id)?.itinerary, []))) })));

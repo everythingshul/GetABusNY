@@ -82,6 +82,11 @@ CREATE INDEX IF NOT EXISTS idx_sms_q ON sms_log(status, send_after);
 `);
 addCol('vehicles', 'images', 'TEXT'); addCol('vehicles', 'operator_url', 'TEXT'); addCol('vehicles', 'internal_pricing', 'TEXT'); addCol('vehicles', 'internal_notes', 'TEXT'); db.exec("UPDATE vehicles SET images=json_array(image) WHERE images IS NULL AND image IS NOT NULL AND image<>''");
 addCol('contracts', 'seq', 'INTEGER'); db.exec('UPDATE contracts SET seq=id WHERE seq IS NULL');
+// The business ledger: every dollar in and out. Rows with src='payment' mirror the payments table; the rest are typed in.
+db.exec(`CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, date TEXT, direction TEXT, amount_cents INTEGER, vendor TEXT, invoice_ref TEXT, description TEXT, paid_with TEXT, account TEXT, notes TEXT, maaser_cents INTEGER DEFAULT 0, category TEXT,
+  src TEXT, src_id INTEGER, invoice_id INTEGER, customer_id INTEGER, trip_id INTEGER, vendor_id INTEGER, file TEXT, file_name TEXT, file_type TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_src ON ledger(src, src_id) WHERE src IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_date ON ledger(date);`);
 export const token = (n = 18) => crypto.randomBytes(n).toString('base64url');
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
 export const one = (sql, ...p) => db.prepare(sql).get(...p);
@@ -145,6 +150,10 @@ export const DEFAULT_SETTINGS = {
   google_review_url: '',
   sms_own_number: '',
   banner_seconds: '6',
+  ledger_accounts: 'Stripe,Business checking,Cash,Business credit card',
+  ledger_paid_with: 'Credit card,Check,Cash,Zelle,ACH / bank transfer,Wire',
+  ledger_categories: 'Sales,Refunds,Vendor and operator payments,Fuel,Tolls and parking,Driver pay,Insurance,Repairs and maintenance,Office and software,Marketing,Payroll,Taxes,Maaser,Other',
+  maaser_pct: '0',
   sms_quiet_mode: 'zmanim',
   candle_mins: '18',
   havdalah_mins: '50',

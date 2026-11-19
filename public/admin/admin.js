@@ -143,7 +143,7 @@ const NAV = [
   ['', 'Sales'], ['leads', 'Leads', 'new_leads'], ['quotes', 'Quotes'], ['customers', 'Customers'], ['followups', 'Follow-ups', 'due_fu'],
   ['', 'Operations'], ['trips', 'Trips'], ['drivers', 'Drivers'], ['fleet', 'Fleet'],
   ['', 'Vendors'], ['vendors', 'Vendors'], ['rfqs', 'Vendor quotes', 'rfqs_waiting'],
-  ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['contracts', 'Contracts'],
+  ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['ledger', 'Ledger'], ['contracts', 'Contracts'],
   ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
 ];
 const VIEWS = {};
@@ -566,8 +566,145 @@ async function invoiceModal(id) {
 VIEWS.payments = async (el) => {
   const rows = await GET('/payments');
   const tot = rows.filter((p) => p.status === 'succeeded').reduce((s, p) => s + p.amount_cents, 0);
-  el.innerHTML = `<p class="mut">Net received (last 300 entries): <b>${usd(tot)}</b> &nbsp; ${exportBtn('payments')}</p>${table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Invoice', f: (p) => esc(p.invoice_number) }, { h: 'Customer', f: (p) => custLink(p.customer_id, p.customer_name) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Reference', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => `<span style="color:${p.amount_cents < 0 ? 'var(--red)' : 'inherit'}">${usd(p.amount_cents)}</span>`, cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }], rows, { empty: 'No payments yet.' })}`;
+  el.innerHTML = `<div class="toolbar">${button('Take a payment', 'primary', 'id="qp"')}<a class="btn" href="#/ledger">Open the ledger</a></div><p class="mut">Net received (last 300 entries): <b>${usd(tot)}</b> &nbsp; ${exportBtn('payments')}</p>${table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Invoice', f: (p) => esc(p.invoice_number) }, { h: 'Customer', f: (p) => custLink(p.customer_id, p.customer_name) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Reference', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => `<span style="color:${p.amount_cents < 0 ? 'var(--red)' : 'inherit'}">${usd(p.amount_cents)}</span>`, cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }], rows, { empty: 'No payments yet.' })}`;
+  $('#qp', el).onclick = () => quickPaymentModal(() => reload());
 };
+
+// ---------- ledger: every dollar in and out ----------
+const dollars = (c) => (c == null ? '' : (Number(c) / 100).toFixed(2));
+const LED_COLS = (opts) => [
+  { h: 'Date', f: (r) => `<span style="white-space:nowrap">${esc(r.date.slice(5, 7) + '/' + r.date.slice(8, 10) + '/' + r.date.slice(0, 4))}</span>` },
+  { h: 'Vendor', f: (r) => (r.customer_id ? custLink(r.customer_id, r.vendor) : esc(r.vendor || '')) },
+  { h: 'Invoice #', f: (r) => (r.invoice_id ? `<a href="#" data-invlink="${r.invoice_id}" style="white-space:nowrap">${esc(r.invoice_ref || 'Invoice')}</a>` : esc(r.invoice_ref || '')) },
+  { h: 'Description', f: (r) => esc(r.description || '') },
+  { h: 'Amount', cls: 'r', f: (r) => `<span class="${r.direction === 'out' ? 'led-out' : 'led-in'}">${r.direction === 'out' ? '-' : '+'}${usd(r.amount_cents)}</span>` },
+  { h: 'Paid with', f: (r) => esc(r.paid_with || '') },
+  { h: 'Account', f: (r) => esc(r.account || '') },
+  { h: 'Notes', f: (r) => `<span class="mut sm">${esc(r.notes || '')}</span>` },
+  { h: 'Maaser', cls: 'r', f: (r) => (r.maaser_cents ? usd(r.maaser_cents) : '') },
+  { h: 'Attached', f: (r) => [r.invoice_id ? `<a href="/api/admin/invoices/${r.invoice_id}/pdf" target="_blank" rel="noopener" class="sm">Invoice PDF</a>` : '', r.has_file ? `<a href="/api/admin/ledger/${r.id}/file" target="_blank" rel="noopener" class="sm">${esc(r.file_name || 'File')}</a>` : ''].filter(Boolean).join('<br>') || '<span class="mut sm">none</span>' },
+];
+document.addEventListener('click', (e) => { const a = e.target.closest('[data-invlink]'); if (!a) return; e.preventDefault(); e.stopPropagation(); invoiceModal(+a.dataset.invlink); }, true);
+
+function ledgerModal(entry, opts, after) {
+  const e = entry || { direction: 'out', date: tzToday(), amount_cents: 0 };
+  const auto = !!e.auto, isNew = !e.id;
+  const dl = (id, list) => `<datalist id="${id}">${(list || []).map((x) => `<option value="${esc(x)}">`).join('')}</datalist>`;
+  const dis = auto ? 'disabled' : '';
+  modal({
+    title: isNew ? (e.direction === 'in' ? 'Add money in' : 'Add money out') : `${e.direction === 'out' ? 'Money out' : 'Money in'}: ${usd(e.amount_cents)}`, small: true,
+    body: `${auto ? `<div class="alert-ok" style="margin-bottom:10px">This came from a payment on invoice <b>${esc(e.invoice_ref)}</b>, so the amount and date are fixed. The invoice is attached below. To reverse it, refund the payment.</div>` : ''}
+    <div class="fgrid">
+      <label>Type<select id="ld" ${dis}><option value="in" ${e.direction === 'in' ? 'selected' : ''}>Money in</option><option value="out" ${e.direction === 'out' ? 'selected' : ''}>Money out</option></select></label>
+      <label>Date<input id="dt" type="date" value="${esc(e.date)}" ${dis}></label>
+      <label>Amount ($)<input id="am" type="number" min="0" step="0.01" value="${e.amount_cents ? dollars(e.amount_cents) : ''}" ${dis}></label>
+      <label>Maaser ($)<input id="mz" type="number" min="0" step="0.01" value="${e.maaser_cents ? dollars(e.maaser_cents) : ''}"><span class="hint">${opts.maaser_pct ? `${opts.maaser_pct}% of money in is filled in for you.` : 'Optional. Set a percentage in Settings to fill it in automatically.'}</span></label>
+      <label class="full">Vendor${e.direction === 'in' ? ' or customer' : ''}<input id="vn" list="vl" value="${esc(e.vendor || '')}" placeholder="Who was paid or who paid you" ${auto ? 'disabled' : ''}></label>
+      <label>Invoice #<input id="iv" value="${esc(e.invoice_ref || '')}" ${auto ? 'disabled' : ''} placeholder="Their invoice or receipt number"></label>
+      <label>Paid with<input id="pw" list="pwl" value="${esc(e.paid_with || '')}" placeholder="Credit card, check, cash..."></label>
+      <label class="full">Description<input id="ds" value="${esc(e.description || '')}" placeholder="What it was for"></label>
+      <label>Account<input id="ac" list="acl" value="${esc(e.account || '')}" placeholder="Which account it went through"></label>
+      <label>Category<input id="ct" list="ctl" value="${esc(e.category || '')}" placeholder="Fuel, Insurance, Sales..."></label>
+      <label class="full">Notes<textarea id="nt" rows="2">${esc(e.notes || '')}</textarea></label>
+    </div>
+    ${dl('vl', S.L.vendors.map((v) => v.name))}${dl('pwl', opts.paid_with)}${dl('acl', opts.accounts)}${dl('ctl', opts.categories)}
+    <div class="fsec" style="margin-top:14px">Attachments</div>
+    <div id="ledfiles" class="sm" style="margin:6px 0"></div>
+    <label class="btn" style="cursor:pointer">${isNew ? 'Choose a receipt or invoice' : 'Upload or replace'}<input type="file" id="ledfile" accept="application/pdf,image/png,image/jpeg,image/webp" hidden></label> <span class="mut sm" id="lfn"></span>
+    <p class="hint">PDF or photo, up to 10 MB: vendor invoices, receipts, bank statements.</p>`,
+    footer: `${!isNew && !auto ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${button(isNew ? 'Add to ledger' : 'Save', 'primary', 'id="go"')}`,
+    onMount(ov, close) {
+      let picked = null;
+      const showFiles = (x) => { $('#ledfiles', ov).innerHTML = [x?.invoice_id ? `<div>Invoice ${esc(x.invoice_ref)}: <a href="/api/admin/invoices/${x.invoice_id}/pdf" target="_blank" rel="noopener">open PDF</a> (attached automatically)</div>` : '', x?.has_file ? `<div>${esc(x.file_name || 'File')}: <a href="/api/admin/ledger/${x.id}/file" target="_blank" rel="noopener">open</a> <button type="button" class="link sm" id="rmf">remove</button></div>` : ''].join('') || '<span class="mut">Nothing attached yet.</span>'; $('#rmf', ov)?.addEventListener('click', () => guard(async () => { await DEL(`/ledger/${x.id}/file`); x.has_file = false; showFiles(x); after?.(); }, 'File removed')); };
+      showFiles(isNew ? null : e);
+      $('#ledfile', ov).onchange = (ev) => { picked = ev.target.files[0] || null; $('#lfn', ov).textContent = picked ? picked.name : ''; if (picked && picked.size > 10 * 1024 * 1024) { toast('That file is over 10 MB.', true); picked = null; $('#lfn', ov).textContent = ''; } };
+      const money = (sel) => { const v = $(sel, ov).value; return v === '' ? undefined : d2c(v); };
+      $('#go', ov).onclick = () => guard(async () => {
+        const b = { vendor: $('#vn', ov).value, invoice_ref: $('#iv', ov).value, description: $('#ds', ov).value, paid_with: $('#pw', ov).value, account: $('#ac', ov).value, category: $('#ct', ov).value, notes: $('#nt', ov).value };
+        const mz = money('#mz'); if (mz !== undefined) b.maaser_cents = mz; else if (!isNew) b.maaser_cents = 0;
+        if (!auto) { b.direction = $('#ld', ov).value; b.date = $('#dt', ov).value; const am = money('#am'); if (!am) return toast('Enter the amount.', true); b.amount_cents = am; }
+        const saved = isNew ? await POST('/ledger', b) : await PUT(`/ledger/${e.id}`, b);
+        if (picked) { const r = await fetch(`/api/admin/ledger/${saved.id}/file`, { method: 'POST', headers: { 'content-type': picked.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(picked.name) }, body: picked }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(`Saved, but the file did not upload: ${j.error || r.status}`); }
+        close(); after?.();
+      }, isNew ? 'Added to the ledger' : 'Saved');
+      $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete this entry?')) return; await DEL(`/ledger/${e.id}`); close(); after?.(); }, 'Deleted'));
+    },
+  });
+}
+
+VIEWS.ledger = async (el) => {
+  let sel; try { sel = JSON.parse(sessionStorage.getItem('led_sel') || 'null'); } catch { sel = null; }
+  sel = sel || { k: 'month', custom: null, dir: '', account: '', category: '', q: '' };
+  const save = () => { try { sessionStorage.setItem('led_sel', JSON.stringify(sel)); } catch { /* ignore */ } };
+  const opts0 = await GET('/ledger/options');
+  let data = null;
+  const body = () => $('#ledbody', el);
+  const load = async () => {
+    const [from, to] = anRange(sel.k, sel.custom);
+    const qs = new URLSearchParams({ from, to }); if (sel.dir) qs.set('direction', sel.dir); if (sel.account) qs.set('account', sel.account); if (sel.category) qs.set('category', sel.category); if (sel.q) qs.set('q', sel.q);
+    body().innerHTML = '<div class="empty">Loading...</div>';
+    data = await GET('/ledger?' + qs);
+    const t = data.totals;
+    const cats = {}; for (const c of data.byCategory) { (cats[c.k] ||= { k: c.k, in: 0, out: 0 })[c.direction] = c.c; }
+    const catRows = Object.values(cats).sort((a, b) => b.in + b.out - (a.in + a.out));
+    body().innerHTML = `<div class="tiles">
+      <div class="tile"><div class="l">Money in</div><div class="v led-in">${usd(t.money_in)}</div><div class="s">${data.rows.filter((r) => r.direction === 'in').length} entries</div></div>
+      <div class="tile"><div class="l">Money out</div><div class="v led-out">${usd(t.money_out)}</div><div class="s">${data.rows.filter((r) => r.direction === 'out').length} entries</div></div>
+      <div class="tile"><div class="l">Net</div><div class="v ${t.net < 0 ? 'led-out' : ''}">${t.net < 0 ? '-' : ''}${usd(Math.abs(t.net))}</div><div class="s">${t.entries} entr${t.entries === 1 ? 'y' : 'ies'} counted</div></div>
+      <div class="tile"><div class="l">Maaser</div><div class="v">${usd(t.maaser)}</div><div class="s">${opts0.maaser_pct ? `${opts0.maaser_pct}% set aside on money in` : 'total of the Maaser column'}</div></div></div>
+    ${table(LED_COLS(opts0), data.rows, { onClick: 1, empty: 'No entries in this period. Payments on invoices appear here by themselves.' })}
+    <div class="cols" style="margin-top:18px"><div class="panel"><h3>By category</h3>${catRows.length ? table([{ h: 'Category', f: (r) => esc(r.k) }, { h: 'In', cls: 'r', f: (r) => (r.in ? `<span class="led-in">${usd(r.in)}</span>` : '') }, { h: 'Out', cls: 'r', f: (r) => (r.out ? `<span class="led-out">${usd(r.out)}</span>` : '') }], catRows) : '<div class="empty">Nothing yet.</div>'}</div>
+    <div class="panel"><h3>Balance by account <span class="mut sm">all time</span></h3>${data.balances.length ? table([{ h: 'Account', f: (r) => esc(r.k) }, { h: 'Entries', cls: 'r', f: (r) => r.n }, { h: 'Net', cls: 'r', f: (r) => `<span class="${r.net < 0 ? 'led-out' : 'led-in'}">${r.net < 0 ? '-' : ''}${usd(Math.abs(r.net))}</span>` }], data.balances) : '<div class="empty">Nothing yet.</div>'}</div></div>`;
+    bindRows(body(), data.rows, (r) => ledgerModal(r, opts0, load));
+  };
+  const optList = (list, cur, blank) => `<option value="">${blank}</option>${list.map((x) => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('')}`;
+  el.innerHTML = `<div class="toolbar an-bar"><div class="chips" id="lchips">${AN_PRESETS.map(([k, l]) => `<button class="chip ${k === sel.k ? 'on' : ''}" data-k="${k}">${l}</button>`).join('')}</div>
+    <span id="lcustom" class="an-custom" ${sel.k === 'custom' ? '' : 'hidden'}><input type="date" id="lfrom" value="${esc(sel.custom?.[0] || tzToday().slice(0, 8) + '01')}" aria-label="From"> <span class="mut">to</span> <input type="date" id="lto" value="${esc(sel.custom?.[1] || tzToday())}" aria-label="To"> ${button('Show', 'primary sm', 'id="lgo"')}</span></div>
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div class="chips" id="ldir">${[['', 'All'], ['in', 'Money in'], ['out', 'Money out']].map(([k, l]) => `<button class="chip ${k === sel.dir ? 'on' : ''}" data-k="${k}">${l}</button>`).join('')}</div>
+      <select id="lacc" aria-label="Account" style="width:auto;min-width:170px">${optList(opts0.accounts, sel.account, 'All accounts')}</select><select id="lcat" aria-label="Category" style="width:auto;min-width:190px">${optList(opts0.categories, sel.category, 'All categories')}</select>
+      <input type="search" id="lq" placeholder="Search vendor, invoice, notes..." value="${esc(sel.q)}" style="flex:1;min-width:180px">
+      ${button('+ Money in', 'primary', 'id="lin"')}${button('+ Money out', 'primary', 'id="lout"')}<a class="btn" id="lex" href="#" download>Export to Excel</a></div>
+    <div id="ledbody"></div>`;
+  const reexport = () => { const [from, to] = anRange(sel.k, sel.custom); $('#lex', el).href = `/api/admin/export/ledger?${from === 'all' ? '' : `from=${from}&to=${to}`}`; };
+  const go = () => { save(); reexport(); load().catch((x) => toast(x.message, true)); };
+  $('#lchips', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; sel.k = b.dataset.k; $$('#lchips .chip', el).forEach((x) => x.classList.toggle('on', x === b)); $('#lcustom', el).hidden = sel.k !== 'custom'; if (sel.k !== 'custom') go(); };
+  $('#lgo', el).onclick = () => { const a = $('#lfrom', el).value, b = $('#lto', el).value; if (!a || !b) return toast('Pick both dates', true); sel.custom = a <= b ? [a, b] : [b, a]; go(); };
+  $('#ldir', el).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; sel.dir = b.dataset.k; $$('#ldir .chip', el).forEach((x) => x.classList.toggle('on', x === b)); go(); };
+  $('#lacc', el).onchange = (e) => { sel.account = e.target.value; go(); }; $('#lcat', el).onchange = (e) => { sel.category = e.target.value; go(); };
+  let tm; $('#lq', el).oninput = (e) => { sel.q = e.target.value; clearTimeout(tm); tm = setTimeout(go, 280); };
+  $('#lin', el).onclick = () => ledgerModal({ direction: 'in', date: tzToday(), amount_cents: 0 }, opts0, load);
+  $('#lout', el).onclick = () => ledgerModal(null, opts0, load);
+  go();
+};
+
+// ---------- take a payment that is not part of a trip ----------
+function quickPaymentModal(after) {
+  const F = custOpts().map(([k, l], i) => [k, i === 0 ? '(new customer, fill in below)' : l]);
+  const m = modal({ title: 'Take a payment', small: true, body: `<p class="mut sm">For anything that is not on a quote: a deposit, a balance, a fee, a purchase. It becomes a one-line invoice, so the receipt, refunds, the pay page and the ledger all work.</p>
+    <div class="fgrid"><label class="full">Customer<select id="qc">${F.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join('')}</select></label>
+    <div class="full fgrid" id="qnew" style="padding:0"><label>Name<input id="qn" autocomplete="off"></label><label>Phone<input id="qp" type="tel"></label><label class="full">Email<input id="qe" type="email"></label></div>
+    <label>Amount ($)<input id="qa" type="number" min="1" step="0.01"></label><label>What is it for?<input id="qd" placeholder="Deposit, balance, fee..."></label></div>
+    <div class="fsec" style="margin-top:12px">How is it being paid?</div>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="link" checked> Send a card payment link</label>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="received"> Already received (cash, check, Zelle...)</label>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="card_on_file"> Charge their card on file</label>
+    <div id="qlink" class="fgrid" style="margin-top:6px"><label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qse" checked> Email the link</label><label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qst" checked> Text the link</label></div>
+    <div id="qrec" class="fgrid" style="margin-top:6px" hidden><label>Paid with<select id="qpm"><option value="cash">Cash</option><option value="check">Check</option><option value="zelle">Zelle</option><option value="ach">ACH / bank transfer</option><option value="wire">Wire</option><option value="other">Other</option></select></label><label>Reference<input id="qr" placeholder="Check number, confirmation..."></label><label class="full" style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qrc"> Email them a receipt</label></div>
+    <div id="qout"></div>`,
+  footer: `<span class="sp"></span>${button('Continue', 'primary', 'id="go"')}`, onMount(ov, close) {
+    const mode = () => ov.querySelector('input[name=qm]:checked').value;
+    const sync = () => { $('#qnew', ov).hidden = !!$('#qc', ov).value; $('#qlink', ov).hidden = mode() !== 'link'; $('#qrec', ov).hidden = mode() !== 'received'; $('#go', ov).textContent = mode() === 'link' ? 'Create link' : mode() === 'received' ? 'Record payment' : 'Charge card'; };
+    ov.addEventListener('change', sync); sync();
+    $('#go', ov).onclick = () => guard(async () => {
+      const b = { customer_id: $('#qc', ov).value || null, name: $('#qn', ov).value, phone: $('#qp', ov).value, email: $('#qe', ov).value, amount_cents: d2c($('#qa', ov).value), description: $('#qd', ov).value, mode: mode(), send_email: $('#qse', ov).checked, send_sms: $('#qst', ov).checked, method: $('#qpm', ov).value, reference: $('#qr', ov).value, send_receipt_email: $('#qrc', ov).checked };
+      const r = await POST('/payments/quick', b); after?.();
+      if (r.paid) { close(); toast(`Payment recorded on ${r.number}`); return; }
+      $('#qout', ov).innerHTML = `<div class="alert-ok" style="margin-top:12px"><b>${esc(r.number)} is ready.</b>${r.sms && r.sms !== 'sent' ? `<br>Text not sent: ${esc(r.sms)}` : ''}<div class="copybox" style="margin-top:8px"><input readonly value="${esc(r.url)}" onclick="this.select()"></div><p style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank" rel="noopener">Open the payment page</a></p></div>`;
+      $('#go', ov).hidden = true;
+    });
+  } });
+  return m;
+}
 
 // ---------- vendors / RFQs ----------
 const VEND_F = [{ k: 'name', l: 'Company', req: 1 }, { k: 'contact_name', l: 'Contact person' }, { k: 'email', l: 'Email (for quote requests)', t: 'email' }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'vehicle_types', l: 'Vehicles they run', help: 'e.g. 56 coach, 33 party bus, sprinters' }, { k: 'service_area', l: 'Service area' }, { k: 'rating', l: 'Rating (1-5)', t: 'number' }, { k: 'active', l: 'Active', t: 'check' }, { sec: 'Insurance and authority' }, { k: 'insurance_carrier', l: 'Insurance carrier' }, { k: 'insurance_policy', l: 'Policy number' }, { k: 'insurance_expires', l: 'Insurance expires', t: 'date', help: 'You get alerts at 30, 14, 7 and 3 days and when it lapses' }, { k: 'dot_number', l: 'USDOT number' }, { k: 'mc_number', l: 'MC number' }, { k: 'notes', l: 'Notes (rates, reliability)', t: 'textarea', full: 1 }];
@@ -842,7 +979,7 @@ VIEWS.settings = async (el) => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const intg = me.integrations;
   const st = (ok, l, how) => `<tr><td>${l}</td><td>${ok ? badge('paid').replace('paid', 'connected') : badge('void').replace('void', 'not set')}</td><td class="mut sm">${how}</td></tr>`;
-  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_mode', l: 'No automatic texts during', t: 'select', o: [['zmanim', 'Shabbos and Yom Tov (real candle lighting to havdalah)'], ['weekly', 'A fixed weekly window']], help: 'Reminders wait and go out after it ends' }, { k: 'candle_mins', l: 'Candle lighting, minutes before sunset', t: 'number' }, { k: 'havdalah_mins', l: 'Havdalah, minutes after sunset', t: 'number', help: '50 is common. Use 72 for Rabbeinu Tam.' }, { k: 'sms_quiet_start', l: 'Fixed weekly window starts', help: 'Only if you chose a fixed window, e.g. Fri 14:00' }, { k: 'sms_quiet_end', l: 'Fixed weekly window ends', help: 'e.g. Sat 21:30' }, { k: '_sg', t: 'custom', html: '<div class="fsec">Automatic texts to customers (only to customers who agreed)</div><div id="sgbox" style="display:flex;flex-wrap:wrap;gap:6px 18px"></div>' },  { k: 'sms_own_number', l: 'Our SimpleSender number', help: '10 digits. Needed so replies and STOP are picked up.' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Bus routing: vehicle size, used to avoid roads closed to buses' }, { k: 'bus_height_cm', l: 'Height (cm)', t: 'number', help: 'Typical coach 370' }, { k: 'bus_width_cm', l: 'Width (cm)', t: 'number', help: 'Typical coach 260' }, { k: 'bus_length_cm', l: 'Length (cm)', t: 'number', help: 'Typical 45 ft coach 1370' }, { k: 'bus_weight_kg', l: 'Weight (kg)', t: 'number', help: 'Typical coach 18000' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges, days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders, days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders, days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder, hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you, days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder, hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact, hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked, hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
+  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Ledger' }, { k: 'ledger_accounts', l: 'Accounts', help: 'comma separated, e.g. Stripe, Business checking, Cash', full: 1 }, { k: 'ledger_paid_with', l: 'Ways of paying', help: 'comma separated', full: 1 }, { k: 'ledger_categories', l: 'Categories', help: 'comma separated', full: 1 }, { k: 'maaser_pct', l: 'Maaser % set aside on money in', t: 'number', step: 0.5, help: '0 turns it off. You can change it on any entry.' }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_mode', l: 'No automatic texts during', t: 'select', o: [['zmanim', 'Shabbos and Yom Tov (real candle lighting to havdalah)'], ['weekly', 'A fixed weekly window']], help: 'Reminders wait and go out after it ends' }, { k: 'candle_mins', l: 'Candle lighting, minutes before sunset', t: 'number' }, { k: 'havdalah_mins', l: 'Havdalah, minutes after sunset', t: 'number', help: '50 is common. Use 72 for Rabbeinu Tam.' }, { k: 'sms_quiet_start', l: 'Fixed weekly window starts', help: 'Only if you chose a fixed window, e.g. Fri 14:00' }, { k: 'sms_quiet_end', l: 'Fixed weekly window ends', help: 'e.g. Sat 21:30' }, { k: '_sg', t: 'custom', html: '<div class="fsec">Automatic texts to customers (only to customers who agreed)</div><div id="sgbox" style="display:flex;flex-wrap:wrap;gap:6px 18px"></div>' },  { k: 'sms_own_number', l: 'Our SimpleSender number', help: '10 digits. Needed so replies and STOP are picked up.' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Bus routing: vehicle size, used to avoid roads closed to buses' }, { k: 'bus_height_cm', l: 'Height (cm)', t: 'number', help: 'Typical coach 370' }, { k: 'bus_width_cm', l: 'Width (cm)', t: 'number', help: 'Typical coach 260' }, { k: 'bus_length_cm', l: 'Length (cm)', t: 'number', help: 'Typical 45 ft coach 1370' }, { k: 'bus_weight_kg', l: 'Weight (kg)', t: 'number', help: 'Typical coach 18000' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges, days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders, days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders, days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder, hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you, days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder, hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact, hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked, hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
   el.innerHTML = `<div class="panel"><h3>General settings</h3>${formHTML(F, s)}
   <div class="fsec" style="margin-top:18px">Hours of operation (shown on site)</div>${days.map((d) => { const h = hours.find((x) => x.day === d) || { open: '', close: '' }; return `<div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:8px;margin:4px 0;align-items:center"><b>${d}</b><input data-h="${d}" data-w="open" value="${esc(h.open)}" placeholder="10:00 AM (blank = closed)"><input data-h="${d}" data-w="close" value="${esc(h.close)}" placeholder="7:00 PM"></div>`; }).join('')}
   <div class="fsec" style="margin-top:18px">Social links</div><div class="fgrid">${['twitter', 'facebook', 'instagram', 'tiktok', 'youtube', 'google'].map((k) => `<label>${k}<input data-soc="${k}" value="${esc(soc[k] || '')}" placeholder="https://"></label>`).join('')}</div>
