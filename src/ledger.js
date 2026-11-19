@@ -10,8 +10,9 @@ import { chargeInvoice } from './cards.js';
 const DIR = path.join(process.env.DATA_DIR || path.join(process.cwd(), 'data'), 'ledger');
 const bad = (m, status = 400) => Object.assign(new Error(m), { status });
 const list = (k) => String(getSetting(k) || '').split(',').map((x) => x.trim()).filter(Boolean);
-export const ledgerOptions = () => ({ accounts: list('ledger_accounts'), paid_with: list('ledger_paid_with'), categories: list('ledger_categories'), maaser_pct: Number(getSetting('maaser_pct')) || 0 });
-const maaserFor = (cents) => { const p = Number(getSetting('maaser_pct')) || 0; return p > 0 ? Math.round((cents * p) / 100) : 0; };
+export const MAASER_PCT = 10; // fixed: ten percent of every dollar that comes in
+export const ledgerOptions = () => ({ accounts: list('ledger_accounts'), paid_with: list('ledger_paid_with'), categories: list('ledger_categories'), maaser_pct: MAASER_PCT });
+const maaserFor = (cents) => Math.round((cents * MAASER_PCT) / 100);
 
 const METHODS = { card: 'Credit card (Stripe)', cash: 'Cash', check: 'Check', zelle: 'Zelle', ach: 'ACH / bank transfer', wire: 'Wire', other: 'Other', manual: 'Other', refund: 'Refund' };
 const methodLabel = (m, stripe) => (m === 'refund' ? (stripe ? 'Refund to card (Stripe)' : 'Refund') : METHODS[m] || (m ? m[0].toUpperCase() + m.slice(1) : ''));
@@ -51,17 +52,16 @@ export function ledgerList({ from, to, direction, account, category, q, limit = 
   if (q) { w.push('(vendor LIKE ? OR invoice_ref LIKE ? OR description LIKE ? OR notes LIKE ? OR account LIKE ? OR paid_with LIKE ?)'); const x = `%${q}%`; p.push(x, x, x, x, x, x); }
   const where = w.length ? ' WHERE ' + w.join(' AND ') : '';
   const rows = all(`SELECT * FROM ledger${where} ORDER BY date DESC, id DESC LIMIT ?`, ...p, Math.min(Number(limit) || 5000, 20000)).map(row);
-  const t = one(`SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN direction='in' THEN amount_cents END),0) money_in, COALESCE(SUM(CASE WHEN direction='out' THEN amount_cents END),0) money_out, COALESCE(SUM(maaser_cents),0) maaser FROM ledger${where}`, ...p);
+  const t = one(`SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN direction='in' THEN amount_cents END),0) money_in, COALESCE(SUM(CASE WHEN direction='out' THEN amount_cents END),0) money_out, COALESCE(SUM(CASE WHEN direction='in' THEN maaser_cents END),0) maaser, COALESCE(SUM(CASE WHEN direction='in' AND maaser_given=0 THEN maaser_cents END),0) maaser_owed, COALESCE(SUM(CASE WHEN direction='in' AND maaser_given=1 THEN maaser_cents END),0) maaser_given FROM ledger${where}`, ...p);
   const byCategory = all(`SELECT COALESCE(NULLIF(category,''),'(none)') k, direction, SUM(amount_cents) c, COUNT(*) n FROM ledger${where} GROUP BY k, direction ORDER BY c DESC`, ...p);
   const balances = all("SELECT COALESCE(NULLIF(account,''),'(no account)') k, SUM(CASE direction WHEN 'in' THEN amount_cents ELSE -amount_cents END) net, COUNT(*) n FROM ledger GROUP BY k ORDER BY net DESC");
-  return { rows, totals: { entries: t.n, money_in: t.money_in, money_out: t.money_out, net: t.money_in - t.money_out, maaser: t.maaser }, byCategory, balances, options: ledgerOptions() };
+  return { rows, totals: { entries: t.n, money_in: t.money_in, money_out: t.money_out, net: t.money_in - t.money_out, maaser: t.maaser, maaser_owed: t.maaser_owed, maaser_given: t.maaser_given }, byCategory, balances, options: ledgerOptions() };
 }
 
 const clean = (b, locked) => {
   const o = {};
   const str = (k, n = 300) => { if (k in b) o[k] = String(b[k] ?? '').trim().slice(0, n); };
   ['vendor', 'invoice_ref', 'description', 'paid_with', 'account', 'category'].forEach((k) => str(k, 200)); str('notes', 2000);
-  if ('maaser_cents' in b) o.maaser_cents = Math.max(0, Math.round(Number(b.maaser_cents)) || 0);
   if (!locked) {
     if ('direction' in b) { if (!['in', 'out'].includes(b.direction)) throw bad('Choose money in or money out.'); o.direction = b.direction; }
     if ('amount_cents' in b) { const c = Math.round(Number(b.amount_cents)); if (!Number.isFinite(c) || c <= 0 || c > 10_000_000_000) throw bad('Enter an amount greater than zero.'); o.amount_cents = c; }
@@ -76,14 +76,21 @@ export function ledgerCreate(b, actor) {
   if (!o.direction || !o.amount_cents) throw bad('Enter an amount and choose money in or money out.');
   if (o.invoice_id) { const i = one('SELECT number, customer_id FROM invoices WHERE id=?', o.invoice_id); if (!i) throw bad('That invoice does not exist.'); o.invoice_ref = o.invoice_ref || i.number; o.customer_id = o.customer_id || i.customer_id; }
   if (o.vendor_id) { const v = one('SELECT name FROM vendors WHERE id=?', o.vendor_id); if (v && !o.vendor) o.vendor = v.name; }
-  if (o.direction === 'in' && !('maaser_cents' in o)) o.maaser_cents = maaserFor(o.amount_cents);
+  o.maaser_cents = o.direction === 'in' ? maaserFor(o.amount_cents) : 0;
   const id = insert('ledger', { ...o, src: null, src_id: null, created_by: actor, created_at: now(), updated_at: now() });
   log(actor, 'ledger.added', 'ledger', id, `${o.direction} ${o.amount_cents}`);
+  if (b.maaser_given && o.direction === 'in') ledgerMaaser(id, true, actor);
   return one('SELECT * FROM ledger WHERE id=?', id);
 }
 export function ledgerUpdate(id, b, actor) {
   const r = one('SELECT * FROM ledger WHERE id=?', id); if (!r) throw bad('Not found', 404);
-  update('ledger', id, { ...clean(b, r.src === 'payment'), updated_at: now() });
+  const o = clean(b, r.src === 'payment');
+  const dir = o.direction || r.direction, amt = o.amount_cents || r.amount_cents;
+  if (o.direction || o.amount_cents) o.maaser_cents = dir === 'in' ? maaserFor(amt) : 0;
+  update('ledger', id, { ...o, updated_at: now() });
+  const linked = one('SELECT id FROM ledger WHERE maaser_of=?', id);
+  if (linked && dir === 'out') { run('DELETE FROM ledger WHERE maaser_of=?', id); update('ledger', id, { maaser_given: 0, maaser_given_at: null }); }
+  else if (linked && o.maaser_cents != null) update('ledger', linked.id, { amount_cents: o.maaser_cents, updated_at: now() });
   log(actor, 'ledger.edited', 'ledger', id);
   return one('SELECT * FROM ledger WHERE id=?', id);
 }
@@ -91,7 +98,22 @@ export function ledgerDelete(id, actor) {
   const r = one('SELECT * FROM ledger WHERE id=?', id); if (!r) throw bad('Not found', 404);
   if (r.src === 'payment') throw bad('This entry comes from a payment on an invoice. To reverse it, refund the payment.');
   if (r.file) try { fs.unlinkSync(path.join(DIR, path.basename(r.file))); } catch { /* already gone */ }
+  run('DELETE FROM ledger WHERE maaser_of=?', id); // the charity expense made from this entry goes with it
+  if (r.maaser_of) update('ledger', r.maaser_of, { maaser_given: 0, maaser_given_at: null }); // deleting the expense puts the maaser back to "not given"
   run('DELETE FROM ledger WHERE id=?', id); log(actor, 'ledger.deleted', 'ledger', id, `${r.direction} ${r.amount_cents}`);
+}
+
+/** Mark the maaser on a money-in entry as given (records the charity expense) or not given (removes that expense). */
+export function ledgerMaaser(id, given, actor) {
+  const r = one('SELECT * FROM ledger WHERE id=?', id); if (!r) throw bad('Not found', 404);
+  if (r.direction !== 'in') throw bad('Maaser is only set aside on money that comes in.');
+  const existing = one('SELECT id FROM ledger WHERE maaser_of=?', id);
+  if (given && !existing) {
+    insert('ledger', { date: localDate(), direction: 'out', amount_cents: r.maaser_cents, vendor: 'Charity (maaser)', invoice_ref: '', description: `Maaser on ${r.description || r.invoice_ref || 'income'}`, paid_with: '', account: '', category: 'Maaser', notes: `Ten percent of ${usd(r.amount_cents)} received ${r.date}`, maaser_cents: 0, maaser_of: id, src: null, src_id: null, created_by: actor, created_at: now(), updated_at: now() });
+  } else if (!given && existing) run('DELETE FROM ledger WHERE id=?', existing.id);
+  update('ledger', id, { maaser_given: given ? 1 : 0, maaser_given_at: given ? now() : null, updated_at: now() });
+  log(actor, given ? 'ledger.maaser_given' : 'ledger.maaser_undone', 'ledger', id, usd(r.maaser_cents));
+  return one('SELECT * FROM ledger WHERE id=?', id);
 }
 
 // ---- attachments (receipts, vendor invoices, bank statements)

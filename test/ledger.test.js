@@ -71,10 +71,23 @@ try {
   r = await call('GET', `${A}/ledger?from=all`); assert.equal(r.body.totals.entries, 3); assert.equal(r.body.totals.money_out, 5000 + 19000);
   assert.ok(r.body.balances.some((b) => b.k === 'Business checking'));
 
-  // ---- maaser follows the setting
-  await call('PUT', `${A}/settings`, { maaser_pct: '10' });
-  r = await call('POST', `${A}/ledger`, { date: '2026-03-06', direction: 'in', amount_cents: 100000, vendor: 'Cash job', description: 'Cash deposit' }); assert.equal(r.body.maaser_cents, 10000);
-  assert.equal((await call('GET', `${A}/ledger?from=all`)).body.totals.maaser, 10000);
+  // ---- maaser is a fixed ten percent of money in; marking it given records a charity expense
+  r = await call('POST', `${A}/ledger`, { date: '2026-03-06', direction: 'in', amount_cents: 100000, vendor: 'Cash job', description: 'Cash deposit' }); assert.equal(r.body.maaser_cents, 10000); assert.equal(r.body.maaser_given, 0);
+  const inc = r.body.id;
+  r = await call('GET', `${A}/ledger?from=all`); assert.equal(r.body.totals.maaser, 2500 + 10000, 'ten percent of the $250 invoice payment plus the $1,000 cash job'); assert.equal(r.body.totals.maaser_owed, 12500); assert.equal(r.body.totals.maaser_given, 0);
+  assert.equal((await call('PUT', `${A}/ledger/${inc}`, { maaser_cents: 1 })).body.maaser_cents, 10000, 'the percentage is fixed');
+  const before = (await call('GET', `${A}/ledger?from=all`)).body.totals.money_out;
+  r = await call('PUT', `${A}/ledger/${inc}/maaser`, { given: true }); assert.equal(r.status, 200); assert.equal(r.body.maaser_given, 1);
+  r = await call('GET', `${A}/ledger?from=all`); const ch = r.body.rows.find((x) => x.category === 'Maaser'); assert.ok(ch, 'a charity expense was recorded'); assert.equal(ch.direction, 'out'); assert.equal(ch.amount_cents, 10000); assert.match(ch.description, /Maaser on Cash deposit/);
+  assert.equal(r.body.totals.money_out, before + 10000); assert.equal(r.body.totals.maaser_given, 10000); assert.equal(r.body.totals.maaser_owed, 2500);
+  assert.equal((await call('PUT', `${A}/ledger/${inc}/maaser`, { given: true })).status, 200); assert.equal((await call('GET', `${A}/ledger?from=all`)).body.rows.filter((x) => x.category === 'Maaser').length, 1, 'ticking twice does not record it twice');
+  r = await call('PUT', `${A}/ledger/${inc}`, { amount_cents: 200000 }); assert.equal(r.body.maaser_cents, 20000); assert.equal((await call('GET', `${A}/ledger?from=all`)).body.rows.find((x) => x.category === 'Maaser').amount_cents, 20000, 'the charity expense follows the amount');
+  r = await call('PUT', `${A}/ledger/${inc}/maaser`, { given: false }); assert.equal(r.body.maaser_given, 0); assert.equal((await call('GET', `${A}/ledger?from=all`)).body.rows.filter((x) => x.category === 'Maaser').length, 0, 'unticking removes the expense');
+  await call('PUT', `${A}/ledger/${inc}/maaser`, { given: true }); const exp = (await call('GET', `${A}/ledger?from=all`)).body.rows.find((x) => x.category === 'Maaser');
+  assert.equal((await call('DELETE', `${A}/ledger/${exp.id}`)).status, 200); assert.equal((await call('GET', `${A}/ledger?from=all`)).body.rows.find((x) => x.id === inc).maaser_given, 0, 'deleting the expense puts the maaser back to not given');
+  assert.equal((await call('PUT', `${A}/ledger/${man}/maaser`, { given: true })).status, 400, 'money out has no maaser');
+  r = await call('POST', `${A}/ledger`, { date: '2026-03-07', direction: 'in', amount_cents: 50000, vendor: 'Already gave', maaser_given: true }); assert.equal(r.body.maaser_given, 1);
+  assert.equal((await call('GET', `${A}/ledger?from=all&q=Already`)).body.rows.length, 1);
   r = await call('DELETE', `${A}/ledger/${man}/file`); assert.equal(r.status, 200); assert.equal((await call('GET', `${A}/ledger/${man}/file`)).status, 404);
   assert.equal((await call('DELETE', `${A}/ledger/${man}`)).status, 200);
 

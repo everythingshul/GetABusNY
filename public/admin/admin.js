@@ -32,16 +32,21 @@ const badge = (s) => `<span class="badge b-${SB[s] ?? ''}">${esc(String(s || '')
 
 // ---------- modal ----------
 const MODALS = [];
-function modal({ title, body, footer = '', small = false, onMount, contact = null }) {
+function modal({ title, body, footer = '', small = false, onMount, contact = null, labels = null }) {
   const ov = document.createElement('div'); ov.className = 'ov';
   ov.innerHTML = `<div class="modal ${small ? 'sm' : ''}" role="dialog" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><button aria-label="Close">×</button></header><div class="mb">${body}</div>${footer ? `<footer>${footer}</footer>` : ''}</div>`;
   // only one window is shown at a time: the one underneath is tucked away and comes back when this one closes
   MODALS[MODALS.length - 1]?.classList.add('under');
   document.body.append(ov); MODALS.push(ov);
-  const close = () => { const i = MODALS.indexOf(ov); if (i >= 0) MODALS.splice(i, 1); ov.remove(); MODALS[MODALS.length - 1]?.classList.remove('under'); };
+  const close = () => { const i = MODALS.indexOf(ov); if (i >= 0) MODALS.splice(i, 1); ov.remove(); MODALS[MODALS.length - 1]?.classList.remove('under'); if (ov._lblDirty && !MODALS.length) setTimeout(() => route(), 0); };
   ov.querySelector('header button').onclick = close;
   ov.addEventListener('mousedown', (e) => { if (e.target === ov && !ov.querySelector(':focus')?.matches('input,textarea,select')) ov._down = true; else ov._down = false; });
   ov.addEventListener('mouseup', (e) => { if (e.target === ov && ov._down) close(); });
+  if (labels && labels.id) {
+    const bar = document.createElement('div'); bar.className = 'lblbar'; ov.querySelector('.modal > header').after(bar);
+    const dr = () => { bar.innerHTML = `${labelChips(labels.type, labels.id) || '<span class="mut sm">No labels</span>'} <button type="button" class="btn sm" data-addlbl>+ Label</button>`; };
+    dr(); bar.onclick = (e) => { const b = e.target.closest('[data-addlbl]'); if (b) openLabelPicker(b, labels, () => { dr(); ov._lblDirty = true; }); };
+  }
   onMount?.(ov, close);
   if (contact) GET(`/contact-context?type=${contact.type}&id=${contact.id}`).then((c) => {
     const h = ov.querySelector('header h2');
@@ -119,11 +124,12 @@ function wireItems(root, getTax, id = 'items') {
 const readItems = (root, id = 'items') => $$('#' + id + ' tbody tr', root).map((tr) => ({ desc: $('[data-k=desc]', tr).value.trim(), qty: parseFloat($('[data-k=qty]', tr).value) || 0, unit_cents: d2c($('[data-k=price]', tr).value) })).filter((i) => i.desc || i.unit_cents);
 
 // ---------- table ----------
-function table(cols, rows, { onClick, empty = 'Nothing here yet.' } = {}) {
+function table(cols, rows, { onClick, empty = 'Nothing here yet.', labels } = {}) {
   if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
-  return `<div class="tblwrap"><table class="tbl"><thead><tr>${cols.map((c) => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr ${onClick ? `class="click" data-i="${i}"` : ''}>${cols.map((c) => `<td class="${c.cls || ''}" data-l="${esc(c.h)}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if (labels) cols = [...cols, { h: 'Labels', f: (r) => labelChips(labels, r.id) || '' }];
+  return `<div class="tblwrap"><table class="tbl"><thead><tr>${cols.map((c) => `<th class="${c.cls || ''}">${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, i) => `<tr ${onClick ? `class="click" data-i="${i}"` : ''} ${labels ? `data-lb="${labelIds(labels, r.id).join(',')}"` : ''}>${cols.map((c) => `<td class="${c.cls || ''}" data-l="${esc(c.h)}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
-function bindRows(root, rows, fn) { $$('tbody tr.click', root).forEach((tr) => tr.addEventListener('click', (e) => { if (e.target.closest('a,button')) return; fn(rows[+tr.dataset.i]); })); }
+function bindRows(root, rows, fn) { $$('tbody tr.click', root).forEach((tr) => tr.addEventListener('click', (e) => { if (e.target.closest('a,button,input,label.mz')) return; fn(rows[+tr.dataset.i]); })); }
 const chips = (list, cur, id = 'chips') => `<div class="chips" id="${id}">${list.map(([k, l]) => `<button class="chip ${k === cur ? 'on' : ''}" data-k="${k}">${esc(l)}</button>`).join('')}</div>`;
 
 // ---------- app state ----------
@@ -144,7 +150,7 @@ const NAV = [
   ['', 'Operations'], ['trips', 'Trips'], ['drivers', 'Drivers'], ['fleet', 'Fleet'],
   ['', 'Vendors'], ['vendors', 'Vendors'], ['rfqs', 'Vendor quotes', 'rfqs_waiting'],
   ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['ledger', 'Ledger'], ['contracts', 'Contracts'],
-  ['', 'Other'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
+  ['', 'Other'], ['labels', 'Labels'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
 ];
 const VIEWS = {};
 function renderNav(counts = {}) {
@@ -160,8 +166,9 @@ async function route() {
   $('#title').textContent = NAV.find((n) => n[0] === name)?.[1] || 'Dashboard';
   $('#barx').innerHTML = `<a class="btn sm" href="/api/admin/export/all" download title="One workbook with every table">Export everything (Excel)</a>`;
   renderNav(S.counts);
+  LBL.filter = '';
   const el = $('#view'); el.innerHTML = '<div class="empty">Loading…</div>';
-  try { await v(el); } catch (e) { if (e.message !== 'Signed out') el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  try { await v(el); decorateLabelFilter(); } catch (e) { if (e.message !== 'Signed out') el.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   refreshCounts();
 }
 const reload = () => route();
@@ -324,7 +331,7 @@ async function customerModal(id, after) {
   const c = id ? await GET('/customers/' + id) : {}; c.sms_stop = !!c.sms_stop_at;
   const h = id ? await GET(`/customers/${id}/history`) : null;
   const m = modal({
-    title: id ? c.name : 'New customer', body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
+    title: id ? c.name : 'New customer', labels: id ? { type: 'customer', id } : null, body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
     footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && !c.sms_stop_at ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       placesFor(ov);
@@ -350,7 +357,7 @@ async function customerModal(id, after) {
 VIEWS.customers = async (el) => {
   const draw = async (q = '') => {
     const rows = await GET('/customers?limit=500' + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'Name', f: (c) => `<span class="bold">${esc(c.name)}</span>${c.company ? `<br><span class="mut sm">${esc(c.company)}</span>` : ''}` }, { h: 'Email', f: (c) => esc(c.email) }, { h: 'Phone', f: (c) => esc(c.phone) }, { h: 'Trips', f: (c) => c.trip_count, cls: 'r' }, { h: 'Tags', f: (c) => esc(c.tags) }], rows, { onClick: 1, empty: 'No customers yet.' });
+    $('#list', el).innerHTML = table([{ h: 'Name', f: (c) => `<span class="bold">${esc(c.name)}</span>${c.company ? `<br><span class="mut sm">${esc(c.company)}</span>` : ''}` }, { h: 'Email', f: (c) => esc(c.email) }, { h: 'Phone', f: (c) => esc(c.phone) }, { h: 'Trips', f: (c) => c.trip_count, cls: 'r' }, { h: 'Tags', f: (c) => esc(c.tags) }], rows, { onClick: 1, empty: 'No customers yet.', labels: 'customer' });
     bindRows($('#list', el), rows, (c) => customerModal(c.id));
   };
   el.innerHTML = `<div class="toolbar"><input type="search" id="q" placeholder="Search name, email, phone…">${button('+ Customer', 'primary', 'id="new"')}${exportBtn('customers')}</div><div id="list"></div>`;
@@ -365,7 +372,7 @@ VIEWS.leads = async (el) => {
   let st = 'new'; let q = '';
   const draw = async () => {
     const rows = await GET('/requests?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.ref)}</span>` }, { h: 'Customer', f: (r) => `<span class="bold">${custLink(r.customer_id, r.name)}</span><br><span class="mut sm">${esc(r.email || r.phone)}</span>` }, { h: 'Trip', f: (r) => { const d = J(r.details); return `${esc(d.pickup || '')} → ${esc(d.dropoff || '')}<br><span class="mut sm">${fmt(d.depart_at)} · ${d.passengers || '?'} pax</span>`; } }, { h: 'Source', f: (r) => esc(r.source) }, { h: 'Received', f: (r) => ago(r.created_at) }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No leads in this view.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.ref)}</span>` }, { h: 'Customer', f: (r) => `<span class="bold">${custLink(r.customer_id, r.name)}</span><br><span class="mut sm">${esc(r.email || r.phone)}</span>` }, { h: 'Trip', f: (r) => { const d = J(r.details); return `${esc(d.pickup || '')} → ${esc(d.dropoff || '')}<br><span class="mut sm">${fmt(d.depart_at)} · ${d.passengers || '?'} pax</span>`; } }, { h: 'Source', f: (r) => esc(r.source) }, { h: 'Received', f: (r) => ago(r.created_at) }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No leads in this view.', labels: 'request' });
     bindRows($('#list', el), rows, (r) => leadModal(r));
   };
   el.innerHTML = `<div class="toolbar">${chips(LEAD_STATUS, st)}<input type="search" id="q" placeholder="Search…">${button('+ Add lead', 'primary', 'id="new"')}${exportBtn('leads')}</div><div id="list"></div>`;
@@ -384,7 +391,7 @@ function leadModal(r) {
   const d = J(r.details);
   const v = S.L.vehicles.find((x) => x.id === d.vehicle_id);
   modal({
-    title: `${r.ref} - ${r.name}`, contact: { type: 'request', id: r.id }, body: `<dl class="kv"><div><dt>Contact</dt><dd>${custLink(r.customer_id, r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
+    title: `${r.ref} - ${r.name}`, contact: { type: 'request', id: r.id }, labels: { type: 'request', id: r.id }, body: `<dl class="kv"><div><dt>Contact</dt><dd>${custLink(r.customer_id, r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
     ${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes (INTERNAL ONLY, never shown to the customer)<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
     footer: `${button('Delete', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
     onMount(ov, close) {
@@ -402,7 +409,7 @@ VIEWS.quotes = async (el) => {
   let st = ''; let q = '';
   const draw = async () => {
     const rows = await GET('/quotes?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '-') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '-') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Trip', f: (r) => `${esc(r.title || '')}<br><span class="mut sm">${fmt(J(r.trip).depart_at)}</span>` }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Sent', f: (r) => (r.sent_at ? ago(r.sent_at) : '-') }, { h: 'Viewed', f: (r) => (r.viewed_at ? ago(r.viewed_at) : '-') }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No quotes yet. Create one from a lead.', labels: 'quote' });
     bindRows($('#list', el), rows, (r) => quoteModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(QUOTE_ST, st)}<input type="search" id="q" placeholder="Search…">${button('+ New quote', 'primary', 'id="new"')}${exportBtn('quotes')}</div><div id="list"></div>`;
@@ -424,7 +431,7 @@ async function quoteModal(id, preset = {}) {
   const F2 = [...(resend ? [{ k: 'revision_note', l: 'Reason for this change (optional, goes in the history)', full: 1 }] : []), { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Deposit % due to book', t: 'number', step: 1 }, { k: 'valid_until', l: 'Valid until', t: 'date' }, { k: 'notes', l: 'Note to customer (shown on quote)', t: 'textarea', full: 1 }];
   const locked = id && ['accepted'].includes(q.status);
   modal({
-    title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote', contact: id ? { type: 'quote', id } : null,
+    title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote', contact: id ? { type: 'quote', id } : null, labels: id ? { type: 'quote', id } : null,
     body: `<div style="margin-bottom:10px">${id ? badge(q.status) + (q.viewed_at ? ` <span class="mut sm">viewed ${ago(q.viewed_at)}</span>` : '') : ''} <button class="link sm" id="newcust" type="button">+ new customer</button></div>${formHTML(F, { ...q, ...trip })}${itemsEditor(items, q.tax_rate)}<div style="margin-top:14px">${formHTML(F2, q)}</div>${id ? '<div class="fsec" style="margin-top:18px">Revision history</div><div id="revhist" class="mut">Loading...</div>' : ''}`,
     footer: `${id && q.status === 'draft' ? button('Delete', 'danger', 'id="del"') : ''}${id ? button('Duplicate', '', 'id="dup"') : ''}${id ? button('Copy customer link', '', 'id="lnk"') : ''}<span class="sp"></span>${id && !locked ? button('Mark accepted', '', 'id="acc"') : ''}${locked ? '<span class="mut sm">Accepted and signed, so this quote is locked.</span>' : button('Save', '', 'id="save"') + button(q.status === 'sent' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
     onMount(ov, close) {
@@ -462,7 +469,7 @@ VIEWS.trips = async (el) => {
   const draw = async () => {
     const rows = await GET('/trips?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : '') + (upcoming ? '&from=' + new Date().toISOString().slice(0, 10) : ''));
     if (upcoming) rows.reverse();
-    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `<span class="bold">#${r.seq || r.id}</span> <span class="mut sm">${esc(r.ref)}</span><br><span class="mut sm">${custLink(r.customer_id, r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '-') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.' });
+    $('#list', el).innerHTML = table([{ h: 'When', f: (r) => `<span class="bold">${fmt(r.depart_at)}</span>` }, { h: 'Trip', f: (r) => `<span class="bold">#${r.seq || r.id}</span> <span class="mut sm">${esc(r.ref)}</span><br><span class="mut sm">${custLink(r.customer_id, r.customer_name)}</span>` }, { h: 'Route', f: (r) => { const n = (J(r.itinerary).length || 2); return `${esc(r.purpose || '')}${r.purpose ? '<br>' : ''}<span class="mut sm">${esc(r.pickup || '')} → ${esc(r.dropoff || '')}${n > 2 ? ` · ${n} stops` : ''}</span>`; } }, { h: 'Vehicle', f: (r) => (r.vehicle_name ? esc(r.vehicle_name) : '<span class="badge b-a">unset</span>') }, { h: 'Driver', f: (r) => (r.driver_name ? esc(r.driver_name) + (r.driver_status ? `<br><span class="mut sm">${esc(r.driver_status.replace('_', ' '))}</span>` : '') : '<span class="badge b-a">unassigned</span>') }, { h: 'Vendor', f: (r) => esc(r.vendor_name || '-') }, { h: 'Price', f: (r) => usd(r.price_cents), cls: 'r' }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No trips.', labels: 'trip' });
     bindRows($('#list', el), rows, (r) => tripModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(TRIP_ST, st)}<label style="display:flex;gap:6px;align-items:center;flex-direction:row"><input type="checkbox" id="up" checked> upcoming only</label><input type="search" id="q" placeholder="Search…">${button('+ Trip', 'primary', 'id="new"')}${exportBtn('trips')}${exportBtn('stops', 'Export stops')}</div><div id="list"></div>`;
@@ -478,7 +485,7 @@ async function tripModal(id) {
   const margin = (t.price_cents || 0) - (t.vendor_cost_cents || 0);
   const cons = t.contracts || [];
   modal({
-    title: id ? `${t.ref} - ${t.customer?.name || ''}` : 'New trip', contact: id ? { type: 'trip', id } : null,
+    title: id ? `${t.ref} - ${t.customer?.name || ''}` : 'New trip', contact: id ? { type: 'trip', id } : null, labels: id ? { type: 'trip', id } : null,
     body: `${id ? `<p class="mut">${badge(t.status)} ${t.driver_status ? `Driver: <b>${esc(t.driver_status.replace('_', ' '))}</b> ${ago(t.driver_status_at)}` : ''} ${t.vendor_id ? `· margin <b>${usd(margin)}</b>` : ''} ${t.maps_url ? `· <a href="${esc(t.maps_url)}" target="_blank" rel="noopener">Open route in Google Maps</a>` : ''}</p>` : ''}${formHTML(F, t)}
     ${id ? `<div class="fsec" style="margin-top:18px">Agreement (e-signature)</div>${cons.length ? cons.map((k) => `<div>${esc(k.number)} ${badge(k.status === 'signed' ? 'accepted' : k.status)} ${usd(k.total_cents)} ${k.status === 'signed' ? `signed by ${esc(k.signer_name)} ${ago(k.signed_at)} · <a href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : `<button class="link" data-send-con="${k.id}">send to customer</button> · <button class="link" data-copy-con="${k.id}">copy link</button>`}</div>`).join('') : '<p class="mut">No agreement yet. Customers sign automatically when they accept a quote online. For other trips, create one:</p>'}<p><button class="btn sm" id="mkcon" type="button">Create agreement to sign</button></p>
     <div class="fsec">Invoices</div>${t.invoices.length ? t.invoices.map((i) => `<div><a href="#" data-inv="${i.id}">${esc(i.number)}</a> ${badge(i.status)} ${usd(i.total_cents)} (paid ${usd(i.amount_paid_cents)})</div>`).join('') : '<p class="mut">None yet.</p>'}
@@ -518,7 +525,7 @@ VIEWS.invoices = async (el) => {
   const today = new Date().toISOString().slice(0, 10);
   const draw = async () => {
     const rows = await GET('/invoices?limit=500' + (st ? '&status=' + st : '') + (q ? '&q=' + encodeURIComponent(q) : ''));
-    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Title', f: (r) => esc(r.title) }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Paid', f: (r) => usd(r.amount_paid_cents), cls: 'r' }, { h: 'Balance', f: (r) => `<b>${usd(r.total_cents - r.amount_paid_cents)}</b>`, cls: 'r' }, { h: 'Due', f: (r) => `${fmt(r.due_date)}${['sent', 'partial'].includes(r.status) && r.due_date < today ? ' <span class="badge b-r">overdue</span>' : ''}` }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No invoices.' });
+    $('#list', el).innerHTML = table([{ h: 'No.', f: (r) => `<span class="bold">#${r.seq || r.id}</span><br><span class="mut sm">${esc(r.number)}</span>` }, { h: 'Customer', f: (r) => custLink(r.customer_id, r.customer_name) }, { h: 'Title', f: (r) => esc(r.title) }, { h: 'Total', f: (r) => usd(r.total_cents), cls: 'r' }, { h: 'Paid', f: (r) => usd(r.amount_paid_cents), cls: 'r' }, { h: 'Balance', f: (r) => `<b>${usd(r.total_cents - r.amount_paid_cents)}</b>`, cls: 'r' }, { h: 'Due', f: (r) => `${fmt(r.due_date)}${['sent', 'partial'].includes(r.status) && r.due_date < today ? ' <span class="badge b-r">overdue</span>' : ''}` }, { h: 'Status', f: (r) => badge(r.status) }], rows, { onClick: 1, empty: 'No invoices.', labels: 'invoice' });
     bindRows($('#list', el), rows, (r) => invoiceModal(r.id));
   };
   el.innerHTML = `<div class="toolbar">${chips(INV_ST, st)}<input type="search" id="q" placeholder="Search…">${button('+ Invoice', 'primary', 'id="new"')}${exportBtn('invoices')}</div><div id="list"></div>`;
@@ -533,7 +540,7 @@ async function invoiceModal(id) {
   const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title / description' }, { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_cents', l: 'Deposit due now', t: 'money', help: 'Customers can pay this amount or the full balance' }, { k: 'gratuity_cents', l: 'Gratuity (not taxed)', t: 'money', help: 'Added by you only. Customers cannot add gratuity themselves.' }, { k: 'due_date', l: 'Due date', t: 'date' }, { k: 'status', l: 'Status', t: 'select', o: [['draft', 'draft'], ['sent', 'sent (use Send)'], ['void', 'void']] }, { k: 'notes', l: 'Note shown on invoice', t: 'textarea', full: 1 }];
   const bal = (i.total_cents || 0) - (i.amount_paid_cents || 0);
   modal({
-    title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null,
+    title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null, labels: id ? { type: 'invoice', id } : null,
     body: `${id ? `<p>${badge(i.status)} <b>${usd(i.total_cents)}</b> total · <b>${usd(i.amount_paid_cents)}</b> paid · balance <b>${usd(bal)}</b></p>` : ''}${formHTML(F, i)}<div style="margin-top:12px">${itemsEditor(J(i.items).length ? J(i.items) : [], i.tax_rate)}</div>
     ${id ? `<div class="fsec" style="margin-top:18px">Payments</div>${pays.length ? table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Ref', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => usd(p.amount_cents), cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }, { h: '', f: (p) => (p.status === 'authorized' ? `<button class="btn sm primary" data-capture="${p.id}" data-amt="${p.amount_cents}">Capture</button> <button class="btn sm" data-release="${p.id}">Release hold</button>` : p.status === 'succeeded' && p.amount_cents > 0 && p.method !== 'refund' ? `<button class="btn sm danger" data-refund="${p.id}" data-amt="${p.amount_cents}">Refund…</button>` : '') }], pays) : '<p class="mut">No payments yet.</p>'}
     <form id="payf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px"><label>Record payment ($)<input id="pa" type="number" step="0.01" min="0" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label>Method<select id="pm"><option>cash</option><option>check</option><option>zelle</option><option>venmo</option><option>wire</option><option>card</option><option>other</option></select></label><label>Reference<input id="pr" style="width:150px"></label><button class="btn sm primary">Record</button></form>
@@ -581,9 +588,10 @@ const LED_COLS = (opts) => [
   { h: 'Paid with', f: (r) => esc(r.paid_with || '') },
   { h: 'Account', f: (r) => esc(r.account || '') },
   { h: 'Notes', f: (r) => `<span class="mut sm">${esc(r.notes || '')}</span>` },
-  { h: 'Maaser', cls: 'r', f: (r) => (r.maaser_cents ? usd(r.maaser_cents) : '') },
+  { h: 'Maaser 10%', cls: 'r', f: (r) => (r.direction === 'in' && r.maaser_cents ? `<label class="mz" title="Tick when the maaser has been given"><span>${usd(r.maaser_cents)}</span><input type="checkbox" data-maaser="${r.id}" ${r.maaser_given ? 'checked' : ''} aria-label="Maaser given"><small>${r.maaser_given ? 'given' : 'owed'}</small></label>` : '') },
   { h: 'Attached', f: (r) => [r.invoice_id ? `<a href="/api/admin/invoices/${r.invoice_id}/pdf" target="_blank" rel="noopener" class="sm">Invoice PDF</a>` : '', r.has_file ? `<a href="/api/admin/ledger/${r.id}/file" target="_blank" rel="noopener" class="sm">${esc(r.file_name || 'File')}</a>` : ''].filter(Boolean).join('<br>') || '<span class="mut sm">none</span>' },
 ];
+document.addEventListener('change', (e) => { const c = e.target.closest('[data-maaser]'); if (!c) return; guard(async () => { await PUT(`/ledger/${c.dataset.maaser}/maaser`, { given: c.checked }); reload(); }, c.checked ? 'Maaser recorded as given' : 'Maaser marked as owed'); });
 document.addEventListener('click', (e) => { const a = e.target.closest('[data-invlink]'); if (!a) return; e.preventDefault(); e.stopPropagation(); invoiceModal(+a.dataset.invlink); }, true);
 
 function ledgerModal(entry, opts, after) {
@@ -592,13 +600,13 @@ function ledgerModal(entry, opts, after) {
   const dl = (id, list) => `<datalist id="${id}">${(list || []).map((x) => `<option value="${esc(x)}">`).join('')}</datalist>`;
   const dis = auto ? 'disabled' : '';
   modal({
-    title: isNew ? (e.direction === 'in' ? 'Add money in' : 'Add money out') : `${e.direction === 'out' ? 'Money out' : 'Money in'}: ${usd(e.amount_cents)}`, small: true,
+    labels: e.id ? { type: 'ledger', id: e.id } : null, title: isNew ? (e.direction === 'in' ? 'Add money in' : 'Add money out') : `${e.direction === 'out' ? 'Money out' : 'Money in'}: ${usd(e.amount_cents)}`, small: true,
     body: `${auto ? `<div class="alert-ok" style="margin-bottom:10px">This came from a payment on invoice <b>${esc(e.invoice_ref)}</b>, so the amount and date are fixed. The invoice is attached below. To reverse it, refund the payment.</div>` : ''}
     <div class="fgrid">
       <label>Type<select id="ld" ${dis}><option value="in" ${e.direction === 'in' ? 'selected' : ''}>Money in</option><option value="out" ${e.direction === 'out' ? 'selected' : ''}>Money out</option></select></label>
       <label>Date<input id="dt" type="date" value="${esc(e.date)}" ${dis}></label>
       <label>Amount ($)<input id="am" type="number" min="0" step="0.01" value="${e.amount_cents ? dollars(e.amount_cents) : ''}" ${dis}></label>
-      <label>Maaser ($)<input id="mz" type="number" min="0" step="0.01" value="${e.maaser_cents ? dollars(e.maaser_cents) : ''}"><span class="hint">${opts.maaser_pct ? `${opts.maaser_pct}% of money in is filled in for you.` : 'Optional. Set a percentage in Settings to fill it in automatically.'}</span></label>
+      <div class="full" id="mzbox" ${e.direction === 'out' ? 'hidden' : ''}><div class="alert-ok" style="margin:0"><b>Maaser: <span id="mzamt">${usd(e.id ? e.maaser_cents : 0)}</span></b> (ten percent of the money in)<label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:8px 0 0"><input type="checkbox" id="mzgiven" ${e.maaser_given ? 'checked' : ''}> Maaser already given. Record it as a charity expense.</label></div></div>
       <label class="full">Vendor${e.direction === 'in' ? ' or customer' : ''}<input id="vn" list="vl" value="${esc(e.vendor || '')}" placeholder="Who was paid or who paid you" ${auto ? 'disabled' : ''}></label>
       <label>Invoice #<input id="iv" value="${esc(e.invoice_ref || '')}" ${auto ? 'disabled' : ''} placeholder="Their invoice or receipt number"></label>
       <label>Paid with<input id="pw" list="pwl" value="${esc(e.paid_with || '')}" placeholder="Credit card, check, cash..."></label>
@@ -615,15 +623,20 @@ function ledgerModal(entry, opts, after) {
     footer: `${!isNew && !auto ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${button(isNew ? 'Add to ledger' : 'Save', 'primary', 'id="go"')}`,
     onMount(ov, close) {
       let picked = null;
+      const wasGiven = !!e.maaser_given;
+      const syncMz = () => { const inn = $('#ld', ov).value === 'in'; $('#mzbox', ov).hidden = !inn; const am = d2c($('#am', ov).value) || e.amount_cents || 0; $('#mzamt', ov).textContent = usd(Math.round(am * 0.1)); };
+      $('#ld', ov).onchange = syncMz; $('#am', ov).oninput = syncMz; syncMz();
       const showFiles = (x) => { $('#ledfiles', ov).innerHTML = [x?.invoice_id ? `<div>Invoice ${esc(x.invoice_ref)}: <a href="/api/admin/invoices/${x.invoice_id}/pdf" target="_blank" rel="noopener">open PDF</a> (attached automatically)</div>` : '', x?.has_file ? `<div>${esc(x.file_name || 'File')}: <a href="/api/admin/ledger/${x.id}/file" target="_blank" rel="noopener">open</a> <button type="button" class="link sm" id="rmf">remove</button></div>` : ''].join('') || '<span class="mut">Nothing attached yet.</span>'; $('#rmf', ov)?.addEventListener('click', () => guard(async () => { await DEL(`/ledger/${x.id}/file`); x.has_file = false; showFiles(x); after?.(); }, 'File removed')); };
       showFiles(isNew ? null : e);
       $('#ledfile', ov).onchange = (ev) => { picked = ev.target.files[0] || null; $('#lfn', ov).textContent = picked ? picked.name : ''; if (picked && picked.size > 10 * 1024 * 1024) { toast('That file is over 10 MB.', true); picked = null; $('#lfn', ov).textContent = ''; } };
       const money = (sel) => { const v = $(sel, ov).value; return v === '' ? undefined : d2c(v); };
       $('#go', ov).onclick = () => guard(async () => {
         const b = { vendor: $('#vn', ov).value, invoice_ref: $('#iv', ov).value, description: $('#ds', ov).value, paid_with: $('#pw', ov).value, account: $('#ac', ov).value, category: $('#ct', ov).value, notes: $('#nt', ov).value };
-        const mz = money('#mz'); if (mz !== undefined) b.maaser_cents = mz; else if (!isNew) b.maaser_cents = 0;
         if (!auto) { b.direction = $('#ld', ov).value; b.date = $('#dt', ov).value; const am = money('#am'); if (!am) return toast('Enter the amount.', true); b.amount_cents = am; }
+        const wantGiven = $('#ld', ov).value === 'in' && $('#mzgiven', ov).checked;
+        if (isNew) b.maaser_given = wantGiven;
         const saved = isNew ? await POST('/ledger', b) : await PUT(`/ledger/${e.id}`, b);
+        if (!isNew && $('#ld', ov).value === 'in' && wantGiven !== wasGiven) await PUT(`/ledger/${e.id}/maaser`, { given: wantGiven });
         if (picked) { const r = await fetch(`/api/admin/ledger/${saved.id}/file`, { method: 'POST', headers: { 'content-type': picked.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(picked.name) }, body: picked }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(`Saved, but the file did not upload: ${j.error || r.status}`); }
         close(); after?.();
       }, isNew ? 'Added to the ledger' : 'Saved');
@@ -651,8 +664,8 @@ VIEWS.ledger = async (el) => {
       <div class="tile"><div class="l">Money in</div><div class="v led-in">${usd(t.money_in)}</div><div class="s">${data.rows.filter((r) => r.direction === 'in').length} entries</div></div>
       <div class="tile"><div class="l">Money out</div><div class="v led-out">${usd(t.money_out)}</div><div class="s">${data.rows.filter((r) => r.direction === 'out').length} entries</div></div>
       <div class="tile"><div class="l">Net</div><div class="v ${t.net < 0 ? 'led-out' : ''}">${t.net < 0 ? '-' : ''}${usd(Math.abs(t.net))}</div><div class="s">${t.entries} entr${t.entries === 1 ? 'y' : 'ies'} counted</div></div>
-      <div class="tile"><div class="l">Maaser</div><div class="v">${usd(t.maaser)}</div><div class="s">${opts0.maaser_pct ? `${opts0.maaser_pct}% set aside on money in` : 'total of the Maaser column'}</div></div></div>
-    ${table(LED_COLS(opts0), data.rows, { onClick: 1, empty: 'No entries in this period. Payments on invoices appear here by themselves.' })}
+      <div class="tile"><div class="l">Maaser still owed</div><div class="v">${usd(t.maaser_owed)}</div><div class="s">10% of money in &middot; ${usd(t.maaser_given)} given</div></div></div>
+    ${table(LED_COLS(opts0), data.rows, { onClick: 1, empty: 'No entries in this period. Payments on invoices appear here by themselves.', labels: 'ledger' })}
     <div class="cols" style="margin-top:18px"><div class="panel"><h3>By category</h3>${catRows.length ? table([{ h: 'Category', f: (r) => esc(r.k) }, { h: 'In', cls: 'r', f: (r) => (r.in ? `<span class="led-in">${usd(r.in)}</span>` : '') }, { h: 'Out', cls: 'r', f: (r) => (r.out ? `<span class="led-out">${usd(r.out)}</span>` : '') }], catRows) : '<div class="empty">Nothing yet.</div>'}</div>
     <div class="panel"><h3>Balance by account <span class="mut sm">all time</span></h3>${data.balances.length ? table([{ h: 'Account', f: (r) => esc(r.k) }, { h: 'Entries', cls: 'r', f: (r) => r.n }, { h: 'Net', cls: 'r', f: (r) => `<span class="${r.net < 0 ? 'led-out' : 'led-in'}">${r.net < 0 ? '-' : ''}${usd(Math.abs(r.net))}</span>` }], data.balances) : '<div class="empty">Nothing yet.</div>'}</div></div>`;
     bindRows(body(), data.rows, (r) => ledgerModal(r, opts0, load));
@@ -706,11 +719,111 @@ function quickPaymentModal(after) {
   return m;
 }
 
+
+// ---------- labels: colored, nested like Gmail, on almost everything ----------
+const LBL = { labels: [], by: {}, links: {}, palette: [], filter: '' };
+async function loadLabels() { const d = await GET('/labels'); LBL.labels = d.labels; LBL.by = Object.fromEntries(d.labels.map((l) => [l.id, l])); LBL.links = d.links; LBL.palette = d.palette; }
+const lblFg = (hex) => { const n = parseInt(String(hex).slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#1f2d36' : '#ffffff'; };
+const lblChip = (l) => `<span class="lbl" style="background:${esc(l.color)};color:${lblFg(l.color)}" title="${esc(l.path)}">${esc(l.path.replace(/\//g, ' / '))}</span>`;
+const labelIds = (type, id) => LBL.links[type]?.[id] || [];
+const labelChips = (type, id) => labelIds(type, id).map((i) => LBL.by[i]).filter(Boolean).map(lblChip).join(' ');
+const lblDescendants = (id) => { const ids = [id]; for (let i = 0; i < ids.length; i++) for (const l of LBL.labels) if (l.parent_id === ids[i] && !ids.includes(l.id)) ids.push(l.id); return ids; };
+const palHTML = (cur) => `<div class="pal">${LBL.palette.map((c) => `<button type="button" class="sw ${c === cur ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('')}</div>`;
+
+/** Hide list rows that do not carry the label picked in the toolbar (a parent label includes its sub-labels). */
+function applyLabelFilter() {
+  const f = +LBL.filter || 0, ids = f ? new Set(lblDescendants(f)) : null;
+  $$('#view tr[data-lb]').forEach((tr) => { if (!ids) { tr.hidden = false; return; } tr.hidden = !(tr.dataset.lb || '').split(',').filter(Boolean).some((x) => ids.has(+x)); });
+}
+const LABEL_VIEWS = ['leads', 'quotes', 'trips', 'invoices', 'customers', 'vendors', 'drivers', 'fleet', 'ledger'];
+function decorateLabelFilter() {
+  if (!LABEL_VIEWS.includes(S.view) || !LBL.labels.length) return;
+  const el = $('#view'); let bar = el.querySelector('.toolbar');
+  if (!bar) { bar = document.createElement('div'); bar.className = 'toolbar'; el.prepend(bar); }
+  bar.insertAdjacentHTML('beforeend', `<select class="lblfilter" aria-label="Filter by label" style="width:auto;min-width:150px"><option value="">All labels</option>${LBL.labels.map((l) => `<option value="${l.id}">${'&nbsp;&nbsp;'.repeat(l.depth)}${esc(l.name)}</option>`).join('')}</select>`);
+  bar.querySelector('.lblfilter').onchange = (e) => { LBL.filter = e.target.value; applyLabelFilter(); };
+}
+new MutationObserver(() => applyLabelFilter()).observe(document.getElementById('view'), { childList: true, subtree: true });
+
+/** Small popover for choosing a palette color. */
+function openPalette(anchor, cur, pick) {
+  document.querySelector('.lblpick')?.remove();
+  const pop = document.createElement('div'); pop.className = 'lblpick'; pop.innerHTML = `<div class="mut sm" style="margin-bottom:6px">Pick a color</div>${palHTML(cur)}`;
+  document.body.append(pop); placePop(pop, anchor);
+  pop.onclick = (e) => { const b = e.target.closest('[data-c]'); if (b) { pop.remove(); pick(b.dataset.c); } };
+  setTimeout(() => document.addEventListener('mousedown', function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('mousedown', off); } }), 0);
+}
+function placePop(pop, anchor) { const r = anchor.getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.left)) + 'px'; pop.style.top = Math.min(innerHeight - pop.offsetHeight - 8, r.bottom + 6) + 'px'; }
+
+/** The picker: tick labels, or type a name (Parent/Child nests) and create one on the spot. */
+function openLabelPicker(anchor, target, done) {
+  document.querySelector('.lblpick')?.remove();
+  const pop = document.createElement('div'); pop.className = 'lblpick';
+  let sel = new Set(labelIds(target.type, target.id)), q = '', color = '';
+  const save = () => guard(async () => {
+    await PUT('/label-items', { type: target.type, id: target.id, label_ids: [...sel] });
+    LBL.links[target.type] ||= {}; if (sel.size) LBL.links[target.type][target.id] = [...sel]; else delete LBL.links[target.type][target.id];
+    done?.(); applyLabelFilter();
+  });
+  const draw = () => {
+    const rows = LBL.labels.filter((l) => !q || l.path.toLowerCase().includes(q.toLowerCase()));
+    const exact = LBL.labels.some((l) => l.path.toLowerCase() === q.trim().toLowerCase());
+    pop.innerHTML = `<input type="search" id="lpq" placeholder="Find or create a label" value="${esc(q)}" autocomplete="off">
+      <div class="lblist">${rows.map((l) => `<label class="lblrow" style="padding-left:${10 + (q ? 0 : l.depth * 16)}px"><input type="checkbox" data-l="${l.id}" ${sel.has(l.id) ? 'checked' : ''}><i class="dot" style="background:${l.color}"></i><span>${esc(q ? l.path.replace(/\//g, ' / ') : l.name)}</span></label>`).join('') || (q ? '' : '<div class="mut sm" style="padding:10px">No labels yet. Type a name to make one.</div>')}</div>
+      ${q.trim() && !exact ? `<div class="lblnew"><button type="button" class="btn sm primary" data-create>Create "${esc(q.trim())}"</button><div class="mut sm" style="margin:6px 0 4px">Color</div>${palHTML(color)}<div class="mut sm" style="margin-top:6px">Type <b>Parent/Child</b> to nest it.</div></div>` : ''}
+      <div class="lblfoot"><a href="#/labels">Manage labels</a></div>`;
+    const inp = pop.querySelector('#lpq'); inp.focus(); inp.setSelectionRange(q.length, q.length);
+    inp.oninput = (e) => { q = e.target.value; draw(); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); pop.querySelector('[data-create]')?.click(); } if (e.key === 'Escape') pop.remove(); };
+    pop.querySelectorAll('[data-l]').forEach((c) => (c.onchange = () => { const id = +c.dataset.l; c.checked ? sel.add(id) : sel.delete(id); save(); }));
+    pop.querySelectorAll('.sw').forEach((b) => (b.onclick = () => { color = b.dataset.c; draw(); }));
+    pop.querySelector('[data-create]')?.addEventListener('click', () => guard(async () => { const r = await POST('/labels', { name: q.trim(), color: color || undefined }); await loadLabels(); sel.add(r.id); q = ''; color = ''; await save(); draw(); }, 'Label created'));
+    pop.querySelector('.lblfoot a').onclick = () => pop.remove();
+  };
+  document.body.append(pop); draw(); placePop(pop, anchor);
+  setTimeout(() => document.addEventListener('mousedown', function off(e) { if (!pop.contains(e.target) && !anchor.contains(e.target)) { pop.remove(); document.removeEventListener('mousedown', off); } }), 0);
+}
+
+function labelModal(label, parentId, after) {
+  const L = label || { name: '', color: '', parent_id: parentId || null };
+  const bad = new Set(label ? lblDescendants(label.id) : []);
+  let color = L.color || LBL.palette[LBL.labels.length % LBL.palette.length];
+  modal({ title: label ? 'Edit label' : (parentId ? 'New sub-label' : 'New label'), small: true,
+    body: `<div class="fgrid"><label class="full">Name<input id="ln" value="${esc(L.name)}" maxlength="60" placeholder="e.g. Summer camps, or Camps/Summer"></label>
+      <label class="full">Nest under<select id="lp"><option value="">(top level)</option>${LBL.labels.filter((l) => !bad.has(l.id)).map((l) => `<option value="${l.id}" ${l.id === L.parent_id ? 'selected' : ''}>${'&nbsp;&nbsp;'.repeat(l.depth)}${esc(l.name)}</option>`).join('')}</select></label>
+      <div class="full"><div class="mut sm" style="margin-bottom:6px">Color</div><div id="lpal">${palHTML(color)}</div><div style="margin-top:10px">Preview: <span id="lprev"></span></div></div></div>`,
+    footer: `${label ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${button(label ? 'Save' : 'Create label', 'primary', 'id="go"')}`,
+    onMount(ov, close) {
+      const prev = () => { const n = $('#ln', ov).value.trim() || 'Label'; $('#lprev', ov).innerHTML = lblChip({ color, path: n }); };
+      $('#lpal', ov).onclick = (e) => { const b = e.target.closest('.sw'); if (!b) return; color = b.dataset.c; $('#lpal', ov).innerHTML = palHTML(color); prev(); };
+      $('#ln', ov).oninput = prev; prev();
+      $('#go', ov).onclick = () => guard(async () => {
+        const b = { name: $('#ln', ov).value, color, parent_id: $('#lp', ov).value || null };
+        if (label) await PUT(`/labels/${label.id}`, b); else await POST('/labels', b);
+        await loadLabels(); close(); after?.();
+      }, label ? 'Saved' : 'Label created');
+      $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm(`Delete the label "${label.name}"? It is taken off ${label.count} item${label.count === 1 ? '' : 's'}. Sub-labels move up one level. Nothing else is deleted.`)) return; await DEL(`/labels/${label.id}`); await loadLabels(); close(); after?.(); }, 'Label deleted'));
+    } });
+}
+
+VIEWS.labels = async (el) => {
+  await loadLabels();
+  const draw = () => {
+    el.innerHTML = `<div class="toolbar">${button('+ New label', 'primary', 'id="nl"')}<span class="mut sm">Labels can go on leads, quotes, trips, invoices, customers, vendors, drivers, vehicles and ledger entries. Open an item and click <b>+ Label</b>. Type <b>Parent/Child</b> to nest.</span></div>
+    <div class="panel">${LBL.labels.length ? LBL.labels.map((l) => `<div class="lblm" style="padding-left:${l.depth * 24}px"><button type="button" class="swatch" data-color="${l.id}" style="background:${l.color}" title="Change color" aria-label="Change color of ${esc(l.name)}"></button><b>${esc(l.name)}</b> <span class="mut sm">${l.count} item${l.count === 1 ? '' : 's'}</span><span class="sp"></span><button type="button" class="btn sm" data-sub="${l.id}">+ Sub-label</button><button type="button" class="btn sm" data-edit="${l.id}">Edit</button></div>`).join('') : '<div class="empty">No labels yet. Click New label, or make one from the + Label button on any item.</div>'}</div>`;
+    $('#nl', el).onclick = () => labelModal(null, null, draw);
+    el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => labelModal(LBL.by[b.dataset.edit], null, draw)));
+    el.querySelectorAll('[data-sub]').forEach((b) => (b.onclick = () => labelModal(null, +b.dataset.sub, draw)));
+    el.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { const l = LBL.by[b.dataset.color]; openPalette(b, l.color, (c) => guard(async () => { await PUT(`/labels/${l.id}`, { color: c }); await loadLabels(); draw(); }, 'Color changed')); }));
+  };
+  draw();
+};
+
 // ---------- vendors / RFQs ----------
 const VEND_F = [{ k: 'name', l: 'Company', req: 1 }, { k: 'contact_name', l: 'Contact person' }, { k: 'email', l: 'Email (for quote requests)', t: 'email' }, { k: 'phone', l: 'Phone', t: 'tel' }, { k: 'vehicle_types', l: 'Vehicles they run', help: 'e.g. 56 coach, 33 party bus, sprinters' }, { k: 'service_area', l: 'Service area' }, { k: 'rating', l: 'Rating (1-5)', t: 'number' }, { k: 'active', l: 'Active', t: 'check' }, { sec: 'Insurance and authority' }, { k: 'insurance_carrier', l: 'Insurance carrier' }, { k: 'insurance_policy', l: 'Policy number' }, { k: 'insurance_expires', l: 'Insurance expires', t: 'date', help: 'You get alerts at 30, 14, 7 and 3 days and when it lapses' }, { k: 'dot_number', l: 'USDOT number' }, { k: 'mc_number', l: 'MC number' }, { k: 'notes', l: 'Notes (rates, reliability)', t: 'textarea', full: 1 }];
 VIEWS.vendors = async (el) => {
   const rows = await GET('/vendors');
-  el.innerHTML = `<div class="toolbar">${button('+ Vendor', 'primary', 'id="new"')}${exportBtn('vendors')}${exportBtn('rfqs', 'Export vendor quotes')}</div>${table([{ h: 'Vendor', f: (v) => `<span class="bold">${esc(v.name)}</span><br><span class="mut sm">${esc(v.contact_name || '')}</span>` }, { h: 'Email', f: (v) => esc(v.email) }, { h: 'Phone', f: (v) => esc(v.phone) }, { h: 'Vehicles', f: (v) => esc(v.vehicle_types) }, { h: 'Area', f: (v) => esc(v.service_area) }, { h: 'Insurance', f: (v) => insBadge(v) }, { h: 'Rating', f: (v) => '★'.repeat(v.rating || 0) }, { h: '', f: (v) => (v.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add the bus companies you work with to send them quote requests.' })}`;
+  el.innerHTML = `<div class="toolbar">${button('+ Vendor', 'primary', 'id="new"')}${exportBtn('vendors')}${exportBtn('rfqs', 'Export vendor quotes')}</div>${table([{ h: 'Vendor', f: (v) => `<span class="bold">${esc(v.name)}</span><br><span class="mut sm">${esc(v.contact_name || '')}</span>` }, { h: 'Email', f: (v) => esc(v.email) }, { h: 'Phone', f: (v) => esc(v.phone) }, { h: 'Vehicles', f: (v) => esc(v.vehicle_types) }, { h: 'Area', f: (v) => esc(v.service_area) }, { h: 'Insurance', f: (v) => insBadge(v) }, { h: 'Rating', f: (v) => '★'.repeat(v.rating || 0) }, { h: '', f: (v) => (v.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add the bus companies you work with to send them quote requests.', labels: 'vendor' })}`;
   $('#new', el).onclick = () => vendorModal();
   bindRows(el, rows, vendorModal);
 };
@@ -735,7 +848,8 @@ function vendorModal(v) {
 }
 function simpleModal(title, F, rec, base, extraFooter = '', onMount2) {
   const defaults = rec ? rec : { active: 1 };
-  return modal({ title, body: formHTML(F, defaults), footer: `${rec ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${extraFooter}${button('Save', 'primary', 'id="save"')}`, onMount(ov, close) {
+  const LT = { '/vendors': 'vendor', '/drivers': 'driver', '/vehicles': 'vehicle' }[base];
+  return modal({ title, labels: rec && LT ? { type: LT, id: rec.id } : null, body: formHTML(F, defaults), footer: `${rec ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${extraFooter}${button('Save', 'primary', 'id="save"')}`, onMount(ov, close) {
     $('#save', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; rec ? await PUT(`${base}/${rec.id}`, o) : await POST(base, o); close(); await refresh(); }, 'Saved');
     $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete?')) return; await DEL(`${base}/${rec.id}`); close(); await refresh(); }, 'Deleted'));
     onMount2?.(ov, close);
@@ -818,7 +932,7 @@ VIEWS.banner = async (el) => {
 const VEH_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'category', l: 'Category', t: 'select', o: ['Coach Bus', 'Party Bus', 'Trolley', 'Limo', 'Sprinter / Shuttle', 'Executive Coach', 'Double Decker', 'Other'].map((x) => [x, x]) }, { k: 'capacity', l: 'Seats', t: 'number' }, { k: 'sort', l: 'Sort order', t: 'number', help: 'Lower shows first' }, { k: 'features', l: 'Features', help: 'comma separated', full: 1 }, { k: 'description', l: 'Description (public)', t: 'textarea', full: 1 }, { k: 'active', l: 'Show on website', t: 'check' }, { sec: 'INTERNAL ONLY. Never shown on the website, in emails, or to customers or drivers.' }, { k: 'operator_url', l: 'Operator site (internal link)', t: 'url', full: 1, help: 'Where you check this vehicle or the operator, e.g. https://...' }, { k: 'internal_pricing', l: 'Marked pricing (internal)', t: 'textarea', rows: 3, full: 1, help: 'What it costs us and what we mark it up to, e.g. cost $150/hr, we charge $195/hr, 5 hr minimum' }, { k: 'internal_notes', l: 'Internal notes', t: 'textarea', rows: 3, full: 1 }];
 VIEWS.fleet = async (el) => {
   const rows = await GET('/vehicles');
-  el.innerHTML = `<div class="toolbar">${button('+ Vehicle', 'primary', 'id="new"')}${exportBtn('fleet')}<span class="mut sm">Order with the sort number. Upload vehicle photos only: no people in any picture.</span></div>${table([{ h: '', f: (v) => (v.image ? `<img src="${esc(v.image)}" alt="" style="width:64px;height:40px;object-fit:cover;border-radius:6px">` : '') }, { h: 'Vehicle', f: (v) => `<span class="bold">${esc(v.name)}</span>` }, { h: 'Category', f: (v) => esc(v.category) }, { h: 'Seats', f: (v) => v.capacity, cls: 'r' }, { h: 'Operator', f: (v) => (v.operator_url ? `<a href="${esc(v.operator_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open</a>` : '') }, { h: 'Order', f: (v) => v.sort, cls: 'r' }, { h: 'Site', f: (v) => (v.active ? badge('live') : badge('hidden')) }], rows, { onClick: 1 })}`;
+  el.innerHTML = `<div class="toolbar">${button('+ Vehicle', 'primary', 'id="new"')}${exportBtn('fleet')}<span class="mut sm">Order with the sort number. Upload vehicle photos only: no people in any picture.</span></div>${table([{ h: '', f: (v) => (v.image ? `<img src="${esc(v.image)}" alt="" style="width:64px;height:40px;object-fit:cover;border-radius:6px">` : '') }, { h: 'Vehicle', f: (v) => `<span class="bold">${esc(v.name)}</span>` }, { h: 'Category', f: (v) => esc(v.category) }, { h: 'Seats', f: (v) => v.capacity, cls: 'r' }, { h: 'Operator', f: (v) => (v.operator_url ? `<a href="${esc(v.operator_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open</a>` : '') }, { h: 'Order', f: (v) => v.sort, cls: 'r' }, { h: 'Site', f: (v) => (v.active ? badge('live') : badge('hidden')) }], rows, { onClick: 1, labels: 'vehicle' })}`;
   $('#new', el).onclick = () => vehModal();
   bindRows(el, rows, vehModal);
 };
@@ -852,7 +966,7 @@ function vehModal(v) {
 const DRV_F = [{ k: 'name', l: 'Name', req: 1 }, { k: 'phone', l: 'Phone (for text link)', t: 'tel' }, { k: 'email', l: 'Email', t: 'email' }, { k: 'vendor_id', l: 'Works for vendor', t: 'select', o: [] }, { k: 'active', l: 'Active', t: 'check' }, { k: 'notes', l: 'Notes', t: 'textarea', full: 1 }];
 VIEWS.drivers = async (el) => {
   const rows = await GET('/drivers');
-  el.innerHTML = `<div class="panel" style="background:var(--blue-l);border-color:#bcdcf0"><b>How drivers sign in:</b> every driver has a private link, no password. Send it by email or text; they open it once and their phone remembers them. They only see their own trips, and customer contact info unlocks ${S.settings?.driver_window_before_hrs || 24} hours before pickup. If a phone is lost, regenerate the link to cut off the old one.</div><div class="toolbar">${button('+ Driver', 'primary', 'id="new"')}${exportBtn('drivers')}</div>${table([{ h: 'Driver', f: (d) => `<span class="bold">${esc(d.name)}</span>` }, { h: 'Phone', f: (d) => esc(d.phone) }, { h: 'Email', f: (d) => esc(d.email) }, { h: 'Vendor', f: (d) => esc(d.vendor_name || '-') }, { h: 'Portal link', f: (d) => `<button class="btn sm" data-copy="${esc(location.origin + '/d/' + d.token)}">Copy</button> <button class="btn sm" data-send="${d.id}" data-via="email">Email</button> <button class="btn sm" data-send="${d.id}" data-via="sms">Text</button>` }, { h: '', f: (d) => (d.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add your drivers to give them portal links.' })}`;
+  el.innerHTML = `<div class="panel" style="background:var(--blue-l);border-color:#bcdcf0"><b>How drivers sign in:</b> every driver has a private link, no password. Send it by email or text; they open it once and their phone remembers them. They only see their own trips, and customer contact info unlocks ${S.settings?.driver_window_before_hrs || 24} hours before pickup. If a phone is lost, regenerate the link to cut off the old one.</div><div class="toolbar">${button('+ Driver', 'primary', 'id="new"')}${exportBtn('drivers')}</div>${table([{ h: 'Driver', f: (d) => `<span class="bold">${esc(d.name)}</span>` }, { h: 'Phone', f: (d) => esc(d.phone) }, { h: 'Email', f: (d) => esc(d.email) }, { h: 'Vendor', f: (d) => esc(d.vendor_name || '-') }, { h: 'Portal link', f: (d) => `<button class="btn sm" data-copy="${esc(location.origin + '/d/' + d.token)}">Copy</button> <button class="btn sm" data-send="${d.id}" data-via="email">Email</button> <button class="btn sm" data-send="${d.id}" data-via="sms">Text</button>` }, { h: '', f: (d) => (d.active ? '' : badge('inactive')) }], rows, { onClick: 1, empty: 'Add your drivers to give them portal links.', labels: 'driver' })}`;
   $('#new', el).onclick = () => drvModal();
   bindRows(el, rows, drvModal);
   el.addEventListener('click', (e) => {
@@ -979,7 +1093,7 @@ VIEWS.settings = async (el) => {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const intg = me.integrations;
   const st = (ok, l, how) => `<tr><td>${l}</td><td>${ok ? badge('paid').replace('paid', 'connected') : badge('void').replace('void', 'not set')}</td><td class="mut sm">${how}</td></tr>`;
-  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Ledger' }, { k: 'ledger_accounts', l: 'Accounts', help: 'comma separated, e.g. Stripe, Business checking, Cash', full: 1 }, { k: 'ledger_paid_with', l: 'Ways of paying', help: 'comma separated', full: 1 }, { k: 'ledger_categories', l: 'Categories', help: 'comma separated', full: 1 }, { k: 'maaser_pct', l: 'Maaser % set aside on money in', t: 'number', step: 0.5, help: '0 turns it off. You can change it on any entry.' }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_mode', l: 'No automatic texts during', t: 'select', o: [['zmanim', 'Shabbos and Yom Tov (real candle lighting to havdalah)'], ['weekly', 'A fixed weekly window']], help: 'Reminders wait and go out after it ends' }, { k: 'candle_mins', l: 'Candle lighting, minutes before sunset', t: 'number' }, { k: 'havdalah_mins', l: 'Havdalah, minutes after sunset', t: 'number', help: '50 is common. Use 72 for Rabbeinu Tam.' }, { k: 'sms_quiet_start', l: 'Fixed weekly window starts', help: 'Only if you chose a fixed window, e.g. Fri 14:00' }, { k: 'sms_quiet_end', l: 'Fixed weekly window ends', help: 'e.g. Sat 21:30' }, { k: '_sg', t: 'custom', html: '<div class="fsec">Automatic texts to customers (only to customers who agreed)</div><div id="sgbox" style="display:flex;flex-wrap:wrap;gap:6px 18px"></div>' },  { k: 'sms_own_number', l: 'Our SimpleSender number', help: '10 digits. Needed so replies and STOP are picked up.' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Bus routing: vehicle size, used to avoid roads closed to buses' }, { k: 'bus_height_cm', l: 'Height (cm)', t: 'number', help: 'Typical coach 370' }, { k: 'bus_width_cm', l: 'Width (cm)', t: 'number', help: 'Typical coach 260' }, { k: 'bus_length_cm', l: 'Length (cm)', t: 'number', help: 'Typical 45 ft coach 1370' }, { k: 'bus_weight_kg', l: 'Weight (kg)', t: 'number', help: 'Typical coach 18000' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges, days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders, days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders, days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder, hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you, days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder, hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact, hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked, hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
+  const F = [{ sec: 'Business' }, { k: 'business_name', l: 'Business name' }, { k: 'phone', l: 'Phone' }, { k: 'email', l: 'Public email' }, { k: 'address', l: 'Address (shown if filled)', places: 1 }, { k: 'service_area', l: 'Service area', full: 1 }, { sec: 'Money defaults' }, { k: 'tax_rate', l: 'Default tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Default deposit %', t: 'number' }, { k: 'quote_valid_days', l: 'Quote valid (days)', t: 'number' }, { k: 'invoice_due_days', l: 'Invoice due (days)', t: 'number' }, { sec: 'Ledger' }, { k: 'ledger_accounts', l: 'Accounts', help: 'comma separated, e.g. Stripe, Business checking, Cash', full: 1 }, { k: 'ledger_paid_with', l: 'Ways of paying', help: 'comma separated', full: 1 }, { k: 'ledger_categories', l: 'Categories', help: 'comma separated', full: 1 }, { sec: 'Texts, reviews & agreements' }, { k: 'sms_enabled', l: 'Text messages', t: 'select', o: [['1', 'On (opted-in customers only)'], ['0', 'Off']] }, { k: 'sms_quiet_mode', l: 'No automatic texts during', t: 'select', o: [['zmanim', 'Shabbos and Yom Tov (real candle lighting to havdalah)'], ['weekly', 'A fixed weekly window']], help: 'Reminders wait and go out after it ends' }, { k: 'candle_mins', l: 'Candle lighting, minutes before sunset', t: 'number' }, { k: 'havdalah_mins', l: 'Havdalah, minutes after sunset', t: 'number', help: '50 is common. Use 72 for Rabbeinu Tam.' }, { k: 'sms_quiet_start', l: 'Fixed weekly window starts', help: 'Only if you chose a fixed window, e.g. Fri 14:00' }, { k: 'sms_quiet_end', l: 'Fixed weekly window ends', help: 'e.g. Sat 21:30' }, { k: '_sg', t: 'custom', html: '<div class="fsec">Automatic texts to customers (only to customers who agreed)</div><div id="sgbox" style="display:flex;flex-wrap:wrap;gap:6px 18px"></div>' },  { k: 'sms_own_number', l: 'Our SimpleSender number', help: '10 digits. Needed so replies and STOP are picked up.' }, { k: 'google_review_url', l: 'Google review link', full: 1, help: 'Your Google Business "write a review" link. It goes in thank-you emails and texts.' }, { k: 'require_signature', l: 'Customers must sign to accept a quote', t: 'select', o: [['1', 'Yes (recommended)'], ['0', 'No, a click is enough']] }, { k: 'trip_purposes', l: 'Trip purposes on the booking form', full: 1, help: 'comma separated' }, { sec: 'Bus routing: vehicle size, used to avoid roads closed to buses' }, { k: 'bus_height_cm', l: 'Height (cm)', t: 'number', help: 'Typical coach 370' }, { k: 'bus_width_cm', l: 'Width (cm)', t: 'number', help: 'Typical coach 260' }, { k: 'bus_length_cm', l: 'Length (cm)', t: 'number', help: 'Typical 45 ft coach 1370' }, { k: 'bus_weight_kg', l: 'Weight (kg)', t: 'number', help: 'Typical coach 18000' }, { sec: 'Email' }, { k: 'email_from', l: 'Send-from address', help: 'e.g. Get A Bus NY <quotes@getabusny.com> (must be verified in Resend)' }, { k: 'notify_email', l: 'Alerts go to', t: 'email', help: 'new leads, payments, vendor replies. Defaults to public email' }, { sec: 'Automatic follow-ups' }, { k: 'fu_enabled', l: 'Automation on', t: 'select', o: [['1', 'On'], ['0', 'Off']] }, { k: 'fu_quote_days', l: 'Quote nudges, days after sending', help: 'comma separated, blank = none' }, { k: 'fu_invoice_before_days', l: 'Invoice reminders, days before due' }, { k: 'fu_invoice_after_days', l: 'Overdue reminders, days after due' }, { k: 'fu_trip_confirm_hours', l: 'Trip reminder, hours before pickup', t: 'number' }, { k: 'fu_trip_thanks_days', l: 'Thank-you, days after trip', t: 'number' }, { k: 'fu_rfq_hours', l: 'Vendor reminder, hours after request', t: 'number' }, { sec: 'Driver portal' }, { k: 'driver_window_before_hrs', l: 'Unlock customer contact, hours before', t: 'number' }, { k: 'driver_window_after_hrs', l: 'Keep unlocked, hours after trip', t: 'number' }, { sec: 'Chesky (website chat)' }, { k: 'chesky_public', l: 'Show chat on website', t: 'select', o: [['1', 'Yes'], ['0', 'No']] }, { k: 'chesky_name', l: 'Assistant name' }, { k: 'chesky_extra', l: 'Extra instructions for Chesky', t: 'textarea', full: 1, help: 'e.g. current promotions, areas you do not serve, minimum hours' }];
   el.innerHTML = `<div class="panel"><h3>General settings</h3>${formHTML(F, s)}
   <div class="fsec" style="margin-top:18px">Hours of operation (shown on site)</div>${days.map((d) => { const h = hours.find((x) => x.day === d) || { open: '', close: '' }; return `<div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:8px;margin:4px 0;align-items:center"><b>${d}</b><input data-h="${d}" data-w="open" value="${esc(h.open)}" placeholder="10:00 AM (blank = closed)"><input data-h="${d}" data-w="close" value="${esc(h.close)}" placeholder="7:00 PM"></div>`; }).join('')}
   <div class="fsec" style="margin-top:18px">Social links</div><div class="fgrid">${['twitter', 'facebook', 'instagram', 'tiktok', 'youtube', 'google'].map((k) => `<label>${k}<input data-soc="${k}" value="${esc(soc[k] || '')}" placeholder="https://"></label>`).join('')}</div>
@@ -1025,7 +1139,7 @@ function showLogin() { $('#shell').hidden = true; $('#login').hidden = false; }
 async function start() {
   try { const me = await GET('/me'); S.me = me.user; window.TZ = me.timezone; } catch { return showLogin(); }
   $('#login').hidden = true; $('#shell').hidden = false;
-  S.settings = await GET('/settings'); S.cfg = await (await fetch('/api/public/config')).json(); await lookups();
+  S.settings = await GET('/settings'); S.cfg = await (await fetch('/api/public/config')).json(); await lookups(); await loadLabels().catch(() => {});
   if (!window.__started) { window.__started = true; initChesky(); window.addEventListener('hashchange', route); $('#menu').onclick = () => $('#side').classList.toggle('open'); }
   route();
 }

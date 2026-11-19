@@ -10,7 +10,8 @@ import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, e
 import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { analyticsRange } from '../report.js';
-import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
+import { allLabels, allLinks, createLabel, updateLabel, deleteLabel, setLabels, PALETTE, LABEL_TYPES } from '../labels.js';
+import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, ledgerMaaser, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
 import { bannerAdminRouter } from '../banner.js';
 import { chargeInvoice, removeCard, cardOf } from '../cards.js';
 import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
@@ -194,11 +195,18 @@ admin.post('/payments/:id/refund', wrap(async (req) => {
   log(req.user.email, 'payment.refunded', 'invoice', p.invoice_id, money(amt));
   return { ok: true };
 }));
+// ---- labels (colored, nested, on almost everything)
+admin.get('/labels', wrap(() => ({ labels: allLabels(), links: allLinks(), palette: PALETTE, types: LABEL_TYPES })));
+admin.post('/labels', wrap((req) => { const l = createLabel(req.body || {}, req.user.email); return { id: l.id, labels: allLabels() }; }));
+admin.put('/labels/:id', wrap((req) => { updateLabel(Number(req.params.id), req.body || {}, req.user.email); return { labels: allLabels() }; }));
+admin.delete('/labels/:id', wrap((req) => { deleteLabel(Number(req.params.id), req.user.email); return { labels: allLabels(), links: allLinks() }; }));
+admin.put('/label-items', wrap((req) => { const ids = setLabels(String(req.body?.type || ''), Number(req.body?.id), req.body?.label_ids, req.user.email); return { label_ids: ids }; }));
 // ---- ledger: every dollar in and out
 admin.get('/ledger', wrap((req) => ledgerList({ from: req.query.from, to: req.query.to, direction: req.query.direction, account: req.query.account, category: req.query.category, q: req.query.q })));
 admin.get('/ledger/options', wrap(() => ledgerOptions()));
 admin.post('/ledger', wrap((req) => ledgerCreate(req.body || {}, req.user.email)));
 admin.put('/ledger/:id', wrap((req) => ledgerUpdate(Number(req.params.id), req.body || {}, req.user.email)));
+admin.put('/ledger/:id/maaser', wrap((req) => ledgerMaaser(Number(req.params.id), !!req.body?.given, req.user.email)));
 admin.delete('/ledger/:id', wrap((req) => { ledgerDelete(Number(req.params.id), req.user.email); return { ok: true }; }));
 admin.post('/ledger/:id/file', express.raw({ type: ['application/pdf', 'image/*'], limit: '10mb' }), wrap((req) => { ledgerAttach(Number(req.params.id), req.body, decodeURIComponent(String(req.headers['x-file-name'] || '')), req.user.email); return { ok: true }; }));
 admin.delete('/ledger/:id/file', wrap((req) => { ledgerRemoveFile(Number(req.params.id), req.user.email); return { ok: true }; }));
