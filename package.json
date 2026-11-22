@@ -7,7 +7,7 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "start": "MALLOC_ARENA_MAX=2 node --max-old-space-size=320 --disable-warning=ExperimentalWarning server.js",
     "dev": "node --watch --disable-warning=ExperimentalWarning server.js",
     "test": "node --disable-warning=ExperimentalWarning test/smoke.js"
   },
