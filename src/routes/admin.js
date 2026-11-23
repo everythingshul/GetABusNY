@@ -248,7 +248,9 @@ admin.post('/rfqs/:id/reply', wrap((req) => {
   log(req.user.email, b.declined ? 'rfq.declined' : 'rfq.reply_recorded', 'rfq', r.id);
   return { ok: true };
 }));
-admin.post('/rfqs/:id/accept', wrap(async (req) => { await S.acceptRFQ(Number(req.params.id)); return { ok: true }; }));
+admin.post('/rfqs/:id/accept', wrap(async (req) => { const b = req.body || {}; await S.acceptRFQ(Number(req.params.id), { price_cents: b.price_cents, vehicle: b.vehicle, notes: b.notes, notify: b.notify !== false, message: b.message }); return { ok: true }; }));
+admin.post('/rfqs/:id/retract', wrap(async (req) => { await S.retractRFQ(Number(req.params.id), { notify: !!req.body?.notify, message: String(req.body?.message || '').slice(0, 1000) }); return { ok: true }; }));
+admin.post('/rfqs/:id/send-update', wrap(async (req) => { const r = await S.sendRFQUpdate(Number(req.params.id), String(req.body?.message || '').slice(0, 1000)); if (!r?.ok) throw bad(r?.error || 'The email could not be sent', 502); return { ok: true }; }));
 admin.post('/rfqs/:id/close', wrap((req) => { update('rfqs', req.params.id, { status: 'closed' }); return { ok: true }; }));
 
 // follow-ups

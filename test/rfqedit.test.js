@@ -39,5 +39,26 @@ try {
   assert.equal(o2.passengers, 30);
   // no edits behaves as before
   const q3 = await mk('33'); assert.equal((await call('POST', `${A}/rfqs`, { request_id: q3.id, vendor_ids: [vid] })).status, 200);
+  // award with a changed price, retract, send an updated itinerary
+  await call('POST', `${A}/vendors`, { name: 'Op Two', email: 'op2@example.com', active: 1 });
+  const vid2 = (await call('GET', `${A}/vendors`)).body.find((v) => v.name === 'Op Two').id;
+  const tr = await call('POST', `${A}/trips`, { customer_id: q.customer_id, purpose: 'Award test', passengers: 20, depart_at: '2099-08-01T08:00', itinerary: [{ kind: 'pickup', address: '5 Z St' }, { kind: 'dropoff', address: '6 Y St' }] });
+  assert.equal(tr.status, 200, JSON.stringify(tr.body)); const tid = tr.body.id;
+  await call('POST', `${A}/rfqs`, { trip_id: tid, vendor_ids: [vid, vid2] });
+  const list = (await call('GET', `${A}/rfqs`)).body.filter((x) => x.trip_id === tid); assert.equal(list.length, 2);
+  for (const x of list) assert.equal((await call('POST', `${A}/rfqs/${x.id}/reply`, { price: 1000, vehicle: 'MCI', notes: 'ok' })).status, 200);
+  const [a1, a2] = list;
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/accept`, { price_cents: 123400, vehicle: 'Van', notes: 'fuel included' })).status, 200);
+  let rows = (await call('GET', `${A}/rfqs`)).body; let x1 = rows.find((x) => x.id === a1.id), x2 = rows.find((x) => x.id === a2.id);
+  assert.equal(x1.status, 'accepted'); assert.equal(x1.price_cents, 123400, 'price changed on award'); assert.equal(x1.offered_vehicle, 'Van'); assert.equal(x2.status, 'closed');
+  let trip = (await call('GET', `${A}/trips/${tid}/detail`)).body; assert.equal(trip.vendor_id, a1.vendor_id); assert.equal(trip.vendor_cost_cents, 123400);
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/accept`, { price_cents: 0 })).status, 400, 'needs a price');
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/accept`, { price_cents: 150000, notify: false })).status, 200); trip = (await call('GET', `${A}/trips/${tid}/detail`)).body; assert.equal(trip.vendor_cost_cents, 150000, 'award can be changed later');
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/send-update`, { message: 'Pickup moved' })).status, 200 , 'update goes to the awarded vendor');
+  assert.equal((await call('POST', `${A}/rfqs/${a2.id}/retract`, {})).status, 400, 'only awarded ones can be retracted');
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/retract`, { notify: true })).status, 200);
+  rows = (await call('GET', `${A}/rfqs`)).body; x1 = rows.find((x) => x.id === a1.id); x2 = rows.find((x) => x.id === a2.id);
+  assert.equal(x1.status, 'responded'); assert.equal(x2.status, 'responded', 'the other vendor request reopens');
+  trip = (await call('GET', `${A}/trips/${tid}/detail`)).body; assert.ok(!trip.vendor_id); assert.equal(trip.vendor_cost_cents, 0);
   console.log('RFQ edit checks passed.');
 } finally { srv.kill(); }

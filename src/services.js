@@ -316,19 +316,67 @@ function saveRevision(r, d) {
   log('admin', 'request.revised', 'request', r.id);
 }
 
-export async function acceptRFQ(id) {
+function rfqTrip(r) {
+  let tripId = r.trip_id;
+  if (!tripId && r.request_id) tripId = one('SELECT t.id FROM trips t JOIN quotes q ON q.id=t.quote_id WHERE q.request_id=? ORDER BY t.id DESC', r.request_id)?.id;
+  return tripId ? one('SELECT * FROM trips WHERE id=?', tripId) : null;
+}
+export async function acceptRFQ(id, o = {}) {
   const r = one('SELECT * FROM rfqs WHERE id=?', id);
   if (!r) throw Object.assign(new Error('RFQ not found'), { status: 404 });
+  const price = o.price_cents != null && o.price_cents !== '' ? Math.max(0, Math.round(Number(o.price_cents))) : r.price_cents || 0;
+  if (!(price > 0)) throw Object.assign(new Error('Enter the price for this vendor.'), { status: 400 });
+  const upd = { status: 'accepted', price_cents: price, awarded_at: now(), closed_by: null };
+  if (o.vehicle != null) upd.offered_vehicle = String(o.vehicle).slice(0, 200);
+  if (o.notes != null) upd.response_notes = String(o.notes).slice(0, 1000);
   tx(() => {
-    update('rfqs', id, { status: 'accepted' });
-    run("UPDATE rfqs SET status='closed' WHERE id<>? AND status IN ('sent','responded') AND ((request_id IS NOT NULL AND request_id=?) OR (trip_id IS NOT NULL AND trip_id=?))", id, r.request_id ?? -1, r.trip_id ?? -1);
-    let tripId = r.trip_id;
-    if (!tripId && r.request_id) tripId = one('SELECT t.id FROM trips t JOIN quotes q ON q.id=t.quote_id WHERE q.request_id=?', r.request_id)?.id;
-    if (tripId) update('trips', tripId, { vendor_id: r.vendor_id, vendor_cost_cents: r.price_cents || 0, updated_at: now() });
+    update('rfqs', id, upd);
+    run("UPDATE rfqs SET status='closed', closed_by=? WHERE id<>? AND status IN ('sent','responded') AND ((request_id IS NOT NULL AND request_id=?) OR (trip_id IS NOT NULL AND trip_id=?))", id, id, r.request_id ?? -1, r.trip_id ?? -1);
+    const t = rfqTrip(r);
+    if (t) update('trips', t.id, { vendor_id: r.vendor_id, vendor_cost_cents: price, updated_at: now() });
   });
   const v = one('SELECT * FROM vendors WHERE id=?', r.vendor_id);
-  if (v?.email) sendEmail(v.email, `You got the trip - ${r.ref}`, emailShell('Your quote was accepted', `<p>We'd like to book this trip with you at <b>${money(r.price_cents)}</b>. We'll follow up with final details shortly.</p>`)).catch(() => {});
-  log('admin', 'rfq.accepted', 'rfq', id, v?.name);
+  if (v?.email && o.notify !== false) sendEmail(v.email, `You got the trip - ${r.ref}`, emailShell('Your quote was accepted', `<p>We'd like to book this trip with you at <b>${money(price)}</b>.${upd.offered_vehicle ? ` Vehicle: ${esc(upd.offered_vehicle)}.` : ''} We'll follow up with final details shortly.</p>${o.message ? `<p>${esc(o.message)}</p>` : ''}`)).catch(() => {});
+  log('admin', 'rfq.accepted', 'rfq', id, `${v?.name} ${money(price)}`);
+}
+
+/** Take an award back: the trip loses the vendor and cost, and the requests that were closed when it was awarded reopen. */
+export async function retractRFQ(id, { notify = false, message = '' } = {}) {
+  const r = one('SELECT * FROM rfqs WHERE id=?', id);
+  if (!r) throw Object.assign(new Error('RFQ not found'), { status: 404 });
+  if (r.status !== 'accepted') throw Object.assign(new Error('This request is not awarded.'), { status: 400 });
+  tx(() => {
+    update('rfqs', id, { status: r.price_cents ? 'responded' : 'sent', awarded_at: null });
+    run("UPDATE rfqs SET status=CASE WHEN price_cents>0 THEN 'responded' ELSE 'sent' END, closed_by=NULL WHERE closed_by=? AND status='closed'", id);
+    const t = rfqTrip(r);
+    if (t && t.vendor_id === r.vendor_id) update('trips', t.id, { vendor_id: null, vendor_cost_cents: 0, updated_at: now() });
+  });
+  const v = one('SELECT * FROM vendors WHERE id=?', r.vendor_id);
+  if (notify && v?.email) await sendEmail(v.email, `Update on ${r.ref}: trip no longer awarded`, emailShell('This trip is no longer booked with you', `<p>Hi ${esc(v.contact_name || v.name)}, we have to take this trip back and will not be using you for it. We're sorry for the change and appreciate your time.</p>${message ? `<p>${esc(message)}</p>` : ''}`)).catch(() => {});
+  log('admin', 'rfq.retracted', 'rfq', id, v?.name);
+}
+
+/** Email the awarded vendor the current itinerary (from the trip if there is one, else the request). */
+export async function sendRFQUpdate(id, message = '') {
+  const r = one('SELECT * FROM rfqs WHERE id=?', id);
+  if (!r) throw Object.assign(new Error('RFQ not found'), { status: 404 });
+  const v = one('SELECT * FROM vendors WHERE id=?', r.vendor_id);
+  if (!v?.email) throw Object.assign(new Error('This vendor has no email address.'), { status: 400 });
+  const old = parse(r.snapshot, {});
+  const t = rfqTrip(r);
+  let cur;
+  if (t) cur = { purpose: t.purpose, itinerary: normItinerary(parse(t.itinerary, [])), pickup: t.pickup, dropoff: t.dropoff, stops: t.stops, depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers, vehicle: one('SELECT name FROM vehicles WHERE id=?', t.vehicle_id)?.name, notes: t.notes };
+  else if (r.request_id) { const rq = one('SELECT * FROM requests WHERE id=?', r.request_id); const d = parse(rq.details, {}); cur = { purpose: d.purpose, itinerary: normItinerary(d.itinerary), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle: old.vehicle, notes: d.comments }; }
+  else cur = old;
+  update('rfqs', id, { snapshot: cur });
+  const it = (cur.itinerary?.length ? cur.itinerary : fromLegacy(cur)).filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  const res = await sendEmail(v.email, `UPDATED itinerary ${r.ref}: ${cur.passengers || '?'} pax, ${fmtWhen(cur.depart_at)}`, emailShell('Updated itinerary',
+    `<p>Hi ${esc(v.contact_name || v.name)},</p><p><b>This replaces the earlier details for this trip.</b> Please use the itinerary below.</p>
+     <p>${cur.purpose ? `<b>Trip:</b> ${esc(cur.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(cur.depart_at)}<br><b>Return:</b> ${fmtWhen(cur.return_at)}<br><b>Passengers:</b> ${cur.passengers || '-'}<br>${r.price_cents ? `<b>Agreed price:</b> ${money(r.price_cents)}<br>` : ''}</p>
+     <p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml(it, fmtWhen)}
+     ${message ? `<p>${esc(message)}</p>` : ''}<p>Please reply to confirm you can still do it, or call us right away if anything is a problem.</p>`));
+  log('admin', 'rfq.update_sent', 'rfq', id, v.name);
+  return res;
 }
 
 // ---------- follow-ups ----------
