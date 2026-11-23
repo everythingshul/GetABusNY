@@ -347,7 +347,10 @@ export async function retractRFQ(id, { notify = false, message = '' } = {}) {
   if (r.status !== 'accepted') throw Object.assign(new Error('This request is not awarded.'), { status: 400 });
   tx(() => {
     update('rfqs', id, { status: r.price_cents ? 'responded' : 'sent', awarded_at: null });
-    run("UPDATE rfqs SET status=CASE WHEN price_cents>0 THEN 'responded' ELSE 'sent' END, closed_by=NULL WHERE closed_by=? AND status='closed'", id);
+    const reopen = "UPDATE rfqs SET status=CASE WHEN price_cents>0 THEN 'responded' ELSE 'sent' END, closed_by=NULL WHERE status='closed' AND id<>?";
+    // Awards made before closures were tracked have no marker, so every closed sibling of that trip/request reopens. Hand-closed ones (closed_by -1) stay closed.
+    if (r.awarded_at) run(reopen + ' AND closed_by=?', id, id);
+    else run(reopen + ' AND (closed_by=? OR closed_by IS NULL) AND ((request_id IS NOT NULL AND request_id=?) OR (trip_id IS NOT NULL AND trip_id=?))', id, id, r.request_id ?? -1, r.trip_id ?? -1);
     const t = rfqTrip(r);
     if (t && t.vendor_id === r.vendor_id) update('trips', t.id, { vendor_id: null, vendor_cost_cents: 0, updated_at: now() });
   });

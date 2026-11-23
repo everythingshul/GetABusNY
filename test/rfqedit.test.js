@@ -60,5 +60,10 @@ try {
   rows = (await call('GET', `${A}/rfqs`)).body; x1 = rows.find((x) => x.id === a1.id); x2 = rows.find((x) => x.id === a2.id);
   assert.equal(x1.status, 'responded'); assert.equal(x2.status, 'responded', 'the other vendor request reopens');
   trip = (await call('GET', `${A}/trips/${tid}/detail`)).body; assert.ok(!trip.vendor_id); assert.equal(trip.vendor_cost_cents, 0);
+  // legacy award (no closure marker) and a hand-closed request
+  const lg = list; await call('POST', `${A}/rfqs/${a1.id}/accept`, { price_cents: 100000, notify: false });
+  const { DatabaseSync } = await import('node:sqlite'); const dbh = new DatabaseSync(path.join(dir, 't.db')); dbh.exec(`UPDATE rfqs SET closed_by=NULL, awarded_at=NULL WHERE id IN (${a1.id},${a2.id})`); dbh.close();
+  assert.equal((await call('POST', `${A}/rfqs/${a1.id}/retract`, {})).status, 200);
+  assert.equal((await call('GET', `${A}/rfqs`)).body.find((x) => x.id === a2.id).status, 'responded', 'closed ones reopen even for older awards');
   console.log('RFQ edit checks passed.');
 } finally { srv.kill(); }
