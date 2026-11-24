@@ -35,7 +35,8 @@ try{const k=await api('/contract/'+tok);$('#view').hidden=false;
  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(k.subtotal_cents)}</td></tr>${k.tax_cents?`<tr><td colspan="3" class="r">Tax (${k.tax_rate}%)</td><td class="r">${money(k.tax_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Total</td><td class="r">${money(k.total_cents)}</td></tr>`;
  $('#terms').innerHTML=(k.terms||[]).map(x=>`<li>${esc(x)}</li>`).join('');
  const b=$('#banner');
- if(k.status==='signed'){b.hidden=false;b.innerHTML=`Signed by <b>${esc(k.signer_name)}</b> on ${fmtWhen(k.signed_at.slice(0,10))}. <a href="/api/public/contract/${tok}/pdf" target="_blank"><b>Download signed PDF</b></a>`;$('#sf').hidden=true;}
+ if(k.preview){b.hidden=false;b.className='alert info';b.textContent='PREVIEW. This agreement has not been sent to the customer yet, so it cannot be signed.';$('#sf').hidden=true;}
+ else if(k.status==='signed'){b.hidden=false;b.innerHTML=`Signed by <b>${esc(k.signer_name)}</b> on ${fmtWhen(k.signed_at.slice(0,10))}. <a href="/api/public/contract/${tok}/pdf" target="_blank"><b>Download signed PDF</b></a>`;$('#sf').hidden=true;}
  else if(k.status==='void'){b.className='alert err';b.hidden=false;b.textContent='This agreement is no longer valid. Please contact us.';$('#sf').hidden=true;}
  else{const pad=signaturePad($('#sig'));$('#clr').onclick=()=>pad.clear();
   $('#sf').onsubmit=async e=>{e.preventDefault();const err=$('#err');err.hidden=true;const sig=pad.get();

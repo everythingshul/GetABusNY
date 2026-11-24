@@ -49,7 +49,8 @@ if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('
   if(i.card){$('#cardnote').hidden=false;$('#cardnote').textContent=`A ${i.card.b} card ending ${i.card.l} is saved on your account.`;}
   else if(i.payments_enabled)$('#svrow').style.display='block';
   $('#contact').innerHTML=`Questions about this invoice? ${esc(i.business.phone)} · ${esc(i.business.email)}`;
-  if(paid||i.status==='void'||!i.payments_enabled){ if(paid||i.status==='void')$('#paybox').hidden=true; else {$('#pf').innerHTML='<div class="alert info">Online card payment is not available right now. Please call us to pay.</div>';} }
+  if(i.preview){$('#paybox').hidden=true;$('#view').insertAdjacentHTML('afterbegin','<div class="alert info">PREVIEW. This invoice has not been sent to the customer yet, so it cannot be paid.</div>');}
+  else if(paid||i.status==='void'||!i.payments_enabled){ if(paid||i.status==='void')$('#paybox').hidden=true; else {$('#pf').innerHTML='<div class="alert info">Online card payment is not available right now. Please call us to pay.</div>';} }
   else{
    const opts=[];if(!i.pay_full&&i.deposit_due_cents&&i.deposit_due_cents<i.balance_cents)opts.push(['deposit',`Pay deposit`,i.deposit_due_cents]);
    opts.push(['full','Pay full balance',i.balance_cents]);if(!i.pay_full)opts.push(['custom','Pay a different amount',null]);

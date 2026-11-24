@@ -83,10 +83,10 @@ const quoteView = (q) => {
 };
 pub.get('/quote/:token', (req, res) => {
   const q = one('SELECT * FROM quotes WHERE token=?', req.params.token);
-  if (!q || q.status === 'draft') return fail(res, 404, 'Quote not found');
-  if (!q.viewed_at) { update('quotes', q.id, { viewed_at: now() }); log('customer', 'quote.viewed', 'quote', q.id); }
+  if (!q) return fail(res, 404, 'Quote not found');
+  if (q.status !== 'draft' && !q.viewed_at) { update('quotes', q.id, { viewed_at: now() }); log('customer', 'quote.viewed', 'quote', q.id); }
   const inv = q.status === 'accepted' ? one("SELECT token FROM invoices WHERE quote_id=? AND status<>'draft'", q.id) : null;
-  res.json({ ...quoteView(q), invoice_token: inv?.token, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email') } });
+  res.json({ ...quoteView(q), preview: q.status === 'draft', invoice_token: inv?.token, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email') } });
 });
 pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
   const q = one('SELECT * FROM quotes WHERE token=?', req.params.token);
@@ -145,8 +145,8 @@ const invView = (i) => {
 };
 pub.get('/invoice/:token', (req, res) => {
   const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
-  if (!i || i.status === 'draft') return fail(res, 404, 'Invoice not found');
-  res.json(invView(i));
+  if (!i) return fail(res, 404, 'Invoice not found');
+  res.json({ ...invView(i), preview: i.status === 'draft' });
 });
 pub.post('/invoice-lookup', limit('lookup', 10, 3600000), (req, res) => {
   const num = String(req.body?.number || '').trim().toUpperCase();
@@ -198,8 +198,8 @@ pub.get('/places/details', limit('placesd', 120, 600000), async (req, res) => {
 // ----- contract signing page API -----
 pub.get('/contract/:token', (req, res) => {
   const k = one('SELECT * FROM contracts WHERE token=?', req.params.token);
-  if (!k || k.status === 'draft') return fail(res, 404, 'Agreement not found');
-  res.json(contractView(k));
+  if (!k) return fail(res, 404, 'Agreement not found');
+  res.json({ ...contractView(k), preview: k.status === 'draft' });
 });
 pub.post('/contract/:token/sign', limit('sign', 10, 3600000), async (req, res) => {
   const k = one('SELECT * FROM contracts WHERE token=?', req.params.token);
