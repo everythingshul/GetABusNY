@@ -488,7 +488,7 @@ async function quoteModal(id, preset = {}) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft?')) return; await DEL('/quotes/' + id); close(); reload(); }));
         $('#dup', ov).onclick = () => guard(async () => { const r = await POST(`/quotes/${id}/duplicate`); close(); quoteModal(r.id); });
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/quotes/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer quote link:', r.url); });
-        $('#acc', ov)?.addEventListener('click', () => guard(async () => { const why = prompt('Mark as accepted without an online signature. This creates the trip and an invoice, and a record of the override.\n\nReason (for example: signed on paper, confirmed by phone):'); if (why === null) return; await save(); await POST(`/quotes/${id}/accept`, { reason: why }); close(); reload(); }, 'Accepted, trip and invoice created'));
+        $('#acc', ov)?.addEventListener('click', () => guard(async () => { const why = prompt('Mark as accepted without an online signature. This creates the trip and an invoice, and a record of the override.\n\nReason (for example: signed on paper, confirmed by phone):'); if (why === null) return; await save(); const ar = await POST(`/quotes/${id}/accept`, { reason: why }); close(); await refresh(); if (ar.invoice_id) { toast('Accepted. The invoice is a draft: review it, then send it.'); invoiceModal(ar.invoice_id); } }));
       }
     },
   });

@@ -164,8 +164,9 @@ export function acceptQuote(id, actor = 'customer') {
   });
   log(actor, 'quote.accepted', 'quote', id, `trip ${out.tripId}`);
   scheduleTripFollowups(out.tripId);
-  sendInvoice(out.invId, actor).catch(() => {});
-  notifyOwner(`Quote ${q.number} accepted`, `${customerOf(q.customer_id).name} accepted ${q.number} (${money(q.total_cents)}). Trip and invoice created.`, 'quote_accepted').catch(() => {});
+  // The invoice is never sent automatically. It waits as a draft until staff review, edit and send it.
+  scheduleTask('invoice', out.invId, 'send_invoice', `Review and send the invoice for ${q.number}`, new Date());
+  notifyOwner(`Quote ${q.number} accepted`, `${customerOf(q.customer_id).name} accepted ${q.number} (${money(q.total_cents)}). The trip and a DRAFT invoice were created. Review the invoice and send it when ready.`, 'quote_accepted').catch(() => {});
   return { trip_id: out.tripId, invoice_id: out.invId };
 }
 

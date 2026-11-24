@@ -85,13 +85,13 @@ pub.get('/quote/:token', (req, res) => {
   const q = one('SELECT * FROM quotes WHERE token=?', req.params.token);
   if (!q || q.status === 'draft') return fail(res, 404, 'Quote not found');
   if (!q.viewed_at) { update('quotes', q.id, { viewed_at: now() }); log('customer', 'quote.viewed', 'quote', q.id); }
-  const inv = q.status === 'accepted' ? one('SELECT token FROM invoices WHERE quote_id=?', q.id) : null;
+  const inv = q.status === 'accepted' ? one("SELECT token FROM invoices WHERE quote_id=? AND status<>'draft'", q.id) : null;
   res.json({ ...quoteView(q), invoice_token: inv?.token, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email') } });
 });
 pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
   const q = one('SELECT * FROM quotes WHERE token=?', req.params.token);
   if (!q) return fail(res, 404, 'Quote not found');
-  if (q.status === 'accepted') return res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE quote_id=?', q.id)?.token });
+  if (q.status === 'accepted') return res.json({ ok: true, invoice_token: one("SELECT token FROM invoices WHERE quote_id=? AND status<>'draft'", q.id)?.token });
   if (q.status !== 'sent') return fail(res, 400, 'This quote can no longer be accepted. Please contact us.');
   if (q.valid_until && q.valid_until < today()) return fail(res, 400, 'This quote has expired. Contact us and we will refresh it.');
   const b = req.body || {};
@@ -106,7 +106,7 @@ pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
     if (k) { update('contracts', k.id, { trip_id: r.trip_id }); }
     log('customer', 'quote.terms_agreed', 'quote', q.id, `${String(b.name || '').slice(0, 100) || 'accepted online'} from ${req.ip}${k ? ', signed' : ', no signature required'}`);
     if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=COALESCE(sms_optin_at, ?) WHERE id=?', now(), q.customer_id); }
-    res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE id=?', r.invoice_id)?.token });
+    res.json({ ok: true, invoice_token: one("SELECT token FROM invoices WHERE id=? AND status<>'draft'", r.invoice_id)?.token || null });
   } catch (e) { fail(res, e.status || 500, e.message); }
 });
 pub.post('/quote/:token/decline', limit('qd', 10, 3600000), (req, res) => {
@@ -206,7 +206,7 @@ pub.post('/contract/:token/sign', limit('sign', 10, 3600000), async (req, res) =
   if (!k || k.status === 'draft') return fail(res, 404, 'Agreement not found');
   try {
     await signContract(k, req.body || {}, { ip: req.ip, ua: req.headers['user-agent'] });
-    const inv = k.quote_id ? one('SELECT token FROM invoices WHERE quote_id=?', k.quote_id) : k.trip_id ? one('SELECT token FROM invoices WHERE trip_id=? ORDER BY id LIMIT 1', k.trip_id) : null;
+    const inv = k.quote_id ? one("SELECT token FROM invoices WHERE quote_id=? AND status<>'draft'", k.quote_id) : k.trip_id ? one("SELECT token FROM invoices WHERE trip_id=? AND status<>'draft' ORDER BY id LIMIT 1", k.trip_id) : null;
     res.json({ ok: true, invoice_token: inv?.token });
   } catch (e) { fail(res, e.status || 500, e.message); }
 });

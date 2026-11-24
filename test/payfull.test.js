@@ -39,7 +39,7 @@ try {
   // accept: the invoice is pay-in-full, with no deposit or partial options
   const acc = await fetch(`${base}/api/public/quote/${tok}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agree: true, name: 'Pay Full' }) });
   const sigNeeded = acc.status === 400; if (sigNeeded) await call('PUT', `${A}/quotes/${q}`, { sig_waived: 1 }); const acc2 = sigNeeded ? await fetch(`${base}/api/public/quote/${tok}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agree: true, name: 'Pay Full' }) }) : acc; assert.equal(acc2.status, 200);
-  const itok = (await acc2.json()).invoice_token; const inv = await (await fetch(`${base}/api/public/invoice/${itok}`)).json();
+  assert.ok(!(await acc2.json()).invoice_token, 'accepting does not send the invoice'); const draft = (await call('GET', `${A}/invoices`)).body.find((x) => x.quote_id === q); assert.equal(draft.status, 'draft'); await call('POST', `${A}/invoices/${draft.id}/send`, { skip_email: true }); const itok = draft.token; const inv = await (await fetch(`${base}/api/public/invoice/${itok}`)).json();
   assert.equal(inv.pay_full, true); assert.equal(inv.deposit_due_cents, 0, 'no deposit option'); assert.equal(inv.trip.final_dropoff, '22 Final Ave, Monsey, NY', 'the invoice page shows the final drop-off');
   const row = (await call('GET', `${A}/invoices`)).body.find((x) => x.number); assert.equal(row.deposit_cents, 0); assert.equal(row.pay_full, 1);
   const iid = (await call('GET', `${A}/invoices`)).body.find((x) => x.pay_full).id;
