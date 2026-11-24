@@ -45,6 +45,10 @@ try {
   const iid = (await call('GET', `${A}/invoices`)).body.find((x) => x.pay_full).id;
   assert.equal((await fetch(`${base}${A}/invoices/${iid}/pdf`, { headers: { cookie } })).status, 200);
 
+  // the invoice email lists every stop and the button says View invoice
+  await call('POST', `${A}/invoices/${draft.id}/send`, {}); const ie = emails().filter((e) => /Invoice INV|Invoice .* due/.test(e.subject) || /due$/.test(e.subject)).pop();
+  assert.ok(ie, 'the invoice email went out'); assert.match(ie.html, /1 Start St/); assert.match(ie.html, /5 Middle Rd/); assert.match(ie.html, /22 Final Ave/); assert.match(ie.html, /View invoice/); assert.ok(!/Pay securely online/.test(ie.html));
+  const pv = await (await fetch(`${base}/api/public/invoice/${itok}`)).json(); assert.equal(pv.trip.itinerary.length, 3, 'the invoice page gets every stop');
   // an invoice can be switched to pay in full, which clears its deposit
   await call('PUT', `${A}/invoices/${iid}`, { pay_full: 0, deposit_cents: 20000 }); assert.equal((await (await fetch(`${base}/api/public/invoice/${itok}`)).json()).deposit_due_cents, 20000);
   await call('PUT', `${A}/invoices/${iid}`, { pay_full: 1, deposit_cents: 20000 }); assert.equal((await (await fetch(`${base}/api/public/invoice/${itok}`)).json()).deposit_due_cents, 0, 'pay in full removes the deposit');

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { finalDropoff, normItinerary } from './itinerary.js';
+import { finalDropoff, normItinerary, KINDS } from './itinerary.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { all, one, run, insert, update, now, token, randomRef, nextSeq, totals, parse, getSetting, localDate, log, cardFeeText } from './db.js';
 import { recalcInvoice, recordPayment, sendInvoice, textCustomer, ensureCustomer, link, invoiceBalance, fmtDate } from './services.js';
@@ -157,12 +157,13 @@ export async function invoicePdf(invoice_id) {
   t(`Invoice ${i.number}`, { size: 14, f: bold }); t(i.status.toUpperCase(), { right: true, f: bold, color: i.status === 'paid' ? rgb(0.2, 0.5, 0.1) : grey }); y -= 16;
   t(`Date: ${fmtDate(String(i.sent_at || i.created_at).slice(0, 10))}${i.due_date ? `     Due: ${fmtDate(i.due_date)}` : ''}`, { color: grey }); y -= 24;
   t('Bill to', { f: bold }); y -= 14; t(`${c.name || ''}${c.company ? ', ' + c.company : ''}`); y -= 12; t(`${c.email || ''}  ${c.phone || ''}`, { color: grey }); y -= 28;
+  { const tp = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null; const stops = tp ? normItinerary(parse(tp.itinerary, [])).filter((x) => x.kind !== 'start' && x.kind !== 'end') : [];
+    if (stops.length) { need(40); t('Itinerary', { f: bold }); y -= 14; stops.forEach((x, n) => { need(16); t(`${n + 1}. ${KINDS[x.kind] || 'Stop'}: ${x.address}${x.time ? '  ' + fmtDate(String(x.time).slice(0, 10)) + ' ' + String(x.time).slice(11, 16) : ''}${x.wait_min ? `  (wait ${x.wait_min} min)` : ''}`.slice(0, 100), { size: 9.5 }); y -= 13; }); const fd = finalDropoff(stops); if (fd) { need(18); t(`Final drop-off: ${fd}`, { f: bold, size: 9.5 }); y -= 13; } y -= 12; } }
   page.drawLine({ start: { x: L, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 0.8, color: line });
   t('Description', { f: bold }); t('Qty', { x: 380, f: bold }); t('Price', { x: 430, f: bold }); t('Amount', { right: true, f: bold }); y -= 18;
   for (const it of items) { need(20); const amt = Math.round((Number(it.qty) || 0) * (Number(it.unit_cents) || 0)); t(String(it.desc || '').slice(0, 62)); t(String(it.qty ?? ''), { x: 380 }); t(usd(it.unit_cents), { x: 430 }); t(usd(amt), { right: true }); y -= 15; }
   y -= 6; page.drawLine({ start: { x: L, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 0.5, color: grey });
   const row2 = (l, v, f = font) => { need(18); t(l, { x: 380, f }); t(v, { right: true, f }); y -= 15; };
-  { const tp = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null; const fd = tp ? finalDropoff(normItinerary(parse(tp.itinerary, []))) : ''; if (fd) { y += 6; t(`Final drop-off: ${fd}`, { size: 9, color: grey }); y -= 18; } }
   row2('Subtotal', usd(i.subtotal_cents)); if (i.tax_cents) row2(`Tax (${i.tax_rate}%)`, usd(i.tax_cents)); if (i.gratuity_cents) row2('Gratuity', usd(i.gratuity_cents));
   row2('Total', usd(i.total_cents), bold); row2('Paid', usd(i.amount_paid_cents)); row2('Balance due', usd(invoiceBalance(i)), bold);
   if (pays.length) { y -= 14; need(40); t('Payments', { f: bold }); y -= 15; for (const p of pays) { need(16); t(`${fmtDate(localDate(new Date(p.created_at)))}  ${methodLabel(p.method, p.stripe_pi)}${p.reference ? '  ' + p.reference : ''}`, { color: grey }); t(usd(p.amount_cents), { right: true }); y -= 14; } }

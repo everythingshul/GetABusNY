@@ -183,6 +183,12 @@ export function recalcInvoice(id) {
 export const biz = () => getSetting('business_name');
 export const invoiceBalance = (i) => Math.max(0, i.total_cents - i.amount_paid_cents);
 
+/** The trip's full itinerary, every pickup, stop and drop-off, for the invoice email. */
+function invoiceStopsHtml(i) {
+  const t = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null;
+  const it = t ? normItinerary(parse(t.itinerary, [])).filter((x) => x.kind !== 'start' && x.kind !== 'end') : [];
+  return it.length ? `<p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml(it, fmtWhen)}` : '';
+}
 export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   recalcInvoice(id);
   let i = one('SELECT * FROM invoices WHERE id=?', id);
@@ -194,7 +200,7 @@ export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   const due = !i.pay_full && i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
   const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
-     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>${i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents) ? `<p style="font-size:13px;color:#5b6b78">${esc(cardFeeText(i, money))}</p>` : ''}`, { label: 'Pay securely online', url: link.pay(i) }));
+     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>${invoiceStopsHtml(i)}${i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents) ? `<p style="font-size:13px;color:#5b6b78">${esc(cardFeeText(i, money))}</p>` : ''}`, { label: 'View invoice', url: link.pay(i) }));
   if (!skip_email && !one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
     const due0 = new Date(i.due_date + 'T14:00:00Z');
     nums(getSetting('fu_invoice_before_days')).forEach((n) => scheduleAuto('invoice', id, 'invoice_reminder', addDays(due0, -n)));
@@ -223,7 +229,7 @@ function afterPayment(invoice_id, amount_cents, method, actor, { skip_email = fa
   }
   const c = customerOf(i.customer_id);
   log(actor, 'payment.recorded', 'invoice', invoice_id, `${money(amount_cents)} ${method}`);
-  if (c.email && !skip_email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'Pay remaining balance', url: link.pay(i) } : null)).catch(() => {});
+  if (c.email && !skip_email) sendEmail(c.email, `Payment received - ${i.number}`, emailShell('Payment received', `<p>Thank you. We received <b>${money(amount_cents)}</b> toward invoice ${i.number}.</p><p>Remaining balance: <b>${money(invoiceBalance(i))}</b></p>`, invoiceBalance(i) ? { label: 'View invoice', url: link.pay(i) } : null)).catch(() => {});
   if (!skip_sms) textCustomer(i.customer_id, `${getSetting('business_name')}\nPayment of ${money(amount_cents)} received for ${i.number}.\nBalance: ${money(invoiceBalance(i))}\nThank you!`, 'payment', { force: true }).catch(() => {});
   notifyOwner(`Payment ${money(amount_cents)} - ${i.number}`, `${c.name} paid ${money(amount_cents)} (${method}). Balance ${money(invoiceBalance(i))}.`, 'payment').catch(() => {});
 }
@@ -415,7 +421,7 @@ function composeFollowup(f) {
     if (!i || !['sent', 'partial'].includes(i.status)) return null;
     const c = customerOf(i.customer_id);
     const late = i.due_date && i.due_date < localDate();
-    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${fmtDate(i.due_date)}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${fmtDate(i.due_date)}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'Pay online', url: link.pay(i) }) };
+    return { to: c.email, subject: late ? `Past due: invoice ${i.number}` : `Reminder: invoice ${i.number} due ${fmtDate(i.due_date)}`, html: emailShell(late ? 'Your invoice is past due' : 'Payment reminder', `<p>Hi ${esc((c.name || '').split(' ')[0])}, invoice ${i.number} has a balance of <b>${money(invoiceBalance(i))}</b>${i.due_date ? `, due ${fmtDate(i.due_date)}` : ''}. If you already paid, thank you, ignore this note.</p>`, { label: 'View invoice', url: link.pay(i) }) };
   }
   if (f.entity_type === 'trip') {
     const t = one('SELECT * FROM trips WHERE id=?', f.entity_id);

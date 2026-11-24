@@ -128,7 +128,7 @@ pub.post('/quote/:token/question', limit('qq', 6, 3600000), (req, res) => {
 });
 
 // ----- invoice payment -----
-const tripForInvoice = (id) => { const t = one('SELECT pickup,dropoff,depart_at,return_at,passengers,itinerary FROM trips WHERE id=?', id); if (!t) return null; const { itinerary, ...rest } = t; return { ...rest, final_dropoff: finalDropoff(normItinerary(parse(itinerary, []))) || null }; };
+const tripForInvoice = (id) => { const t = one('SELECT pickup,dropoff,depart_at,return_at,passengers,itinerary FROM trips WHERE id=?', id); if (!t) return null; const { itinerary, ...rest } = t; const it = normItinerary(parse(itinerary, [])); return { ...rest, itinerary: it.filter((x) => x.kind !== 'start' && x.kind !== 'end'), final_dropoff: finalDropoff(it) || null }; };
 const invView = (i) => {
   const c = one('SELECT name FROM customers WHERE id=?', i.customer_id);
   const bal = invoiceBalance(i);
