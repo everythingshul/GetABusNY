@@ -18,6 +18,7 @@ pub.get('/config', (req, res) => {
     texts: publicOverrides(),
     business_name: getSetting('business_name'), timezone: getSetting('timezone') || 'America/New_York', phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address'),
     service_area: getSetting('service_area'), hours: getJSON('hours', []), socials: getJSON('socials', {}),
+    require_signature: getSetting('require_signature') === '1',
     chesky: getSetting('chesky_public') === '1', chesky_name: getSetting('chesky_name'), payments: integ().stripe, maps: integ().maps, purposes: getSetting('trip_purposes').split(',').map((x) => x.trim()).filter(Boolean), sms: integ().sms && getSetting('sms_enabled') === '1',
   });
 });
@@ -74,7 +75,7 @@ const quoteView = (q) => {
   return {
     number: q.number, sig_waived: !!q.sig_waived, status: expired ? 'expired' : q.status, title: q.title, items: parse(q.items, []), tax_rate: q.tax_rate, subtotal_cents: q.subtotal_cents, tax_cents: q.tax_cents, total_cents: q.total_cents,
     deposit_cents: Math.round((q.total_cents * q.deposit_pct) / 100), deposit_pct: q.deposit_pct, valid_until: q.valid_until, notes: q.notes, trip: parse(q.trip, {}), customer_name: c?.name,
-    vehicle: one('SELECT name FROM vehicles WHERE id=?', parse(q.trip, {}).vehicle_id)?.name,
+    vehicle: one('SELECT name FROM vehicles WHERE id=?', parse(q.trip, {}).vehicle_id ?? null)?.name,
     revision: q.revision || 1,
     revisions: all('SELECT revision, changed_at, reason, changes, total_before, total_after FROM quote_revisions WHERE quote_id=? ORDER BY revision DESC LIMIT 5', q.id).map((r) => ({ ...r, changes: parse(r.changes, []).filter((c) => c.label !== 'Note to customer') })),
   };
@@ -94,13 +95,15 @@ pub.post('/quote/:token/accept', limit('qa', 10, 3600000), async (req, res) => {
   if (q.valid_until && q.valid_until < today()) return fail(res, 400, 'This quote has expired. Contact us and we will refresh it.');
   const b = req.body || {};
   const mustSign = getSetting('require_signature') === '1' && !q.sig_waived;
-  if (mustSign && !(b.signature && b.name && b.agree)) return fail(res, 400, 'Please type your name, draw your signature and check the agreement box.');
+  if (!b.agree) return fail(res, 400, 'Please check the box to agree to the Terms & Conditions.');
+  if (mustSign && !(b.signature && b.name)) return fail(res, 400, 'Please type your name, draw your signature and check the agreement box.');
   try {
     // build the agreement from the quote exactly as the customer saw it, then accept + sign in one step
     const k = (b.signature && b.name) ? createContract({ quote_id: q.id }) : null;
     if (k) await signContract(k, b, { ip: req.ip, ua: req.headers['user-agent'] });
     const r = acceptQuote(q.id, 'customer');
     if (k) { update('contracts', k.id, { trip_id: r.trip_id }); }
+    log('customer', 'quote.terms_agreed', 'quote', q.id, `${String(b.name || '').slice(0, 100) || 'accepted online'} from ${req.ip}${k ? ', signed' : ', no signature required'}`);
     if (b.sms_optin && q.customer_id) { run('UPDATE customers SET sms_optin=1, sms_optin_at=COALESCE(sms_optin_at, ?) WHERE id=?', now(), q.customer_id); }
     res.json({ ok: true, invoice_token: one('SELECT token FROM invoices WHERE id=?', r.invoice_id)?.token });
   } catch (e) { fail(res, e.status || 500, e.message); }

@@ -49,7 +49,8 @@ try {
   const qt = (await call('GET', `${A}/quotes/${q1}`)).body.token;
   let a = await fetch(`${base}/api/public/quote/${qt}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agree: true }) }); assert.equal(a.status, 400, 'a signature is required by default');
   await call('PUT', `${A}/quotes/${q1}`, { sig_waived: 1 });
-  a = await fetch(`${base}/api/public/quote/${qt}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agree: true }) }); assert.equal(a.status, 200, 'with the override, just accepting is enough');
+  a = await fetch(`${base}/api/public/quote/${qt}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'No Agree' }) }); assert.equal(a.status, 400, 'even with no signature needed, the terms must be agreed to');
+  a = await fetch(`${base}/api/public/quote/${qt}/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agree: true, name: 'Rabbi Sample' }) }); assert.equal(a.status, 200, 'with the override, agreeing to the terms is enough');
   const autoInv = (await call('GET', `${A}/invoices`)).body.find((x) => x.quote_id === q1); assert.equal(autoInv.cc_fee_on, 1, 'the quote card fee carries onto its invoice'); assert.equal(autoInv.cc_fee_pct, 2);
 
   // staff accept without a signature: logged, and a record shows on Contracts

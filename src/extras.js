@@ -27,6 +27,7 @@ export const CONTRACT_TERMS = [
   'Unless stated on the quote, gratuity, tolls, parking and surcharges are not included.',
   'The customer is responsible for the group\'s conduct and for damage or excessive cleaning beyond normal wear. No smoking. Alcohol only where the vehicle and passengers\' ages allow.',
   'If you save a card on file, you authorize us to charge it for the remaining balance and for extras you agreed to, such as overtime and gratuity. You can ask us to remove it at any time.',
+  'Operator agreement: the operator may have its own contract or rules for this trip. It is available upon request. The customer authorizes Get A Bus NY to sign and/or agree to it on the customer\'s behalf and agrees to be bound by it. Anything the operator has a right to claim against the customer for this trip is the customer\'s responsibility, not Get A Bus NY\'s.',
   'The customer agrees to the full Terms & Conditions on our website, as in effect on the date of signing.',
 ];
 

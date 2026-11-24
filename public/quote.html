@@ -47,13 +47,15 @@ try{const q=await api('/quote/'+tok);$('#view').hidden=false;
  else if(q.status==='declined'){b.className='alert err';b.textContent='This quote was declined.';b.hidden=false;$('#act').hidden=true;}
  else if(q.status==='expired'){b.className='alert err';b.textContent='This quote has expired. Contact us and we will refresh it.';b.hidden=false;$('#acc').disabled=true;$('#dec').hidden=true;}
  let pad=null;if(cfg.sms){$('#smsrow').style.display='block';}
- if(q.sig_waived){$('#acc').textContent='Accept quote';}
- $('#acc').onclick=async()=>{if(q.sig_waived){if(!confirm('Accept this quote and the Terms & Conditions?'))return;try{const r=await api(`/quote/${tok}/accept`,{body:{agree:true}});location.href='/pay/'+r.invoice_token;}catch(x){say(x.message,'err');}return;}$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
+ const noSig=q.sig_waived||!cfg.require_signature;
+ if(noSig){$('#acc').textContent='Accept quote';$('#sf').querySelector('h3').textContent='Accept this quote';$('#sf').querySelector('p').innerHTML='By accepting you confirm the itinerary and price above and agree to the <a href="/terms" target="_blank">Terms &amp; Conditions</a>, including that the operator\'s own agreement applies to your trip (available upon request).';$('#clr').closest('.field').hidden=true;$('#ag').nextElementSibling.textContent='I have read and agree to the Terms & Conditions and to this quote.';$('#go').textContent='Accept quote';$('#nm').closest('.field').querySelector('label').textContent='Your name';}
+ $('#acc').onclick=()=>{$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
  $('#clr').onclick=()=>pad&&pad.clear();
  $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.hidden=true;const sig=pad&&pad.get();
-  if(!$('#nm').value.trim()||!sig||!$('#ag').checked){er.textContent='Type your name, draw your signature and check the box.';er.hidden=false;return;}
+  if(noSig){if(!$('#nm').value.trim()||!$('#ag').checked){er.textContent='Type your name and check the box to agree to the Terms & Conditions.';er.hidden=false;return;}}
+  else if(!$('#nm').value.trim()||!sig||!$('#ag').checked){er.textContent='Type your name, draw your signature and check the box.';er.hidden=false;return;}
   const g=$('#go');g.disabled=true;g.textContent='Signing…';
-  try{const r=await api(`/quote/${tok}/accept`,{body:{name:$('#nm').value,signature:sig,agree:true,sms_optin:true}});location.href='/pay/'+r.invoice_token;}catch(x){er.textContent=x.message;er.hidden=false;g.disabled=false;g.textContent='Sign & accept quote';}};
+  try{const r=await api(`/quote/${tok}/accept`,{body:{name:$('#nm').value,signature:noSig?undefined:sig,agree:true,sms_optin:true}});location.href='/pay/'+r.invoice_token;}catch(x){er.textContent=x.message;er.hidden=false;g.disabled=false;g.textContent=noSig?'Accept quote':'Sign & accept quote';}};
  $('#dec').onclick=async()=>{const why=prompt('Sorry it did not work out. Anything we could do better? (optional)');if(why===null)return;try{await api(`/quote/${tok}/decline`,{body:{reason:why}});location.reload();}catch(e){say(e.message,'err');}};
  $('#q').onclick=()=>{$('#qf').hidden=!$('#qf').hidden;};
  $('#qf').onsubmit=async e=>{e.preventDefault();try{await api(`/quote/${tok}/question`,{body:{message:$('#qm').value}});say('Sent. We will reply by email or phone.','ok');$('#qf').hidden=true;}catch(x){say(x.message,'err');}};
