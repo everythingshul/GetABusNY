@@ -120,7 +120,7 @@ export async function sendQuote(id, actor, { skip_email = false, skip_sms = fals
   if (!finalDropoff(normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t)))) throw Object.assign(new Error('Add the final drop-off address to the route before sending the quote.'), { status: 400 });
   const unsent = all('SELECT * FROM quote_revisions WHERE quote_id=? AND sent_at IS NULL ORDER BY revision', id);
   const changed = unsent.flatMap((r) => changeLines(parse(r.changes, [])));
-  const qIt = normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t)).filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  const qIt = normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t));
   const html = emailShell(unsent.length ? `Updated quote ${q.number}` : `Your quote ${q.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${unsent.length ? 'We updated your quote for' : `Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for`} <b>${esc(q.title || 'your trip')}</b>.</p>
      <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
@@ -186,7 +186,7 @@ export const invoiceBalance = (i) => Math.max(0, i.total_cents - i.amount_paid_c
 /** The trip's full itinerary, every pickup, stop and drop-off, for the invoice email. */
 function invoiceStopsHtml(i) {
   const t = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null;
-  const it = t ? normItinerary(parse(t.itinerary, [])).filter((x) => x.kind !== 'start' && x.kind !== 'end') : [];
+  const it = t ? normItinerary(parse(t.itinerary, [])) : [];
   return it.length ? `<p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml(it, fmtWhen)}` : '';
 }
 export async function sendInvoice(id, actor, { skip_email = false } = {}) {
@@ -275,7 +275,7 @@ export async function sendTripConfirmation(trip_id) {
   return sendEmail(t.customer.email, `Trip confirmation ${t.ref} - ${fmtWhen(t.depart_at)}`, emailShell('Your trip is confirmed',
     `<p>Hi ${esc(t.customer.name.split(' ')[0])}, here are your trip details.</p>
      <p>${t.purpose ? `<b>Trip:</b> ${esc(t.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Vehicle:</b> ${esc(t.vehicle?.name || 'To be assigned')}</p>
-     <p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(t.itinerary.filter((x) => x.kind !== 'start' && x.kind !== 'end'), fmtWhen)}
+     <p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(t.itinerary, fmtWhen)}
      <p>Your driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`, { label: 'Add to my calendar', url: `${BASE_URL()}/api/public/trip-ics/${t.ref}-${icsKey(t.id)}.ics` }));
 }
 
@@ -308,7 +308,7 @@ export async function sendRFQs({ request_id, trip_id, vendor_ids, message, edits
       res = await sendEmail(v.email, `Quote request ${ref}: ${snap.passengers || '?'} pax, ${fmtWhen(snap.depart_at)}`, emailShell(`Can you quote this trip?`,
         `<p>Hi ${esc(v.contact_name || v.name)},</p><p>We have a trip and would like your best price.</p>
          <p>${snap.purpose ? `<b>Trip:</b> ${esc(snap.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(snap.depart_at)}<br><b>Return:</b> ${fmtWhen(snap.return_at)}<br><b>Passengers:</b> ${snap.passengers || '-'}<br><b>Vehicle wanted:</b> ${esc(snap.vehicle || 'Any suitable')}</p>
-         <p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml((snap.itinerary?.length ? snap.itinerary : fromLegacy(snap)).filter((x) => x.kind !== 'start' && x.kind !== 'end'), fmtWhen)}
+         <p style="margin-bottom:4px"><b>Itinerary</b></p>${itineraryHtml((snap.itinerary?.length ? snap.itinerary : fromLegacy(snap)), fmtWhen)}
          ${message ? `<p>${esc(message)}</p>` : ''}<p>You can reply to this email with your price, or use the link below to type your price and notes. No login is needed. If you cannot do this trip, a quick note saying so helps us plan.</p>`, { label: 'Send my price', url: `${(process.env.BASE_URL || '').replace(/\/$/, '')}/r/${r.token}` }));
     }
     if (getSetting('fu_enabled') === '1') { const h = Number(getSetting('fu_rfq_hours')); if (h) scheduleAuto('rfq', id, 'rfq_nudge', addHours(new Date(), h)); }
@@ -381,7 +381,7 @@ export async function sendRFQUpdate(id, message = '') {
   else if (r.request_id) { const rq = one('SELECT * FROM requests WHERE id=?', r.request_id); const d = parse(rq.details, {}); cur = { purpose: d.purpose, itinerary: normItinerary(d.itinerary), pickup: d.pickup, dropoff: d.dropoff, stops: d.stops, depart_at: d.depart_at, return_at: d.return_at, passengers: d.passengers, vehicle: old.vehicle, notes: d.comments }; }
   else cur = old;
   update('rfqs', id, { snapshot: cur });
-  const it = (cur.itinerary?.length ? cur.itinerary : fromLegacy(cur)).filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  const it = (cur.itinerary?.length ? cur.itinerary : fromLegacy(cur));
   const res = await sendEmail(v.email, `UPDATED itinerary ${r.ref}: ${cur.passengers || '?'} pax, ${fmtWhen(cur.depart_at)}`, emailShell('Updated itinerary',
     `<p>Hi ${esc(v.contact_name || v.name)},</p><p><b>This replaces the earlier details for this trip.</b> Please use the itinerary below.</p>
      <p>${cur.purpose ? `<b>Trip:</b> ${esc(cur.purpose)}<br>` : ''}<b>Depart:</b> ${fmtWhen(cur.depart_at)}<br><b>Return:</b> ${fmtWhen(cur.return_at)}<br><b>Passengers:</b> ${cur.passengers || '-'}<br>${r.price_cents ? `<b>Agreed price:</b> ${money(r.price_cents)}<br>` : ''}</p>

@@ -49,6 +49,10 @@ try {
   await call('POST', `${A}/invoices/${draft.id}/send`, {}); const ie = emails().filter((e) => /Invoice INV|Invoice .* due/.test(e.subject) || /due$/.test(e.subject)).pop();
   assert.ok(ie, 'the invoice email went out'); assert.match(ie.html, /1 Start St/); assert.match(ie.html, /5 Middle Rd/); assert.match(ie.html, /22 Final Ave/); assert.match(ie.html, /View invoice/); assert.ok(!/Pay securely online/.test(ie.html));
   const pv = await (await fetch(`${base}/api/public/invoice/${itok}`)).json(); assert.equal(pv.trip.itinerary.length, 3, 'the invoice page gets every stop');
+  // the address where the bus ends counts as the final drop-off
+  const qe = await mk([...IT, { kind: 'end', address: '99 Garage Ln, Brooklyn, NY' }]); await call('POST', `${A}/quotes/${qe}/send`, { skip_sms: true });
+  const ee = emails().filter((e) => /Quote Q-/.test(e.subject)).pop(); assert.match(ee.html, /Final drop-off:<\/strong> 99 Garage Ln/, 'a bus end is the final drop-off'); assert.ok(!/Bus ends/i.test(ee.html), 'the bus own stops are not listed for the customer');
+  const bq = await mk([{ kind: 'pickup', address: '1 A St' }, { kind: 'end', address: '5 Yard Rd' }]); assert.equal((await call('POST', `${A}/quotes/${bq}/send`, { skip_sms: true })).status, 200, 'a bus end alone satisfies the final drop-off requirement');
   // an invoice can be switched to pay in full, which clears its deposit
   await call('PUT', `${A}/invoices/${iid}`, { pay_full: 0, deposit_cents: 20000 }); assert.equal((await (await fetch(`${base}/api/public/invoice/${itok}`)).json()).deposit_due_cents, 20000);
   await call('PUT', `${A}/invoices/${iid}`, { pay_full: 1, deposit_cents: 20000 }); assert.equal((await (await fetch(`${base}/api/public/invoice/${itok}`)).json()).deposit_due_cents, 0, 'pay in full removes the deposit');
