@@ -24,7 +24,7 @@ try {
   let r = await call('POST', `${A}/quotes/${qid}/send`, { test_send: true }); assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.test.to, biz); assert.ok(r.body.test.sent >= 1, 'an email was produced');
   assert.equal((await call('GET', `${A}/quotes/${qid}`)).body.status, 'draft', 'a test does not mark the quote sent');
-  assert.equal(q('SELECT COUNT(*) n FROM outbox')[0].n, before, 'nothing is logged as sent to the customer');
+  assert.equal(q("SELECT COUNT(*) n FROM outbox WHERE kind<>'test'")[0].n, before, 'nothing is logged as sent to the customer'); assert.equal(q("SELECT COUNT(*) n FROM outbox WHERE to_addr='customer@example.com'")[0].n, 0, 'nothing went to the customer address'); assert.ok(q("SELECT COUNT(*) n FROM outbox WHERE kind='test' AND subject LIKE '[TEST]%'")[0].n >= 1, 'the test is logged under Sent messages');
   assert.equal(q('SELECT COUNT(*) n FROM followups')[0].n, 0, 'no follow-ups are created');
 
   // invoice
@@ -39,11 +39,11 @@ try {
   r = await call('POST', `${A}/messages/email`, { to: 'customer@example.com', subject: 'Hello', html: '<p>Hi there</p>', test_send: true }); assert.equal(r.status, 200); assert.equal(r.body.test.sent, 1);
   r = await call('POST', `${A}/messages/text`, { customer_id: cust, message: 'Test text', test_send: true }); assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.test.sent, 1, 'a text test arrives as an email');
   r = await call('POST', `${A}/customers/${cust}/text`, { message: 'Another', test_send: true }); assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.test.sent, 1);
-  assert.equal(q('SELECT COUNT(*) n FROM sms_log')[0].n, 0, 'no text is logged'); assert.equal(q('SELECT COUNT(*) n FROM outbox')[0].n, before);
+  assert.equal(q('SELECT COUNT(*) n FROM sms_log')[0].n, 0, 'no text is logged'); assert.equal(q("SELECT COUNT(*) n FROM outbox WHERE kind<>'test'")[0].n, before);
 
   // without the flag, a real send still happens and is logged
   r = await call('POST', `${A}/messages/email`, { to: 'customer@example.com', subject: 'Real', html: '<p>Real</p>' }); assert.equal(r.status, 200);
-  assert.equal(q('SELECT COUNT(*) n FROM outbox')[0].n, before + 1, 'real sends are unchanged');
+  assert.equal(q("SELECT COUNT(*) n FROM outbox WHERE kind<>'test'")[0].n, before + 1, 'real sends are unchanged');
   assert.equal(q("SELECT to_addr FROM outbox ORDER BY id DESC LIMIT 1")[0].to_addr, 'customer@example.com');
   // the flag only counts when it is exactly true
   r = await call('POST', `${A}/messages/email`, { to: 'customer@example.com', subject: 'Real2', html: '<p>x</p>', test_send: 'yes' }); assert.equal(r.body.test, undefined);
