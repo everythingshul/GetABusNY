@@ -50,6 +50,12 @@ export function summarize(it) {
   };
 }
 
+/** The last drop-off address of the trip (the address the group ends at), or '' if there is none. */
+export function finalDropoff(it) {
+  const list = (it || []).filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'dropoff' && list[i].address) return list[i].address;
+  return '';
+}
 export const itineraryText = (it) => it.map((x, i) => `${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ` @ ${x.time.replace('T', ' ')}` : ''}${x.wait_min ? ` (wait ${x.wait_min} min)` : ''}${x.pax ? ` · ${x.pax} pax` : ''}${x.note ? ` - ${x.note}` : ''}`).join('\n');
 
 export function mapsDirUrl(it) {
@@ -112,5 +118,10 @@ export function itineraryHtml(it, fmt = (t) => t) {
     return `<tr><td width="40" valign="top" align="center" style="padding:0 0 0 0"><table cellpadding="0" cellspacing="0" role="presentation"><tr><td align="center" width="28" height="28" style="width:28px;height:28px;border-radius:14px;background:${c};color:#ffffff;font:bold 13px Arial,Helvetica,sans-serif;line-height:28px">${i + 1}</td></tr></table></td>
 <td valign="top" style="padding:0 0 ${last ? 0 : 16}px 8px;border-left:0"><div style="font:bold 11px Arial,Helvetica,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${c}">${hx(KINDS[x.kind] || 'Stop')}</div><div style="font:bold 15px Arial,Helvetica,sans-serif;color:#10222f;margin:2px 0">${hx(x.address)}</div>${meta ? `<div style="font:13px Arial,Helvetica,sans-serif;color:#4d6270">${meta}</div>` : ''}${x.note ? `<div style="font:italic 13px Arial,Helvetica,sans-serif;color:#4d6270;margin-top:2px">${hx(x.note)}</div>` : ''}</td></tr>`;
   }).join('');
+  const fd = finalDropoff(it);
+  const fdHtml = fd ? `<p style="margin:10px 0 4px"><strong>Final drop-off:</strong> ${hx(fd)}</p>` : '';
+  return fdHtml ? itinTable(rows) + fdHtml : itinTable(rows);
+}
+function itinTable(rows) {
   return `<table cellpadding="0" cellspacing="0" role="presentation" width="100%" style="margin:6px 0 4px;background:#f5f8fa;border:1px solid #dfe8ee;border-radius:8px"><tr><td style="padding:16px 16px 14px"><table cellpadding="0" cellspacing="0" role="presentation" width="100%">${rows}</table></td></tr></table>`;
 }

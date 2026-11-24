@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { finalDropoff, normItinerary } from './itinerary.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { all, one, run, insert, update, now, token, randomRef, nextSeq, totals, parse, getSetting, localDate, log, cardFeeText } from './db.js';
 import { recalcInvoice, recordPayment, sendInvoice, textCustomer, ensureCustomer, link, invoiceBalance, fmtDate } from './services.js';
@@ -161,6 +162,7 @@ export async function invoicePdf(invoice_id) {
   for (const it of items) { need(20); const amt = Math.round((Number(it.qty) || 0) * (Number(it.unit_cents) || 0)); t(String(it.desc || '').slice(0, 62)); t(String(it.qty ?? ''), { x: 380 }); t(usd(it.unit_cents), { x: 430 }); t(usd(amt), { right: true }); y -= 15; }
   y -= 6; page.drawLine({ start: { x: L, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 0.5, color: grey });
   const row2 = (l, v, f = font) => { need(18); t(l, { x: 380, f }); t(v, { right: true, f }); y -= 15; };
+  { const tp = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null; const fd = tp ? finalDropoff(normItinerary(parse(tp.itinerary, []))) : ''; if (fd) { y += 6; t(`Final drop-off: ${fd}`, { size: 9, color: grey }); y -= 18; } }
   row2('Subtotal', usd(i.subtotal_cents)); if (i.tax_cents) row2(`Tax (${i.tax_rate}%)`, usd(i.tax_cents)); if (i.gratuity_cents) row2('Gratuity', usd(i.gratuity_cents));
   row2('Total', usd(i.total_cents), bold); row2('Paid', usd(i.amount_paid_cents)); row2('Balance due', usd(invoiceBalance(i)), bold);
   if (pays.length) { y -= 14; need(40); t('Payments', { f: bold }); y -= 15; for (const p of pays) { need(16); t(`${fmtDate(localDate(new Date(p.created_at)))}  ${methodLabel(p.method, p.stripe_pi)}${p.reference ? '  ' + p.reference : ''}`, { color: grey }); t(usd(p.amount_cents), { right: true }); y -= 14; } }

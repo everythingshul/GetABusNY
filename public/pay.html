@@ -41,7 +41,7 @@ if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('
   const paid=i.status==='paid'||i.balance_cents<=0;
   const b=$('#badge');if(i.status==='void'){b.textContent='Void';b.className='badge b-over';}else if(paid){b.textContent='Paid';b.className='badge b-paid';}else if(i.overdue){b.textContent='Past due';b.className='badge b-over';}else if(i.status==='partial'){b.textContent='Partially paid';b.className='badge b-part';}else{b.textContent='Payment due';b.className='badge b-due';}
   $('#due').textContent=i.due_date?'Due '+fmtWhen(i.due_date):'';
-  if(i.trip)$('#trip').innerHTML=`<b>Trip:</b> ${esc(i.trip.pickup||'')} → ${esc(i.trip.dropoff||'')} · ${fmtWhen(i.trip.depart_at)}${i.trip.passengers?` · ${i.trip.passengers} passengers`:''}`;
+  if(i.trip)$('#trip').innerHTML=`<b>Trip:</b> ${esc(i.trip.pickup||'')} → ${esc(i.trip.final_dropoff||i.trip.dropoff||'')}${i.trip.final_dropoff?` <span class="muted">(final drop-off)</span>`:''} · ${fmtWhen(i.trip.depart_at)}${i.trip.passengers?` · ${i.trip.passengers} passengers`:''}`;
   $('#items').innerHTML=i.items.map(x=>`<tr><td>${esc(x.desc)}</td><td class="r">${x.qty}</td><td class="r">${money(x.unit_cents)}</td><td class="r">${money(x.qty*x.unit_cents)}</td></tr>`).join('');
   $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(i.subtotal_cents)}</td></tr>${i.tax_cents?`<tr><td colspan="3" class="r">Tax (${i.tax_rate}%)</td><td class="r">${money(i.tax_cents)}</td></tr>`:''}${i.gratuity_cents?`<tr><td colspan="3" class="r">Gratuity</td><td class="r">${money(i.gratuity_cents)}</td></tr>`:''}<tr><td colspan="3" class="r">Total</td><td class="r">${money(i.total_cents)}</td></tr>${i.paid_cents?`<tr><td colspan="3" class="r">Paid</td><td class="r">−${money(i.paid_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Balance due</td><td class="r">${money(i.balance_cents)}</td></tr>`;
   if(i.payments.length)$('#pays').innerHTML='<b style="font-size:.9rem">Payments received</b>'+i.payments.map(p=>`<div class="muted" style="font-size:.9rem">${fmtWhen(p.created_at.slice(0,10))} · ${esc(p.method)} · ${money(p.amount_cents)}</div>`).join('');
@@ -51,8 +51,8 @@ if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('
   $('#contact').innerHTML=`Questions about this invoice? ${esc(i.business.phone)} · ${esc(i.business.email)}`;
   if(paid||i.status==='void'||!i.payments_enabled){ if(paid||i.status==='void')$('#paybox').hidden=true; else {$('#pf').innerHTML='<div class="alert info">Online card payment is not available right now. Please call us to pay.</div>';} }
   else{
-   const opts=[];if(i.deposit_due_cents&&i.deposit_due_cents<i.balance_cents)opts.push(['deposit',`Pay deposit`,i.deposit_due_cents]);
-   opts.push(['full','Pay full balance',i.balance_cents]);opts.push(['custom','Pay a different amount',null]);
+   const opts=[];if(!i.pay_full&&i.deposit_due_cents&&i.deposit_due_cents<i.balance_cents)opts.push(['deposit',`Pay deposit`,i.deposit_due_cents]);
+   opts.push(['full','Pay full balance',i.balance_cents]);if(!i.pay_full)opts.push(['custom','Pay a different amount',null]);
    const fee=a=>i.cc_fee&&a?Math.round(a*i.cc_fee.pct/100)+i.cc_fee.flat_cents:0;
    $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}${fee(a)?`<span class="muted" style="display:block;font-weight:400;font-size:.8rem">+ ${money(fee(a))} card fee = ${money(a+fee(a))}</span>`:''}</b></label>`).join('')+(i.cc_fee?`<p class="muted" style="font-size:.85rem;margin:2px 0 0">${esc(i.cc_fee.text)}</p>`:'');
    const sync=()=>{const m=document.querySelector('input[name=m]:checked').value;$('#cust').hidden=m!=='custom';};document.addEventListener('change',sync);

@@ -442,7 +442,7 @@ async function quoteModal(id, preset = {}) {
   const trip = J(q.trip); const items = J(q.items); const tf = tripScalars();
   const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title', help: 'Shown to the customer, e.g. "Camp Sample visiting day"' }, { sec: 'Trip' }, ...tf, { k: '_r', t: 'custom', html: routeBlock }, { k: 'tnotes', l: 'Trip notes (shared with driver & vendors)', t: 'textarea', full: 1, def: trip.notes }, { sec: 'Pricing (you enter every price)' }];
   const resend = ['sent', 'declined', 'expired'].includes(q.status);
-  const F2 = [...(resend ? [{ k: 'revision_note', l: 'Reason for this change (optional, goes in the history)', full: 1 }] : []), { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Deposit % due to book', t: 'number', step: 1 }, { k: 'valid_until', l: 'Valid until', t: 'date' }, { k: 'notes', l: 'Note to customer (shown on quote)', t: 'textarea', full: 1 }, { k: 'sig_waived', l: 'Signature override: the customer does not need to sign, they only click Accept', t: 'check', full: 1 }];
+  const F2 = [...(resend ? [{ k: 'revision_note', l: 'Reason for this change (optional, goes in the history)', full: 1 }] : []), { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Deposit % due to book', t: 'number', step: 1 }, { k: 'valid_until', l: 'Valid until', t: 'date' }, { k: 'notes', l: 'Note to customer (shown on quote)', t: 'textarea', full: 1 }, { k: 'pay_full', l: 'Payment in full to book (no deposit option)', t: 'check', full: 1 }, { k: 'sig_waived', l: 'Signature override: the customer does not need to sign, they only click Accept', t: 'check', full: 1 }];
   const locked = id && ['accepted'].includes(q.status);
   modal({
     title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote', contact: id ? { type: 'quote', id } : null, labels: id ? { type: 'quote', id } : null,
@@ -461,7 +461,7 @@ async function quoteModal(id, preset = {}) {
         const o = readForm([...F, ...F2], ov); if (!o.customer_id) { toast('Select a customer', true); return null; }
         if (!zm.confirmBad()) return null;
         const t = { notes: o.tnotes, purpose: o.purpose, passengers: o.passengers, depart_at: o.depart_at, return_at: o.return_at, vehicle_id: Number(o.vehicle_id) || null, itinerary: ed.get() };
-        return { ...readCc(ov), sig_waived: o.sig_waived, customer_id: Number(o.customer_id), title: o.title, tax_rate: o.tax_rate, deposit_pct: o.deposit_pct, valid_until: o.valid_until, notes: o.notes, items: readItems(ov), trip: t, revision_note: o.revision_note };
+        return { ...readCc(ov), sig_waived: o.sig_waived, pay_full: o.pay_full, customer_id: Number(o.customer_id), title: o.title, tax_rate: o.tax_rate, deposit_pct: o.deposit_pct, valid_until: o.valid_until, notes: o.notes, items: readItems(ov), trip: t, revision_note: o.revision_note };
       };
       const save = async () => { const body = collect(); if (!body) return null; if (id) { await PUT('/quotes/' + id, body); return id; } const r = await POST('/quotes', { ...body, request_id: preset.request_id }); return r.id; };
       $('#save', ov)?.addEventListener('click', () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved'));
@@ -552,7 +552,7 @@ VIEWS.invoices = async (el) => {
 async function invoiceModal(id) {
   const i = id ? await GET('/invoices/' + id) : { items: '[]', tax_rate: Number(S.settings?.tax_rate) || 0, status: 'draft', due_date: new Date(Date.now() + (Number(S.settings?.invoice_due_days) || 7) * 864e5).toISOString().slice(0, 10) };
   const pays = id ? await GET(`/invoices/${id}/payments`) : [];
-  const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title / description' }, { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_cents', l: 'Deposit due now', t: 'money', help: 'Customers can pay this amount or the full balance' }, { k: 'gratuity_cents', l: 'Gratuity (not taxed)', t: 'money', help: 'Added by you only. Customers cannot add gratuity themselves.' }, { k: 'due_date', l: 'Due date', t: 'date' }, { k: 'status', l: 'Status', t: 'select', o: [['draft', 'draft'], ['sent', 'sent (use Send)'], ['void', 'void']] }, { k: 'notes', l: 'Note shown on invoice', t: 'textarea', full: 1 }];
+  const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title / description' }, { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_cents', l: 'Deposit due now', t: 'money', help: 'Customers can pay this amount or the full balance' }, { k: 'pay_full', l: 'Payment in full only (no deposit or partial payment option)', t: 'check', full: 1 }, { k: 'gratuity_cents', l: 'Gratuity (not taxed)', t: 'money', help: 'Added by you only. Customers cannot add gratuity themselves.' }, { k: 'due_date', l: 'Due date', t: 'date' }, { k: 'status', l: 'Status', t: 'select', o: [['draft', 'draft'], ['sent', 'sent (use Send)'], ['void', 'void']] }, { k: 'notes', l: 'Note shown on invoice', t: 'textarea', full: 1 }];
   const bal = (i.total_cents || 0) - (i.amount_paid_cents || 0);
   modal({
     title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null, labels: id ? { type: 'invoice', id } : null,

@@ -1,4 +1,5 @@
 import express from 'express';
+import { finalDropoff, normItinerary } from '../itinerary.js';
 import { localDate, all, one, run, update, insert, now, getSetting, getJSON, parse, log, cardFeeText } from '../db.js';
 import { limit } from '../auth.js';
 import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
@@ -74,7 +75,7 @@ const quoteView = (q) => {
   const expired = q.status === 'sent' && q.valid_until && q.valid_until < today();
   return {
     number: q.number, sig_waived: !!q.sig_waived, status: expired ? 'expired' : q.status, title: q.title, items: parse(q.items, []), tax_rate: q.tax_rate, subtotal_cents: q.subtotal_cents, tax_cents: q.tax_cents, total_cents: q.total_cents,
-    deposit_cents: Math.round((q.total_cents * q.deposit_pct) / 100), deposit_pct: q.deposit_pct, valid_until: q.valid_until, notes: q.notes, trip: parse(q.trip, {}), customer_name: c?.name,
+    deposit_cents: q.pay_full ? q.total_cents : Math.round((q.total_cents * q.deposit_pct) / 100), deposit_pct: q.pay_full ? 100 : q.deposit_pct, pay_full: !!q.pay_full, valid_until: q.valid_until, notes: q.notes, trip: parse(q.trip, {}), customer_name: c?.name,
     vehicle: one('SELECT name FROM vehicles WHERE id=?', parse(q.trip, {}).vehicle_id ?? null)?.name,
     revision: q.revision || 1,
     revisions: all('SELECT revision, changed_at, reason, changes, total_before, total_after FROM quote_revisions WHERE quote_id=? ORDER BY revision DESC LIMIT 5', q.id).map((r) => ({ ...r, changes: parse(r.changes, []).filter((c) => c.label !== 'Note to customer') })),
@@ -127,17 +128,18 @@ pub.post('/quote/:token/question', limit('qq', 6, 3600000), (req, res) => {
 });
 
 // ----- invoice payment -----
+const tripForInvoice = (id) => { const t = one('SELECT pickup,dropoff,depart_at,return_at,passengers,itinerary FROM trips WHERE id=?', id); if (!t) return null; const { itinerary, ...rest } = t; return { ...rest, final_dropoff: finalDropoff(normItinerary(parse(itinerary, []))) || null }; };
 const invView = (i) => {
   const c = one('SELECT name FROM customers WHERE id=?', i.customer_id);
   const bal = invoiceBalance(i);
-  const depDue = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? Math.min(bal, i.deposit_cents - i.amount_paid_cents) : 0;
+  const depDue = !i.pay_full && i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? Math.min(bal, i.deposit_cents - i.amount_paid_cents) : 0;
   return {
-    number: i.number, status: i.status, title: i.title, items: parse(i.items, []), tax_rate: i.tax_rate, subtotal_cents: i.subtotal_cents, tax_cents: i.tax_cents, gratuity_cents: i.gratuity_cents || 0, total_cents: i.total_cents,
+    number: i.number, pay_full: !!i.pay_full, status: i.status, title: i.title, items: parse(i.items, []), tax_rate: i.tax_rate, subtotal_cents: i.subtotal_cents, tax_cents: i.tax_cents, gratuity_cents: i.gratuity_cents || 0, total_cents: i.total_cents,
     cc_fee: i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents) ? { pct: Number(i.cc_fee_pct) || 0, flat_cents: i.cc_fee_flat_cents || 0, text: cardFeeText(i, money) } : null,
     card: one('SELECT card_brand b, card_last4 l FROM customers WHERE id=? AND card_pm IS NOT NULL', i.customer_id) || null,
     paid_cents: i.amount_paid_cents, balance_cents: bal, deposit_due_cents: depDue, due_date: i.due_date, notes: i.notes, customer_name: c?.name, overdue: ['sent', 'partial'].includes(i.status) && i.due_date && i.due_date < today(),
     payments: all("SELECT amount_cents,method,created_at FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id),
-    trip: i.trip_id ? one('SELECT pickup,dropoff,depart_at,return_at,passengers FROM trips WHERE id=?', i.trip_id) : null,
+    trip: i.trip_id ? tripForInvoice(i.trip_id) : null,
     payments_enabled: integ().stripe, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email') },
   };
 };
@@ -160,7 +162,8 @@ pub.post('/invoice/:token/pay', limit('pay', 20, 3600000), async (req, res) => {
   if (v.balance_cents <= 0) return fail(res, 400, 'This invoice is already paid.');
   let amount = v.balance_cents;
   const mode = req.body?.mode;
-  if (mode === 'deposit' && v.deposit_due_cents) amount = v.deposit_due_cents;
+  if (i.pay_full) amount = v.balance_cents;
+  else if (mode === 'deposit' && v.deposit_due_cents) amount = v.deposit_due_cents;
   else if (mode === 'custom') amount = Math.round(Number(req.body.amount_cents));
   if (!Number.isFinite(amount) || amount < 100 || amount > v.balance_cents) return fail(res, 400, `Enter an amount between $1.00 and ${money(v.balance_cents)}.`);
   try {

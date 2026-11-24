@@ -1,7 +1,7 @@
 // Business logic shared by public, admin, driver and bot routes.
 import { cardFeeText, db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
-import { normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
+import { finalDropoff, normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
 
 // ---------- time helpers (trip times are "naive" local times in the business timezone) ----------
@@ -64,6 +64,7 @@ export function createRequest(d, source = 'website') {
     if (d.pickup && !itinerary.some((x) => x.kind === 'pickup')) itinerary = normItinerary([{ kind: 'pickup', address: d.pickup, time: d.depart_at }, ...itinerary]);
     if (d.dropoff && !itinerary.some((x) => x.kind === 'dropoff')) itinerary = normItinerary([...itinerary, { kind: 'dropoff', address: d.dropoff }]);
   }
+  if (!finalDropoff(itinerary)) throw Object.assign(new Error('Please add the final drop-off address.'), { status: 400 });
   const flat = summarize(itinerary);
   const details = {
     trip_type: d.trip_type || 'round_trip', purpose: String(d.purpose || '').slice(0, 80), itinerary,
@@ -116,14 +117,15 @@ export async function sendQuote(id, actor, { skip_email = false, skip_sms = fals
   if (!c.email && !skip_email) throw Object.assign(new Error('Customer has no email.'), { status: 400 });
   if (!q.total_cents) throw Object.assign(new Error('Quote total is $0, add pricing first.'), { status: 400 });
   const t = parse(q.trip, {});
+  if (!finalDropoff(normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t)))) throw Object.assign(new Error('Add the final drop-off address to the route before sending the quote.'), { status: 400 });
   const unsent = all('SELECT * FROM quote_revisions WHERE quote_id=? AND sent_at IS NULL ORDER BY revision', id);
   const changed = unsent.flatMap((r) => changeLines(parse(r.changes, [])));
   const qIt = normItinerary(t.itinerary?.length ? t.itinerary : fromLegacy(t)).filter((x) => x.kind !== 'start' && x.kind !== 'end');
   const html = emailShell(unsent.length ? `Updated quote ${q.number}` : `Your quote ${q.number}`,
-    `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${unsent.length ? 'We updated your quote for' : `Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for`} <b>${esc(q.title || 'your trip')}</b>.</p>${changed.length ? `<p><b>What changed</b></p><ul>${changed.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+    `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${unsent.length ? 'We updated your quote for' : `Thanks for considering ${esc(getSetting('business_name'))}. Here's your quote for`} <b>${esc(q.title || 'your trip')}</b>.</p>
      <p><b>Depart:</b> ${fmtWhen(t.depart_at)}<br><b>Return:</b> ${fmtWhen(t.return_at)}<br><b>Passengers:</b> ${t.passengers || '-'}<br><b>Total:</b> ${money(q.total_cents)}</p>
      ${qIt.length ? `<p style="margin-bottom:4px"><b>Your itinerary</b></p>${itineraryHtml(qIt, fmtWhen)}` : ''}
-     <p>The quote is good until ${q.valid_until ? fmtDate(q.valid_until) : 'further notice'}. You can review the details, accept it, and pay your deposit online.</p>`, { label: 'View & accept quote', url: link.quote(q) });
+     <p>The quote is good until ${q.valid_until ? fmtDate(q.valid_until) : 'further notice'}. You can review the details, accept it, and ${q.pay_full ? 'pay online' : 'pay your deposit online'}.</p>`, { label: 'View & accept quote', url: link.quote(q) });
   const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `${unsent.length ? 'Updated quote' : 'Quote'} ${q.number} from ${getSetting('business_name')}`, html);
   if (unsent.length) run('UPDATE quote_revisions SET sent_at=? WHERE quote_id=? AND sent_at IS NULL', now(), id);
   update('quotes', id, { status: 'sent', sent_at: now(), updated_at: now() });
@@ -147,10 +149,10 @@ export function acceptQuote(id, actor = 'customer') {
       ref, seq: nextSeq('trips'), customer_id: q.customer_id, quote_id: id, status: 'booked', title: q.title, purpose: t.purpose, itinerary: normItinerary(t.itinerary), pickup: t.pickup, dropoff: t.dropoff, stops: t.stops,
       depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers, vehicle_id: t.vehicle_id, price_cents: q.total_cents, notes: t.notes, created_at: now(), updated_at: now(),
     });
-    const deposit = Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
+    const deposit = q.pay_full ? 0 : Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
     const due = localDate(addDays(new Date(), Number(getSetting('invoice_due_days')) || 7));
     const invId = insert('invoices', {
-      number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate, cc_fee_on: q.cc_fee_on || 0, cc_fee_pct: q.cc_fee_pct || 0, cc_fee_flat_cents: q.cc_fee_flat_cents || 0,
+      number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate, pay_full: q.pay_full || 0, cc_fee_on: q.cc_fee_on || 0, cc_fee_pct: q.cc_fee_pct || 0, cc_fee_flat_cents: q.cc_fee_flat_cents || 0,
       ...totals(parse(q.items, []), q.tax_rate), deposit_cents: deposit, due_date: due, token: token(), created_at: now(), updated_at: now(),
     });
     if (q.request_id) {
@@ -188,7 +190,7 @@ export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   if (i.status === 'draft') update('invoices', id, { status: 'sent', sent_at: now() });
   recalcInvoice(id);
   i = one('SELECT * FROM invoices WHERE id=?', id);
-  const due = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
+  const due = !i.pay_full && i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
   const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
      <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>${i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents) ? `<p style="font-size:13px;color:#5b6b78">${esc(cardFeeText(i, money))}</p>` : ''}`, { label: 'Pay securely online', url: link.pay(i) }));
