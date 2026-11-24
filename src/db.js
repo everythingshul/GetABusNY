@@ -1,5 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+/** While a test send runs, writes are skipped and emails/texts go to the business email only. */
+export const testCtx = new AsyncLocalStorage();
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -97,7 +100,8 @@ db.exec("UPDATE ledger SET maaser_cents=CAST(ROUND(amount_cents*0.1) AS INTEGER)
 export const token = (n = 18) => crypto.randomBytes(n).toString('base64url');
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
 export const one = (sql, ...p) => db.prepare(sql).get(...p);
-export const run = (sql, ...p) => db.prepare(sql).run(...p);
+const NO_WRITE = { changes: 0, lastInsertRowid: 0 };
+export const run = (sql, ...p) => (testCtx.getStore() && !/^\s*(SELECT|PRAGMA)/i.test(sql) ? NO_WRITE : db.prepare(sql).run(...p));
 export const tx = (fn) => {
   db.exec('BEGIN');
   try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }

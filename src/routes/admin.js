@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe } from '../db.js';
+import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe, testCtx } from '../db.js';
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
 import * as S from '../services.js';
@@ -33,6 +33,15 @@ admin.post('/login', limit('login', 10, 900000), (req, res) => {
 });
 admin.post('/logout', (req, res) => { res.setHeader('Set-Cookie', 'gab_admin=; HttpOnly; Path=/; Max-Age=0'); res.json({ ok: true }); });
 admin.use(requireAdmin);
+// "Send me a test": the same send runs, but every email and text goes to the business email, nothing is saved, and nothing is marked sent.
+admin.use((req, res, next) => {
+  if (req.method !== 'POST' || req.body?.test_send !== true) return next();
+  const to = String(getSettingSafe('email') || '').trim();
+  if (!to) return res.status(400).json({ error: 'Add your business email in Settings first, tests are sent there.' });
+  const ctx = { to, sent: 0 }, j = res.json.bind(res);
+  res.json = (b) => j({ ...(b && typeof b === 'object' && !Array.isArray(b) ? b : { result: b }), test: { to, sent: ctx.sent } });
+  testCtx.run(ctx, next);
+});
 admin.get('/me', (req, res) => res.json({ user: req.user, integrations: integ(), timezone: getSettingSafe('timezone') || 'America/New_York' }));
 admin.post('/password', wrap((req) => {
   const u = one('SELECT * FROM users WHERE id=?', req.user.id);
@@ -318,7 +327,7 @@ admin.post('/customers/:id/text', wrap(async (req) => {
 // Write a text from the Messages page: to a customer, or to any number (replies, operators, drivers).
 admin.post('/messages/text', wrap(async (req) => {
   const message = String(req.body?.message || '').trim().slice(0, 600); if (!message) throw bad('Write a message');
-  if (!smsConfigured()) throw bad('Texts are not set up yet. Add SMS_API_BASE and SMS_API_KEY on the server.');
+  if (!smsConfigured() && !testCtx.getStore()) throw bad('Texts are not set up yet. Add SMS_API_BASE and SMS_API_KEY on the server.');
   const cid = Number(req.body?.customer_id) || null;
   if (cid) { const r = await S.textCustomer(cid, message, 'manual', { force: true }); if (!r.ok) throw bad(r.error); log(req.user.email, 'sms.sent', 'customer', cid, message); return { ok: true }; }
   const ten = String(req.body?.to || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');

@@ -1,6 +1,6 @@
 // Outbound integrations: email (Brevo or Resend), texts (SimpleSender), Stripe (REST), all optional.
 import crypto from 'node:crypto';
-import { run, now, getSetting, all, one, insert, update, cardFee } from './db.js';
+import { run, now, getSetting, all, one, insert, update, cardFee, testCtx } from './db.js';
 
 export const env = (k, d = '') => process.env[k] ?? d;
 export const BASE_URL = () => env('BASE_URL', `http://localhost:${env('PORT', '3000')}`).replace(/\/$/, '');
@@ -45,6 +45,8 @@ export function emailSender() {
 }
 /** attachments: [{ filename, content: Buffer, type }] */
 export async function sendEmail(to, subject, html, { replyTo, attachments = [], kind } = {}) {
+  const T = testCtx.getStore();
+  if (T) { const orig = to; to = T.to; subject = `[TEST] ${subject}`; T.sent++; html = String(html).replace(/<body[^>]*>/i, (m) => `${m}<div style="background:#fff3cd;border:1px solid #e6c200;color:#5a4a00;font:13px Arial,sans-serif;padding:8px 12px;text-align:center">TEST ONLY. This is what ${esc(orig || 'the customer')} would receive. Nothing was marked as sent.</div>`); }
   if (!to) return { ok: false, error: 'no recipient' };
   const sender = emailSender(), from = `${sender.name} <${sender.email}>`;
   const reply = replyTo || getSetting('email') || undefined;
@@ -74,6 +76,7 @@ export async function sendEmail(to, subject, html, { replyTo, attachments = [], 
 export const smsConfigured = () => !!(env('SMS_API_BASE') && env('SMS_API_KEY'));
 const tenDigits = (p) => String(p || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
 export async function smsRaw(to, body) {
+  if (testCtx.getStore()) { const r = await sendEmail(null, 'Test text message', emailShell('Test text message', `<p>This text would go to <b>${esc(to)}</b>:</p><pre style="white-space:pre-wrap;font:15px Arial,sans-serif;background:#f1f5f8;border-radius:10px;padding:14px">${esc(body)}</pre>`)); return { ok: r.ok, error: r.error }; }
   if (!smsConfigured()) return { ok: false, error: 'SMS not configured' };
   try {
     const r = await fetch(`${env('SMS_API_BASE').replace(/\/$/, '')}/v1/messages/send`, {
@@ -116,6 +119,7 @@ export function adminPrefs(u) {
   return Object.fromEntries(NOTIFY_EVENTS.map((e) => [e.key, { email: saved[e.key]?.email ?? e.email, sms: saved[e.key]?.sms ?? e.sms }]));
 }
 export async function notifyOwner(subject, text, event = 'general') {
+  if (testCtx.getStore()) return;
   const users = all('SELECT * FROM users');
   const sent = new Set();
   const html = emailShell(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`, { label: 'Open admin', url: `${BASE_URL()}/admin` });

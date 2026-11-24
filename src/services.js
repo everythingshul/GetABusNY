@@ -1,5 +1,5 @@
 // Business logic shared by public, admin, driver and bot routes.
-import { cardFeeText, db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
+import { testCtx, cardFeeText, db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
 import { finalDropoff, normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
@@ -542,6 +542,7 @@ export async function textCustomer(customer_id, bodyIn, kind, { trip_id, force =
   if (!override && group && !on.includes(group)) return { ok: false, error: 'this kind of text is turned off in Settings' };
   if (getSetting('sms_enabled') !== '1') return { ok: false, error: 'texts are turned off' };
   const to = toE164(c.phone); if (!to) return { ok: false, error: 'invalid phone number' };
+  if (testCtx.getStore()) return smsRaw(to, String(bodyIn));
   // the first text a customer ever gets tells them how to stop
   let body = String(bodyIn);
   if (!/\bSTOP\b/i.test(body) && !one("SELECT 1 x FROM sms_log WHERE customer_id=? AND direction='out'", customer_id)) body += '\n\nReply STOP to opt out.';

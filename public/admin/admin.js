@@ -77,13 +77,27 @@ const readCc = (ov) => { const on = $('#cc_on', ov)?.checked; return { cc_fee_on
 function signOverride(id, done) {
   modal({ title: 'Mark signed (override)', small: true, body: `<p class="mut sm">Use this when the customer agreed on paper, by phone or email. It is logged with your name and the reason, and shown as "signature waived".</p><div class="fgrid"><label>Who agreed<input id="ov_by" placeholder="Customer name"></label><label>Reason<input id="ov_why" placeholder="Signed on paper, approved by email..."></label></div>`, footer: `<span class="sp"></span>${button('Mark signed', 'primary', 'id="go"')}`, onMount(ov, close) { $('#go', ov).onclick = () => guard(async () => { await POST(`/contracts/${id}/override`, { signed_by: $('#ov_by', ov).value, reason: $('#ov_why', ov).value }); close(); done(); }, 'Marked signed'); } });
 }
-function askSend(what, { sms = true, verb = 'Send' } = {}) {
+// Runs a send as a test: same emails and texts, but they all go to the business email and nothing is marked sent.
+async function sendTest(path, body = {}) {
+  const r = await POST(path, { ...body, test_send: true });
+  const n = r.test?.sent || 0;
+  toast(n ? `Test sent to ${r.test.to}. Check your inbox.` : 'Nothing to test: no email or text would be sent.', !n);
+}
+const testBtn = (id = 'tst') => button('Send me a test', '', `id="${id}"`);
+// A dialog for one-click sends (confirmations, review requests, agreements) with a test option. Resolves true to send for real.
+function confirmSend(what, { test, verb = 'Send' } = {}) {
+  return new Promise((resolve) => {
+    modal({ title: `${verb} ${what}`, small: true, body: `<p class="mut sm">Send it to the customer now, or send a test to your business email first. A test changes nothing and is marked TEST.</p>`, footer: `${test ? testBtn() : ''}<span class="sp"></span>${button(verb, 'primary', 'id="go"')}`,
+      onMount(ov, close) { if (test) $('#tst', ov).onclick = () => guard(() => test()); $('#go', ov).onclick = () => { close(); resolve(true); }; } });
+  });
+}
+function askSend(what, { sms = true, verb = 'Send', test } = {}) {
   return new Promise((resolve) => {
     modal({ title: `${verb} ${what}`, small: true, body: `<p class="mut sm">Tick a box to skip that message. The item is still marked as done, and you can copy the customer link to send it yourself.</p>
       <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:8px 0"><input type="checkbox" id="noem"> Do not email the customer</label>
       ${sms ? '<label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:8px 0"><input type="checkbox" id="nosm"> Do not text the customer</label>' : ''}`,
-      footer: `<span class="sp"></span>${button(verb, 'primary', 'id="go"')}`,
-      onMount(ov, close) { $('#go', ov).onclick = () => { const o = { skip_email: $('#noem', ov).checked, skip_sms: !!$('#nosm', ov)?.checked }; close(); resolve(o); }; } });
+      footer: `${test ? testBtn() : ''}<span class="sp"></span>${button(verb, 'primary', 'id="go"')}`,
+      onMount(ov, close) { const cur = () => ({ skip_email: $('#noem', ov).checked, skip_sms: !!$('#nosm', ov)?.checked }); if (test) $('#tst', ov).onclick = () => guard(() => test(cur())); $('#go', ov).onclick = () => { const o = cur(); close(); resolve(o); }; } });
   });
 }
 
@@ -334,7 +348,8 @@ function wireRouteTools(ov, ed, { purpose, onLines, vehicle, depart }) {
 }
 
 function composeText({ customer_id, name, phone }) {
-  modal({ title: `Text ${name}`, small: true, body: `<p class="mut sm">To ${esc(phone)}. Only works if they agreed to texts.</p><label>Message<textarea id="tm" rows="6" maxlength="500" placeholder="Type your message. Line breaks are kept."></textarea></label><div class="hint" id="tc">0 / 500 (about 160 characters per text)</div>`, footer: `<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+  modal({ title: `Text ${name}`, small: true, body: `<p class="mut sm">To ${esc(phone)}. Only works if they agreed to texts.</p><label>Message<textarea id="tm" rows="6" maxlength="500" placeholder="Type your message. Line breaks are kept."></textarea></label><div class="hint" id="tc">0 / 500 (about 160 characters per text)</div>`, footer: `${testBtn()}<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+    $('#tst', ov).onclick = () => guard(async () => { const m = $('#tm', ov).value.trim(); if (!m) return toast('Write a message first', true); await sendTest(`/customers/${customer_id}/text`, { message: m }); });
     $('#tm', ov).oninput = (e) => { $('#tc', ov).textContent = `${e.target.value.length} / 500 (about 160 characters per text)`; };
     $('#go', ov).onclick = () => guard(async () => { const m = $('#tm', ov).value.trim(); if (!m) return toast('Write a message', true); await POST(`/customers/${customer_id}/text`, { message: m }); close(); }, 'Text sent');
   } });
@@ -465,7 +480,7 @@ async function quoteModal(id, preset = {}) {
       };
       const save = async () => { const body = collect(); if (!body) return null; if (id) { await PUT('/quotes/' + id, body); return id; } const r = await POST('/quotes', { ...body, request_id: preset.request_id }); return r.id; };
       $('#save', ov)?.addEventListener('click', () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved'));
-      $('#send', ov)?.addEventListener('click', () => guard(async () => { const o = await askSend('this quote'); const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`, o); close(); reload(); }, 'Quote marked as sent'));
+      $('#send', ov)?.addEventListener('click', () => guard(async () => { const o = await askSend('this quote', { test: async (f) => { if (!id) return toast('Save the quote first, then send a test', true); const qid = await save(); if (qid) await sendTest(`/quotes/${qid}/send`, f); } }); const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`, o); close(); reload(); }, 'Quote marked as sent'));
       const _unused = () => guard(async () => { const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`); close(); reload(); }, 'Quote sent to customer');
       if (id) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft?')) return; await DEL('/quotes/' + id); close(); reload(); }));
@@ -518,14 +533,14 @@ async function tripModal(id) {
         if (o.depart_at) { const cf = await GET(`/trips/conflicts?id=${id || 0}&from=${encodeURIComponent(o.depart_at)}&to=${encodeURIComponent(o.return_at || '')}&driver_id=${o.driver_id || ''}&vehicle_id=${o.vehicle_id || ''}`); if (cf.length && !confirm(cf.map((c) => `${c.what === 'driver' ? 'This driver' : 'This vehicle'} is already on ${c.ref} (${c.customer_name}, ${fmt(c.depart_at)})`).join('\n') + '\n\nSave anyway?')) return; }
         id ? await PUT('/trips/' + id, o) : await POST('/trips', o); close(); reload(); }, 'Saved');
       if (id) {
-        $('#conf', ov).onclick = () => guard(() => POST(`/trips/${id}/confirm-email`), 'Confirmation emailed');
-        $('#rev', ov).onclick = () => guard(async () => { const r = await POST(`/trips/${id}/review-request`); toast(r.sms ? 'Review request sent by email and text' : 'Review request emailed'); });
+        $('#conf', ov).onclick = async () => { if (await confirmSend('the trip confirmation', { test: () => sendTest(`/trips/${id}/confirm-email`) })) guard(() => POST(`/trips/${id}/confirm-email`), 'Confirmation emailed'); };
+        $('#rev', ov).onclick = async () => { if (await confirmSend('the review request', { test: () => sendTest(`/trips/${id}/review-request`) })) guard(async () => { const r = await POST(`/trips/${id}/review-request`); toast(r.sms ? 'Review request sent by email and text' : 'Review request emailed'); }); };
         $('#rfq', ov).onclick = () => rfqModal({ trip_id: id, label: `${t.ref} ${t.pickup || ''} → ${t.dropoff || ''}`, src: t });
         $('#inv', ov).onclick = () => guard(async () => { const r = await POST(`/trips/${id}/invoice`); close(); invoiceModal(r.id); });
         $('#mkcon', ov).onclick = () => guard(async () => { const r = await POST('/contracts', { trip_id: id }); await POST(`/contracts/${r.id}/send`); close(); tripModal(id); }, 'Agreement emailed to customer');
         ov.addEventListener('click', (e) => {
           const a = e.target.closest('[data-inv]'); if (a) { e.preventDefault(); close(); invoiceModal(+a.dataset.inv); }
-          const sc = e.target.closest('[data-send-con]'); if (sc) guard(() => POST(`/contracts/${sc.dataset.sendCon}/send`), 'Sent');
+          const sc = e.target.closest('[data-send-con]'); if (sc) confirmSend('the agreement', { test: () => sendTest(`/contracts/${sc.dataset.sendCon}/send`) }).then((go) => go && guard(() => POST(`/contracts/${sc.dataset.sendCon}/send`), 'Sent'));
           const cc = e.target.closest('[data-copy-con]'); if (cc) guard(async () => { const r = await GET(`/contracts/${cc.dataset.copyCon}/link`); prompt('Customer signing link:', r.url); });
         });
       }
@@ -568,11 +583,11 @@ async function invoiceModal(id) {
       if (id && i.customer_id && bal > 0) GET(`/customers/${i.customer_id}/card`).then((card) => { if (!card) return; const f = document.createElement('form'); f.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)'; f.innerHTML = `<label>Charge card on file, ${esc(card.brand)} ${esc(card.last4)} ($)<input id="cc" type="number" step="0.01" min="1" value="${c2d(bal)}" style="width:130px"></label><button class="btn sm primary">Charge now</button><span class="hint">Uses the card the customer saved with their permission.</span>`; $('.mb', ov).append(f); f.onsubmit = (e) => { e.preventDefault(); const amt = d2c($('#cc', ov).value); if (!confirm(`Charge ${card.brand} ending ${card.last4} ${usd(amt)} now?`)) return; guard(async () => { await POST(`/invoices/${id}/charge-saved`, { amount_cents: amt }); close(); reload(); }, 'Charged'); }; }).catch(() => {});
       const save = async () => { const o = readForm(F, ov); Object.assign(o, readCc(ov)); if (!reqCheck(F, o)) return null; o.items = readItems(ov); if (!o.items.length) { toast('Add at least one line item', true); return null; } if (id) { await PUT('/invoices/' + id, o); return id; } return (await POST('/invoices', o)).id; };
       $('#save', ov).onclick = () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved');
-      $('#send', ov).onclick = () => guard(async () => { const o = await askSend('this invoice', { sms: false }); const x = await save(); if (!x) return; await POST(`/invoices/${x}/send`, { skip_email: o.skip_email }); close(); reload(); }, 'Invoice marked as sent');
+      $('#send', ov).onclick = () => guard(async () => { const o = await askSend('this invoice', { sms: false, test: async (f) => { if (!id) return toast('Save the invoice first, then send a test', true); const x = await save(); if (x) await sendTest(`/invoices/${x}/send`, { skip_email: f.skip_email }); } }); const x = await save(); if (!x) return; await POST(`/invoices/${x}/send`, { skip_email: o.skip_email }); close(); reload(); }, 'Invoice marked as sent');
       if (id) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft invoice?')) return; await DEL('/invoices/' + id); close(); reload(); }));
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/invoices/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer payment link:', r.url); });
-        $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { const o = await askSend('this payment', { verb: 'Record' }); await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...o }); close(); reload(); }, 'Payment recorded'); };
+        $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { const o = await askSend('this payment', { verb: 'Record', test: (f) => sendTest(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...f }) }); await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...o }); close(); reload(); }, 'Payment recorded'); };
         ov.addEventListener('click', (e) => {
           const b = e.target.closest('[data-refund]');
           if (b) { const amt = prompt(`Refund amount ($), up to ${c2d(b.dataset.amt)}. Leave as is for a full refund; enter less for a partial refund.`, c2d(b.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${b.dataset.refund}/refund`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Refund sent'); return; }
@@ -1025,7 +1040,8 @@ function composeEmail({ to = '', subject = '', body = '', entity_type, entity_id
   modal({ title: 'Write an email', small: true, body: `<div class="fgrid"><label class="full">To<input id="to" type="email" value="${esc(to)}"></label><label class="full">Subject<input id="sub" value="${esc(subject)}"></label></div>
     <div class="rte-bar">${tb.map(([c, h, t]) => `<button type="button" class="btn sm" data-cmd="${c}" title="${t}">${h}</button>`).join('')}</div>
     <div id="rte" class="rte" contenteditable="true" role="textbox" aria-multiline="true">${body ? esc(body).replace(/\n/g, '<br>') : ''}</div><p class="hint">Bold, lists, links and line breaks are kept. It is sent in the Get A Bus NY email design. Find it afterwards under Sent messages.</p>`,
-  footer: `<span class="sp"></span>${button('Send', 'primary', 'id="s"')}`, onMount(ov, close) {
+  footer: `${testBtn()}<span class="sp"></span>${button('Send', 'primary', 'id="s"')}`, onMount(ov, close) {
+    $('#tst', ov).onclick = () => guard(async () => { const sub = $('#sub', ov).value.trim() || '(no subject)', html = $('#rte', ov).innerHTML.trim(); if (!$('#rte', ov).textContent.trim()) return toast('Write the message first', true); await sendTest('/messages/email', { to: $('#to', ov).value.trim() || 'customer', subject: sub, html }); });
     if (!subject && entity_type && entity_id) GET(`/contact-context?type=${entity_type}&id=${entity_id}`).then((c) => { if (c.subject && !$('#sub', ov).value) $('#sub', ov).value = c.subject; }).catch(() => {});
     ov.addEventListener('click', (e) => { const b = e.target.closest('[data-cmd]'); if (!b) return; e.preventDefault(); $('#rte', ov).focus(); if (b.dataset.cmd === 'createLink') { const u = prompt('Link address (https://...)'); if (u) document.execCommand('createLink', false, u); } else document.execCommand(b.dataset.cmd); });
     $('#s', ov).onclick = () => guard(async () => { const t = $('#to', ov).value.trim(), sub = $('#sub', ov).value.trim(), html = $('#rte', ov).innerHTML.trim(); if (!t || !sub || !$('#rte', ov).textContent.trim()) return toast('Recipient, subject and message are required', true); const r = await POST('/messages/email', { to: t, subject: sub, html, entity_type, entity_id }); if (!r.ok) throw new Error(r.error || 'Failed'); close(); toast(r.status === 'logged' ? 'Saved to Sent messages (no email provider connected)' : 'Sent'); });
@@ -1046,7 +1062,7 @@ VIEWS.activity = async (el) => {
 VIEWS.contracts = async (el) => {
   const rows = await GET('/contracts');
   el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">#${k.seq || k.id}</span><br><span class="mut sm">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => custLink(k.customer_id, k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? (k.has_pdf ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : '<span class="mut sm">signature waived</span>') : `<button class="btn sm" data-ovr="${k.id}">Mark signed (override)</button> <button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
-  el.addEventListener('click', (e) => { const ov1 = e.target.closest('[data-ovr]'); if (ov1) { signOverride(ov1.dataset.ovr, () => reload()); return; } const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent'); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
+  el.addEventListener('click', (e) => { const ov1 = e.target.closest('[data-ovr]'); if (ov1) { signOverride(ov1.dataset.ovr, () => reload()); return; } const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) confirmSend('the agreement', { test: () => sendTest(`/contracts/${s1.dataset.send}/send`) }).then((go) => go && guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent')); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
 };
 VIEWS.messages = async (el) => {
   let type = 'all', q = '';
@@ -1068,7 +1084,8 @@ function composeSms({ to = '', customer_id = '', onDone } = {}) {
     <div class="fgrid"><label class="full">Customer (optional)<select id="tc">${custOpts().map(([k, l], i) => [k, i === 0 ? '(none, use the number below)' : l]).map(([k, l]) => `<option value="${esc(k)}" ${String(k) === String(customer_id) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     <label class="full">Or a phone number<input id="tp" type="tel" value="${esc(to)}" placeholder="10 digit number"></label>
     <label class="full">Message<textarea id="tm" rows="5" maxlength="600" placeholder="Type your text"></textarea><span class="hint" id="tn">0 characters</span></label></div>`,
-  footer: `<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+  footer: `${testBtn()}<span class="sp"></span>${button('Send text', 'primary', 'id="go"')}`, onMount(ov, close) {
+    $('#tst', ov).onclick = () => guard(async () => { if (!$('#tm', ov).value.trim()) return toast('Write a message first', true); await sendTest('/messages/text', { customer_id: $('#tc', ov).value || null, to: $('#tp', ov).value || '5555550100', message: $('#tm', ov).value }); });
     $('#tm', ov).oninput = (e) => { const n = e.target.value.length; $('#tn', ov).textContent = `${n} characters, ${Math.max(1, Math.ceil(n / 160))} text${n > 160 ? 's' : ''}`; };
     $('#tc', ov).onchange = (e) => { $('#tp', ov).disabled = !!e.target.value; };
     $('#tp', ov).disabled = !!customer_id;
