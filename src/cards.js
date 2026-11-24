@@ -1,5 +1,5 @@
 // Saved cards: save a card on file with consent, charge it later, remove it.
-import { one, update, now, log } from './db.js';
+import { one, update, now, log, cardFee } from './db.js';
 import { recordPayment, invoiceBalance } from './services.js';
 import { getPaymentMethod, getSetupIntent, getPaymentIntent, chargeSaved, detachPaymentMethod, CARD_CONSENT, money } from './integrations.js';
 
@@ -28,11 +28,12 @@ export async function chargeInvoice(invoice_id, amount_cents, actor) {
   const bal = invoiceBalance(i);
   const amt = Math.round(Number(amount_cents)) || bal;
   if (amt < 100 || amt > bal) throw Object.assign(new Error(`Enter an amount between $1.00 and ${money(bal)}.`), { status: 400 });
-  const pi = await chargeSaved({ customer: c.stripe_customer_id, pm: c.card_pm, amount_cents: amt, invoice: i });
+  const fee = cardFee(i, amt);
+  const pi = await chargeSaved({ customer: c.stripe_customer_id, pm: c.card_pm, amount_cents: amt + fee, invoice: i });
   if (pi.status !== 'succeeded') throw Object.assign(new Error('The charge did not go through. Send the customer a payment link.'), { status: 402 });
-  recordPayment(i.id, { amount_cents: pi.amount_received || amt, method: 'card', stripe_session: pi.id, stripe_pi: pi.id, reference: `${c.card_brand} ${c.card_last4}` , note: 'Charged to card on file' }, actor);
+  recordPayment(i.id, { amount_cents: (pi.amount_received || amt + fee) - fee, fee_cents: fee, method: 'card', stripe_session: pi.id, stripe_pi: pi.id, reference: `${c.card_brand} ${c.card_last4}` , note: 'Charged to card on file' }, actor);
   log(actor, 'card.charged', 'invoice', i.id, money(amt));
-  return { ok: true, charged_cents: pi.amount_received || amt };
+  return { ok: true, charged_cents: pi.amount_received || amt + fee, fee_cents: fee };
 }
 export async function removeCard(customer_id, actor) {
   const c = one('SELECT * FROM customers WHERE id=?', customer_id);

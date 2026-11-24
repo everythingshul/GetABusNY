@@ -1,5 +1,5 @@
 // Business logic shared by public, admin, driver and bot routes.
-import { db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
+import { cardFeeText, db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
 import { normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
@@ -150,7 +150,7 @@ export function acceptQuote(id, actor = 'customer') {
     const deposit = Math.round((q.total_cents * (q.deposit_pct || 0)) / 100);
     const due = localDate(addDays(new Date(), Number(getSetting('invoice_due_days')) || 7));
     const invId = insert('invoices', {
-      number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate,
+      number: randomRef('INV', 'invoices', 'number'), seq: nextSeq('invoices'), customer_id: q.customer_id, trip_id: tripId, quote_id: id, status: 'draft', title: q.title, items: q.items, tax_rate: q.tax_rate, cc_fee_on: q.cc_fee_on || 0, cc_fee_pct: q.cc_fee_pct || 0, cc_fee_flat_cents: q.cc_fee_flat_cents || 0,
       ...totals(parse(q.items, []), q.tax_rate), deposit_cents: deposit, due_date: due, token: token(), created_at: now(), updated_at: now(),
     });
     if (q.request_id) {
@@ -191,7 +191,7 @@ export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   const due = i.deposit_cents && i.amount_paid_cents < i.deposit_cents ? `Deposit due now: <b>${money(i.deposit_cents - i.amount_paid_cents)}</b><br>` : '';
   const r = skip_email ? { ok: true, status: 'not emailed' } : await sendEmail(c.email, `Invoice ${i.number} - ${money(invoiceBalance(i))} due`, emailShell(`Invoice ${i.number}`,
     `<p>Hi ${esc(c.name.split(' ')[0])},</p><p>${esc(i.title || 'Charter service')}</p>
-     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>`, { label: 'Pay securely online', url: link.pay(i) }));
+     <p>Total: <b>${money(i.total_cents)}</b><br>Paid: ${money(i.amount_paid_cents)}<br>Balance: <b>${money(invoiceBalance(i))}</b><br>${due}Due date: ${i.due_date ? fmtDate(i.due_date) : 'on receipt'}</p>${i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents) ? `<p style="font-size:13px;color:#5b6b78">${esc(cardFeeText(i, money))}</p>` : ''}`, { label: 'Pay securely online', url: link.pay(i) }));
   if (!skip_email && !one("SELECT 1 x FROM followups WHERE entity_type='invoice' AND entity_id=? AND auto=1", id) && getSetting('fu_enabled') === '1' && i.due_date) {
     const due0 = new Date(i.due_date + 'T14:00:00Z');
     nums(getSetting('fu_invoice_before_days')).forEach((n) => scheduleAuto('invoice', id, 'invoice_reminder', addDays(due0, -n)));
@@ -202,9 +202,9 @@ export async function sendInvoice(id, actor, { skip_email = false } = {}) {
   return r;
 }
 
-export function recordPayment(invoice_id, { amount_cents, method = 'manual', reference, stripe_session, stripe_pi, note, skip_email = false, skip_sms = false }, actor = 'admin') {
+export function recordPayment(invoice_id, { amount_cents, fee_cents = 0, method = 'manual', reference, stripe_session, stripe_pi, note, skip_email = false, skip_sms = false }, actor = 'admin') {
   if (stripe_session && one('SELECT 1 x FROM payments WHERE stripe_session=?', stripe_session)) return null; // webhook replay
-  const pid = insert('payments', { invoice_id, amount_cents, method, reference, stripe_session, stripe_pi, status: 'succeeded', note, created_at: now() });
+  const pid = insert('payments', { invoice_id, amount_cents, fee_cents: fee_cents || 0, method, reference, stripe_session, stripe_pi, status: 'succeeded', note, created_at: now() });
   afterPayment(invoice_id, amount_cents, method, actor, { skip_email, skip_sms });
   return pid;
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { all, one, run, insert, update, now, token, randomRef, nextSeq, totals, parse, getSetting, localDate, log } from './db.js';
+import { all, one, run, insert, update, now, token, randomRef, nextSeq, totals, parse, getSetting, localDate, log, cardFeeText } from './db.js';
 import { recalcInvoice, recordPayment, sendInvoice, textCustomer, ensureCustomer, link, invoiceBalance, fmtDate } from './services.js';
 import { chargeInvoice } from './cards.js';
 
@@ -28,10 +28,10 @@ export function syncLedger() {
   const rows = all(`SELECT p.*, i.number inv_no, i.title inv_title, i.customer_id, c.name cname FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id
     WHERE p.status='succeeded' AND NOT EXISTS (SELECT 1 FROM ledger l WHERE l.src='payment' AND l.src_id=p.id) ORDER BY p.id`);
   for (const p of rows) {
-    const out = p.amount_cents < 0, cents = Math.abs(p.amount_cents);
+    const out = p.amount_cents < 0, cents = Math.abs(p.amount_cents) + (out ? 0 : Number(p.fee_cents) || 0);
     insert('ledger', {
       date: localDate(new Date(p.created_at)), direction: out ? 'out' : 'in', amount_cents: cents, vendor: p.cname || '', invoice_ref: p.inv_no, description: out ? `Refund: ${p.inv_title || p.inv_no}` : p.inv_title || 'Payment',
-      paid_with: methodLabel(p.method, p.stripe_pi), account: accountFor(p.method), notes: [p.reference ? `Ref: ${p.reference}` : '', p.note || ''].filter(Boolean).join('. '),
+      paid_with: methodLabel(p.method, p.stripe_pi), account: accountFor(p.method), notes: [p.reference ? `Ref: ${p.reference}` : '', p.fee_cents ? `Includes a ${usd(p.fee_cents)} card processing fee` : '', p.note || ''].filter(Boolean).join('. '),
       maaser_cents: out ? 0 : maaserFor(cents), category: out ? 'Refunds' : 'Sales', src: 'payment', src_id: p.id, invoice_id: p.invoice_id, customer_id: p.customer_id || null, created_by: 'system', created_at: p.created_at, updated_at: now(),
     });
   }
@@ -164,6 +164,7 @@ export async function invoicePdf(invoice_id) {
   row2('Subtotal', usd(i.subtotal_cents)); if (i.tax_cents) row2(`Tax (${i.tax_rate}%)`, usd(i.tax_cents)); if (i.gratuity_cents) row2('Gratuity', usd(i.gratuity_cents));
   row2('Total', usd(i.total_cents), bold); row2('Paid', usd(i.amount_paid_cents)); row2('Balance due', usd(invoiceBalance(i)), bold);
   if (pays.length) { y -= 14; need(40); t('Payments', { f: bold }); y -= 15; for (const p of pays) { need(16); t(`${fmtDate(localDate(new Date(p.created_at)))}  ${methodLabel(p.method, p.stripe_pi)}${p.reference ? '  ' + p.reference : ''}`, { color: grey }); t(usd(p.amount_cents), { right: true }); y -= 14; } }
+  if (i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents)) { y -= 14; need(40); t(cardFeeText(i, usd), { size: 8.5, color: grey }); y -= 12; }
   if (i.notes) { y -= 14; need(40); t('Notes', { f: bold }); y -= 14; t(String(i.notes).slice(0, 110), { color: grey }); }
   return Buffer.from(await doc.save());
 }

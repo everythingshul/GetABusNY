@@ -47,7 +47,8 @@ try{const q=await api('/quote/'+tok);$('#view').hidden=false;
  else if(q.status==='declined'){b.className='alert err';b.textContent='This quote was declined.';b.hidden=false;$('#act').hidden=true;}
  else if(q.status==='expired'){b.className='alert err';b.textContent='This quote has expired. Contact us and we will refresh it.';b.hidden=false;$('#acc').disabled=true;$('#dec').hidden=true;}
  let pad=null;if(cfg.sms){$('#smsrow').style.display='block';}
- $('#acc').onclick=()=>{$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
+ if(q.sig_waived){$('#acc').textContent='Accept quote';}
+ $('#acc').onclick=async()=>{if(q.sig_waived){if(!confirm('Accept this quote and the Terms & Conditions?'))return;try{const r=await api(`/quote/${tok}/accept`,{body:{agree:true}});location.href='/pay/'+r.invoice_token;}catch(x){say(x.message,'err');}return;}$('#sf').hidden=false;if(!pad)pad=signaturePad($('#sig'));$('#sf').scrollIntoView({behavior:'smooth',block:'center'});};
  $('#clr').onclick=()=>pad&&pad.clear();
  $('#sf').onsubmit=async e=>{e.preventDefault();const er=$('#serr');er.hidden=true;const sig=pad&&pad.get();
   if(!$('#nm').value.trim()||!sig||!$('#ag').checked){er.textContent='Type your name, draw your signature and check the box.';er.hidden=false;return;}

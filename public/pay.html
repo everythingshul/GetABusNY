@@ -53,7 +53,8 @@ if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('
   else{
    const opts=[];if(i.deposit_due_cents&&i.deposit_due_cents<i.balance_cents)opts.push(['deposit',`Pay deposit`,i.deposit_due_cents]);
    opts.push(['full','Pay full balance',i.balance_cents]);opts.push(['custom','Pay a different amount',null]);
-   $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}</b></label>`).join('');
+   const fee=a=>i.cc_fee&&a?Math.round(a*i.cc_fee.pct/100)+i.cc_fee.flat_cents:0;
+   $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}${fee(a)?`<span class="muted" style="display:block;font-weight:400;font-size:.8rem">+ ${money(fee(a))} card fee = ${money(a+fee(a))}</span>`:''}</b></label>`).join('')+(i.cc_fee?`<p class="muted" style="font-size:.85rem;margin:2px 0 0">${esc(i.cc_fee.text)}</p>`:'');
    const sync=()=>{const m=document.querySelector('input[name=m]:checked').value;$('#cust').hidden=m!=='custom';};document.addEventListener('change',sync);
    $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const m=document.querySelector('input[name=m]:checked').value;const body={mode:m,save_card:!!($('#svc')&&$('#svc').checked&&$('#svrow').style.display!=='none')};if(m==='custom')body.amount_cents=Math.round(parseFloat($('#ca').value||0)*100);
     const btn=$('#pb');btn.disabled=true;btn.textContent='Redirecting to secure checkout…';

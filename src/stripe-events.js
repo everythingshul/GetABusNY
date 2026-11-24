@@ -11,7 +11,7 @@ export async function applyStripeEvent(ev) {
       if (o.metadata?.mode === 'auth') { /* a card hold: money moves later, see payment_intent.* below */ }
       else if (o.mode === 'setup') { const cid = Number(o.metadata?.customer_id); if (cid && o.setup_intent) await saveCardFromSetup(cid, o.customer, o.setup_intent); }
       else if (o.payment_status === 'paid' && iid && one('SELECT 1 x FROM invoices WHERE id=?', iid)) {
-        recordPayment(iid, { amount_cents: o.amount_total, method: 'card', stripe_session: o.id, stripe_pi: o.payment_intent, reference: o.payment_intent }, 'stripe');
+        const fee = Math.max(0, Number(o.metadata?.fee_cents) || 0); recordPayment(iid, { amount_cents: o.amount_total - fee, fee_cents: fee, method: 'card', stripe_session: o.id, stripe_pi: o.payment_intent, reference: o.payment_intent }, 'stripe');
         const cid = Number(o.metadata?.customer_id);
         if (o.metadata?.save_card === '1' && cid && o.payment_intent) await saveCardFromPayment(cid, o.customer, o.payment_intent);
       };

@@ -81,9 +81,9 @@ const RES = {
   drivers: { fields: J('name', 'phone', 'email', 'vendor_id', 'active', 'notes'), sel: 'SELECT t.*, v.name vendor_name FROM drivers t LEFT JOIN vendors v ON v.id=t.vendor_id', search: ['t.name', 't.phone'], order: 't.name COLLATE NOCASE', del: () => true, create: (o) => ({ ...o, token: token(24) }), extra: (r) => ({ ...r, portal_url: `${process.env.BASE_URL || ''}/d/${r.token}` }) },
   vendors: { fields: J('name', 'contact_name', 'email', 'phone', 'vehicle_types', 'service_area', 'rating', 'notes', 'active', 'insurance_carrier', 'insurance_policy', 'insurance_expires', 'dot_number', 'mc_number'), sel: 'SELECT t.* FROM vendors t', search: ['t.name', 't.contact_name', 't.email', 't.service_area'], order: 't.name COLLATE NOCASE', del: (id) => !one('SELECT 1 x FROM trips WHERE vendor_id=?', id) },
   requests: { fields: J('name', 'email', 'phone', 'status', 'notes', 'referred_by', 'details'), sel: 'SELECT t.*, c.name customer_name FROM requests t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.name', 't.email', 't.ref', 't.phone'], order: 't.id DESC', del: () => true },
-  quotes: { fields: J('customer_id', 'title', 'items', 'tax_rate', 'deposit_pct', 'valid_until', 'notes', 'trip', 'status'), sel: 'SELECT t.*, c.name customer_name FROM quotes t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM quotes WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: randomRef('Q', 'quotes', 'number'), seq: nextSeq('quotes'), token: token(), status: 'draft', ...o }), before: (o) => { if (o.trip && typeof o.trip === 'object') { o.trip.itinerary = normItinerary(o.trip.itinerary); const f = summarize(o.trip.itinerary); for (const k of ['pickup', 'dropoff', 'stops']) o.trip[k] = f[k]; for (const k of ['depart_at', 'return_at']) if (!o.trip[k] && f[k]) o.trip[k] = f[k]; } return o; }, after: (id) => S.recalcQuote(id) },
+  quotes: { fields: J('customer_id', 'title', 'items', 'tax_rate', 'deposit_pct', 'valid_until', 'notes', 'trip', 'status', 'cc_fee_on', 'cc_fee_pct', 'cc_fee_flat_cents', 'sig_waived'), sel: 'SELECT t.*, c.name customer_name FROM quotes t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM quotes WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: randomRef('Q', 'quotes', 'number'), seq: nextSeq('quotes'), token: token(), status: 'draft', ...o }), before: (o) => { if (o.trip && typeof o.trip === 'object') { o.trip.itinerary = normItinerary(o.trip.itinerary); const f = summarize(o.trip.itinerary); for (const k of ['pickup', 'dropoff', 'stops']) o.trip[k] = f[k]; for (const k of ['depart_at', 'return_at']) if (!o.trip[k] && f[k]) o.trip[k] = f[k]; } return o; }, after: (id) => S.recalcQuote(id) },
   trips: { fields: J('customer_id', 'status', 'title', 'purpose', 'itinerary', 'pickup', 'dropoff', 'stops', 'depart_at', 'return_at', 'passengers', 'vehicle_id', 'vendor_id', 'vendor_cost_cents', 'driver_id', 'price_cents', 'onsite_name', 'onsite_phone', 'notes', 'driver_notes'), before: (o) => { if ('itinerary' in o) { o.itinerary = normItinerary(typeof o.itinerary === 'string' ? JSON.parse(o.itinerary || '[]') : o.itinerary); const f = summarize(o.itinerary); for (const k of ['pickup', 'dropoff', 'stops']) o[k] = f[k]; for (const k of ['depart_at', 'return_at']) if (!o[k] && f[k]) o[k] = f[k]; } return o; }, sel: 'SELECT t.*, c.name customer_name, v.name vehicle_name, d.name driver_name, vn.name vendor_name FROM trips t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id LEFT JOIN vendors vn ON vn.id=t.vendor_id', search: ['t.ref', 't.title', 'c.name', 't.pickup', 't.dropoff'], order: 't.depart_at DESC', del: () => false, create: (o) => ({ ref: nextNumber('TRIP'), status: 'booked', ...o }), after: (id, created) => { if (created) S.scheduleTripFollowups(id); } },
-  invoices: { fields: J('customer_id', 'trip_id', 'status', 'title', 'items', 'tax_rate', 'deposit_cents', 'gratuity_cents', 'due_date', 'notes'), sel: 'SELECT t.*, c.name customer_name FROM invoices t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM invoices WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: nextNumber('INV'), token: token(), status: 'draft', ...o }), after: (id) => S.recalcInvoice(id) },
+  invoices: { fields: J('customer_id', 'trip_id', 'status', 'title', 'items', 'tax_rate', 'deposit_cents', 'gratuity_cents', 'due_date', 'notes', 'cc_fee_on', 'cc_fee_pct', 'cc_fee_flat_cents'), sel: 'SELECT t.*, c.name customer_name FROM invoices t LEFT JOIN customers c ON c.id=t.customer_id', search: ['t.number', 't.title', 'c.name'], order: 't.id DESC', del: (id) => one('SELECT status FROM invoices WHERE id=?', id)?.status === 'draft', create: (o) => ({ number: nextNumber('INV'), token: token(), status: 'draft', ...o }), after: (id) => S.recalcInvoice(id) },
   followups: { fields: J('entity_type', 'entity_id', 'kind', 'channel', 'to_email', 'subject', 'body', 'due_at', 'status'), sel: 'SELECT t.* FROM followups t', search: ['t.subject', 't.kind'], order: "CASE t.status WHEN 'pending' THEN 0 ELSE 1 END, t.due_at", del: () => true, create: (o) => ({ auto: 0, channel: 'task', kind: 'manual', status: 'pending', ...o }) },
   messages: { fields: J('status'), sel: 'SELECT t.* FROM messages t', search: ['t.name', 't.email', 't.subject', 't.body'], order: 't.id DESC', del: () => true },
 };
@@ -161,7 +161,16 @@ admin.get('/customers/:id/history', wrap((req) => ({
 admin.post('/requests/manual', wrap((req) => S.createRequest(req.body || {}, 'admin')));
 admin.post('/requests/:id/quote', wrap((req) => ({ quote_id: S.quoteFromRequest(Number(req.params.id)) })));
 admin.post('/quotes/:id/send', wrap(async (req) => { S.recalcQuote(req.params.id); const r = await S.sendQuote(Number(req.params.id), req.user.email, { skip_email: !!req.body?.skip_email, skip_sms: !!req.body?.skip_sms }); return { ok: true, email: r }; }));
-admin.post('/quotes/:id/accept', wrap((req) => S.acceptQuote(Number(req.params.id), req.user.email)));
+// Staff can accept for a customer without an online signature (paper, phone, trusted repeat customer). The reason is logged and a record shows on Contracts.
+admin.post('/quotes/:id/accept', wrap((req) => {
+  const id = Number(req.params.id), reason = String(req.body?.reason || '').trim().slice(0, 300), who = String(req.body?.signed_by || '').trim().slice(0, 100);
+  const r = S.acceptQuote(id, req.user.email);
+  if (!r.already) {
+    log(req.user.email, 'quote.accepted_override', 'quote', id, reason || 'no reason given');
+    try { const k = createContract({ quote_id: id }); update('contracts', k.id, { trip_id: r.trip_id || null, status: 'signed', signer_name: who || `Signature waived by ${req.user.email}`, signed_at: now(), signer_ua: `Override by ${req.user.email}${reason ? ': ' + reason : ''}` }); } catch { /* no total yet: nothing to record */ }
+  }
+  return r;
+}));
 admin.post('/quotes/:id/duplicate', wrap((req) => {
   const q = one('SELECT * FROM quotes WHERE id=?', req.params.id);
   const { id, number, token: _t, sent_at, viewed_at, accepted_at, declined_at, ...rest } = q;
@@ -279,10 +288,19 @@ admin.post('/route-estimate', wrap(async (req) => {
 }));
 
 // ---------- contracts / e-signature ----------
-admin.get('/contracts', wrap(() => all("SELECT k.id,k.number,k.status,k.total_cents,k.signer_name,k.signed_at,k.sent_at,k.created_at,k.trip_id,k.customer_id,c.name customer_name, t.ref trip_ref FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id LEFT JOIN trips t ON t.id=k.trip_id ORDER BY k.id DESC LIMIT 300")));
+admin.get('/contracts', wrap(() => all("SELECT k.id,(k.pdf_file IS NOT NULL AND k.pdf_file<>'') has_pdf,k.number,k.status,k.total_cents,k.signer_name,k.signed_at,k.sent_at,k.created_at,k.trip_id,k.customer_id,c.name customer_name, t.ref trip_ref FROM contracts k LEFT JOIN customers c ON c.id=k.customer_id LEFT JOIN trips t ON t.id=k.trip_id ORDER BY k.id DESC LIMIT 300")));
 admin.post('/contracts', wrap((req) => { const k = createContract({ quote_id: req.body?.quote_id, trip_id: req.body?.trip_id }); log(req.user.email, 'contract.created', 'contract', k.id); return { id: k.id }; }));
 admin.post('/contracts/:id/send', wrap(async (req) => ({ ok: true, email: await sendContract(Number(req.params.id)) })));
 admin.get('/contracts/:id/link', wrap((req) => ({ url: `${integ_base()}/contract/${one('SELECT token FROM contracts WHERE id=?', req.params.id)?.token}` })));
+admin.post('/contracts/:id/override', wrap((req) => {
+  const k = one('SELECT * FROM contracts WHERE id=?', req.params.id); if (!k) throw bad('Not found', 404);
+  if (k.status === 'signed') throw bad('This agreement is already signed.');
+  if (k.status === 'void') throw bad('This agreement was voided.');
+  const reason = String(req.body?.reason || '').trim().slice(0, 300), who = String(req.body?.signed_by || '').trim().slice(0, 100);
+  update('contracts', k.id, { status: 'signed', signer_name: who || `Signature waived by ${req.user.email}`, signed_at: now(), signer_ua: `Override by ${req.user.email}${reason ? ': ' + reason : ''}` });
+  log(req.user.email, 'contract.override', 'contract', k.id, reason || 'no reason given');
+  return { ok: true };
+}));
 admin.post('/contracts/:id/void', wrap((req) => { update('contracts', req.params.id, { status: 'void' }); return { ok: true }; }));
 admin.get('/contracts/:id/pdf', (req, res) => {
   const k = one('SELECT * FROM contracts WHERE id=?', req.params.id); const f = k && contractPdfPath(k);

@@ -52,7 +52,7 @@ addCol('vendors', 'insurance_verified_at', 'TEXT');
 addCol('vendors', 'insurance_verified_by', 'TEXT');
 addCol('vendors', 'insurance_verify_note', 'TEXT');
 addCol('quotes', 'revision', 'INTEGER DEFAULT 1');
-addCol('requests', 'original_details', 'TEXT'); addCol('rfqs', 'closed_by', 'INTEGER'); addCol('rfqs', 'awarded_at', 'TEXT'); addCol('requests', 'seq', 'INTEGER'); addCol('quotes', 'seq', 'INTEGER'); addCol('invoices', 'seq', 'INTEGER'); addCol('trips', 'seq', 'INTEGER'); addCol('rfqs', 'seq', 'INTEGER');
+addCol('requests', 'original_details', 'TEXT'); for (const t of ['quotes', 'invoices']) { addCol(t, 'cc_fee_on', 'INTEGER DEFAULT 0'); addCol(t, 'cc_fee_pct', 'REAL DEFAULT 0'); addCol(t, 'cc_fee_flat_cents', 'INTEGER DEFAULT 0'); } addCol('payments', 'fee_cents', 'INTEGER DEFAULT 0'); addCol('quotes', 'sig_waived', 'INTEGER DEFAULT 0'); addCol('rfqs', 'closed_by', 'INTEGER'); addCol('rfqs', 'awarded_at', 'TEXT'); addCol('requests', 'seq', 'INTEGER'); addCol('quotes', 'seq', 'INTEGER'); addCol('invoices', 'seq', 'INTEGER'); addCol('trips', 'seq', 'INTEGER'); addCol('rfqs', 'seq', 'INTEGER');
 for (const t of ['requests', 'quotes', 'invoices', 'trips', 'rfqs']) db.exec(`UPDATE ${t} SET seq=id WHERE seq IS NULL`);
 db.exec(`CREATE TABLE IF NOT EXISTS quote_revisions(id INTEGER PRIMARY KEY, quote_id INTEGER, revision INTEGER, changed_at TEXT, changed_by TEXT, reason TEXT, changes TEXT, total_before INTEGER, total_after INTEGER, snapshot TEXT, sent_at TEXT)`);
 addCol('invoices', 'gratuity_cents', 'INTEGER DEFAULT 0');
@@ -174,6 +174,8 @@ export const DEFAULT_SETTINGS = {
   sms_auto_reminder_hours: '24',
   cal_token: '',
   require_signature: '1',
+  cc_fee_pct: '3',
+  cc_fee_flat: '0.30',
   trip_purposes: 'Camp trip,Shabbaton,Kehila trip,Kivrei Tzadikim,Yeshiva / school trip,Wedding / simcha,Chol Hamoed trip,Airport / transfer,Other',
 };
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)', k, v);
@@ -248,4 +250,18 @@ if (!one('SELECT 1 x FROM vehicles LIMIT 1')) {
     ['26 Seater Transformer Hummer', 'Limo', 26, 'White Hummer limo for 26 with a black and white interior and a VIP section.', 'White exterior,Black and white interior,VIP section'],
   ];
   seed.forEach(([name, category, capacity, description, features], i) => insert('vehicles', { name, category, capacity, description, features, active: 1, sort: (i + 1) * 10, created_at: now(), updated_at: now() }));
+}
+
+/** Card processing fee for one card payment on an invoice: a percentage of the amount plus a flat amount, in cents. 0 when the invoice has no fee. */
+export function cardFee(inv, amount_cents) {
+  if (!inv || !inv.cc_fee_on) return 0;
+  const pct = Math.max(0, Number(inv.cc_fee_pct) || 0), flat = Math.max(0, Math.round(Number(inv.cc_fee_flat_cents) || 0));
+  if (!pct && !flat) return 0;
+  return Math.round((Number(amount_cents) || 0) * pct / 100) + flat;
+}
+/** Plain description of the fee, shown wherever the customer sees the invoice. */
+export function cardFeeText(inv, fmtMoney) {
+  const pct = Number(inv.cc_fee_pct) || 0, flat = Math.round(Number(inv.cc_fee_flat_cents) || 0);
+  const parts = [pct ? `${pct}%` : '', flat ? fmtMoney(flat) : ''].filter(Boolean).join(' + ');
+  return `Paying by credit or debit card adds a processing fee of ${parts}, shown before you pay. There is no fee to pay by check, cash, Zelle or bank transfer.`;
 }
