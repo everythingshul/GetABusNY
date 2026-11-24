@@ -1,6 +1,6 @@
 // Outbound integrations: email (Brevo or Resend), texts (SimpleSender), Stripe (REST), all optional.
 import crypto from 'node:crypto';
-import { run, now, getSetting, all, one, insert, update, cardFee, testCtx } from './db.js';
+import { db, run, now, getSetting, all, one, insert, update, cardFee, testCtx } from './db.js';
 
 export const env = (k, d = '') => process.env[k] ?? d;
 export const BASE_URL = () => env('BASE_URL', `http://localhost:${env('PORT', '3000')}`).replace(/\/$/, '');
@@ -66,7 +66,9 @@ export async function sendEmail(to, subject, html, { replyTo, attachments = [], 
       if (r.ok) st = 'sent'; else { st = 'failed'; err = (await r.text()).slice(0, 300); }
     }
   } catch (e) { st = 'failed'; err = e.message; }
-  run('INSERT INTO outbox(to_addr,subject,html,status,error,created_at,kind,from_addr,provider,attachments) VALUES(?,?,?,?,?,?,?,?,?,?)', to, subject, html, st, err, now(), kind || 'customer', from, env('BREVO_API_KEY') ? 'Brevo' : env('RESEND_API_KEY') ? 'Resend' : 'not sent (no provider)', attachments.map((a) => a.filename).join(', ') || null);
+  if (T) T.results.push({ ok: st !== 'failed', status: st, error: err });
+  // test emails are written to the sent log too (a normal write would be skipped), so you can see whether they went out
+  (T ? (sql, ...a) => db.prepare(sql).run(...a) : run)('INSERT INTO outbox(to_addr,subject,html,status,error,created_at,kind,from_addr,provider,attachments) VALUES(?,?,?,?,?,?,?,?,?,?)', to, subject, html, st, err, now(), T ? 'test' : kind || 'customer', from, env('BREVO_API_KEY') ? 'Brevo' : env('RESEND_API_KEY') ? 'Resend' : 'not sent (no provider)', attachments.map((a) => a.filename).join(', ') || null);
   return { ok: st !== 'failed', status: st, error: err };
 }
 

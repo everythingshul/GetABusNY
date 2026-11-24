@@ -80,8 +80,10 @@ function signOverride(id, done) {
 // Runs a send as a test: same emails and texts, but they all go to the business email and nothing is marked sent.
 async function sendTest(path, body = {}) {
   const r = await POST(path, { ...body, test_send: true });
-  const n = r.test?.sent || 0;
-  toast(n ? `Test sent to ${r.test.to}. Check your inbox.` : 'Nothing to test: no email or text would be sent.', !n);
+  const n = r.test?.sent || 0, bad = r.test?.failed || [];
+  if (bad.length) toast(`The test email did not go out: ${bad[0]}`, true);
+  else if (r.test?.unsent) toast('No email provider is connected, so nothing was delivered. Add your Brevo key first.', true);
+  else toast(n ? `Test sent to ${r.test.to} (${n} message${n > 1 ? 's' : ''}). Also check spam. It is logged under Sent messages.` : 'Nothing to test: no email or text would be sent.', !n);
 }
 const testBtn = (id = 'tst') => button('Send me a test', '', `id="${id}"`);
 // A dialog for one-click sends (confirmations, review requests, agreements) with a test option. Resolves true to send for real.

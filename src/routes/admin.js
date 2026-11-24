@@ -38,8 +38,8 @@ admin.use((req, res, next) => {
   if (req.method !== 'POST' || req.body?.test_send !== true) return next();
   const to = String(getSettingSafe('email') || '').trim();
   if (!to) return res.status(400).json({ error: 'Add your business email in Settings first, tests are sent there.' });
-  const ctx = { to, sent: 0 }, j = res.json.bind(res);
-  res.json = (b) => j({ ...(b && typeof b === 'object' && !Array.isArray(b) ? b : { result: b }), test: { to, sent: ctx.sent } });
+  const ctx = { to, sent: 0, results: [] }, j = res.json.bind(res);
+  res.json = (b) => j({ ...(b && typeof b === 'object' && !Array.isArray(b) ? b : { result: b }), test: { to, sent: ctx.sent, failed: ctx.results.filter((x) => !x.ok).map((x) => x.error || 'failed'), unsent: ctx.results.filter((x) => x.status === 'logged').length } });
   testCtx.run(ctx, next);
 });
 admin.get('/me', (req, res) => res.json({ user: req.user, integrations: integ(), timezone: getSettingSafe('timezone') || 'America/New_York' }));
