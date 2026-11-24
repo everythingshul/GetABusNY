@@ -56,6 +56,16 @@ export function finalDropoff(it) {
   for (let i = list.length - 1; i >= 0; i--) if ((list[i].kind === 'dropoff' || list[i].kind === 'end') && list[i].address) return list[i].address;
   return '';
 }
+/** What a customer sees: no bus start/end rows, and the final drop-off (the last drop-off, or where the bus ends) is its own row, like a pickup. */
+export function customerItinerary(it) {
+  const all = it || [], list = all.filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  let k = -1;
+  for (let i = all.length - 1; i >= 0; i--) if ((all[i].kind === 'dropoff' || all[i].kind === 'end') && all[i].address) { k = i; break; }
+  if (k < 0) return list;
+  const f = all[k];
+  if (f.kind === 'dropoff') return list.map((x) => (x === f ? { ...x, kind: 'final' } : x));
+  return [...list, { kind: 'final', address: f.address, time: f.time || '' }];
+}
 export const itineraryText = (it) => it.map((x, i) => `${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ` @ ${x.time.replace('T', ' ')}` : ''}${x.wait_min ? ` (wait ${x.wait_min} min)` : ''}${x.pax ? ` · ${x.pax} pax` : ''}${x.note ? ` - ${x.note}` : ''}`).join('\n');
 
 export function mapsDirUrl(it) {
@@ -112,16 +122,14 @@ const hx = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<
 const KIND_COLOR = { start: '#6b7c88', pickup: '#5d8a12', stop: '#0078c0', dropoff: '#10222f', return_pickup: '#b36b00', end: '#6b7c88' };
 /** Email-safe itinerary list: numbered badge, stop type, address, then time and wait. fmt turns "YYYY-MM-DDTHH:mm" into readable text. */
 export function itineraryHtml(itAll, fmt = (t) => t) {
-  const it = itAll.filter((x) => x.kind !== 'start' && x.kind !== 'end'); // customers do not see the bus's own positioning stops
+  const it = customerItinerary(itAll);
   const rows = it.map((x, i) => {
-    const last = i === it.length - 1, c = KIND_COLOR[x.kind] || '#0078c0';
+    const last = i === it.length - 1, c = KIND_COLOR[x.kind === 'final' ? 'dropoff' : x.kind] || '#0078c0';
     const meta = [x.time ? fmt(x.time) : '', x.wait_min ? `waits ${x.wait_min} min` : '', x.pax ? `${x.pax} passengers` : ''].filter(Boolean).join(' &nbsp;&middot;&nbsp; ');
     return `<tr><td width="40" valign="top" align="center" style="padding:0 0 0 0"><table cellpadding="0" cellspacing="0" role="presentation"><tr><td align="center" width="28" height="28" style="width:28px;height:28px;border-radius:14px;background:${c};color:#ffffff;font:bold 13px Arial,Helvetica,sans-serif;line-height:28px">${i + 1}</td></tr></table></td>
-<td valign="top" style="padding:0 0 ${last ? 0 : 16}px 8px;border-left:0"><div style="font:bold 11px Arial,Helvetica,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${c}">${hx(KINDS[x.kind] || 'Stop')}</div><div style="font:bold 15px Arial,Helvetica,sans-serif;color:#10222f;margin:2px 0">${hx(x.address)}</div>${meta ? `<div style="font:13px Arial,Helvetica,sans-serif;color:#4d6270">${meta}</div>` : ''}${x.note ? `<div style="font:italic 13px Arial,Helvetica,sans-serif;color:#4d6270;margin-top:2px">${hx(x.note)}</div>` : ''}</td></tr>`;
+<td valign="top" style="padding:0 0 ${last ? 0 : 16}px 8px;border-left:0"><div style="font:bold 11px Arial,Helvetica,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${c}">${hx(x.kind === 'final' ? 'Final drop-off' : KINDS[x.kind] || 'Stop')}</div><div style="font:bold 15px Arial,Helvetica,sans-serif;color:#10222f;margin:2px 0">${hx(x.address)}</div>${meta ? `<div style="font:13px Arial,Helvetica,sans-serif;color:#4d6270">${meta}</div>` : ''}${x.note ? `<div style="font:italic 13px Arial,Helvetica,sans-serif;color:#4d6270;margin-top:2px">${hx(x.note)}</div>` : ''}</td></tr>`;
   }).join('');
-  const fd = finalDropoff(itAll); // but the address where the bus ends counts as the final drop-off
-  const fdHtml = fd ? `<p style="margin:10px 0 4px"><strong>Final drop-off:</strong> ${hx(fd)}</p>` : '';
-  return fdHtml ? itinTable(rows) + fdHtml : itinTable(rows);
+  return itinTable(rows);
 }
 function itinTable(rows) {
   return `<table cellpadding="0" cellspacing="0" role="presentation" width="100%" style="margin:6px 0 4px;background:#f5f8fa;border:1px solid #dfe8ee;border-radius:8px"><tr><td style="padding:16px 16px 14px"><table cellpadding="0" cellspacing="0" role="presentation" width="100%">${rows}</table></td></tr></table>`;

@@ -27,7 +27,8 @@
 <script type="module">
 import {boot,api,$,esc,money,fmtWhen,config} from '/js/site.js';
 import {signaturePad} from '/js/sigpad.js';
-const KL={start:'Bus starts at',pickup:'Pickup',stop:'Stop',dropoff:'Drop-off',return_pickup:'Return pickup',end:'Bus ends at'};
+const KL={start:'Bus starts at',pickup:'Pickup',stop:'Stop',dropoff:'Drop-off',final:'Final drop-off',return_pickup:'Return pickup',end:'Bus ends at'};
+const ci=a=>{a=a||[];const l=a.filter(x=>x.kind!=='start'&&x.kind!=='end');let k=-1;for(let n=a.length-1;n>=0;n--)if((a[n].kind==='dropoff'||a[n].kind==='end')&&a[n].address){k=n;break;}if(k<0)return l;const f=a[k];return f.kind==='dropoff'?l.map(x=>x===f?{...x,kind:'final'}:x):[...l,{kind:'final',address:f.address,time:f.time||''}];};
 await boot('');
 const cfg=await config();
 const tok=location.pathname.split('/')[2];
@@ -36,8 +37,8 @@ try{const q=await api('/quote/'+tok);$('#view').hidden=false;
  $('#num').textContent=q.number;$('#hi').textContent=`Prepared for ${q.customer_name||'you'} - ${q.title||''}`;
  const t=q.trip||{};
  const fdr=a=>{const l=a||[];for(let n=l.length-1;n>=0;n--)if((l[n].kind==='dropoff'||l[n].kind==='end')&&l[n].address)return l[n].address;return '';};
- $('#kv').innerHTML=`<div><dt>Departure</dt><dd>${fmtWhen(t.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmtWhen(t.return_at)}</dd></div><div><dt>Pickup</dt><dd>${esc(t.pickup||'-')}</dd></div><div><dt>Destination</dt><dd>${esc(t.dropoff||'-')}</dd></div><div><dt>Final drop-off</dt><dd>${esc(fdr(t.itinerary)||t.dropoff||'-')}</dd></div><div><dt>Passengers</dt><dd>${t.passengers||'-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(q.vehicle||'To be confirmed')}</dd></div>${q.valid_until?`<div><dt>Quote valid until</dt><dd>${fmtWhen(q.valid_until)}</dd></div>`:''}`;
- $('#stops').innerHTML=(t.itinerary||[]).filter(x=>x.kind!=='start'&&x.kind!=='end').map((x,i)=>`<li><b>${i+1}</b><div>${esc(x.address)}<small>${KL[x.kind]||''}${x.time?' · '+fmtWhen(x.time):''}${x.wait_min?' · wait '+x.wait_min+' min':''}${x.note?' · '+esc(x.note):''}</small></div></li>`).join('')||`<li><b>1</b><div>${esc(t.pickup||'')} → ${esc(t.dropoff||'')}</div></li>`;
+ $('#kv').innerHTML=`<div><dt>Departure</dt><dd>${fmtWhen(t.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmtWhen(t.return_at)}</dd></div><div><dt>Pickup</dt><dd>${esc(t.pickup||'-')}</dd></div><div><dt>Destination</dt><dd>${esc(t.dropoff||'-')}</dd></div><div><dt>Passengers</dt><dd>${t.passengers||'-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(q.vehicle||'To be confirmed')}</dd></div>${q.valid_until?`<div><dt>Quote valid until</dt><dd>${fmtWhen(q.valid_until)}</dd></div>`:''}`;
+ $('#stops').innerHTML=ci(t.itinerary).map((x,i)=>`<li><b>${i+1}</b><div>${esc(x.address)}<small>${KL[x.kind]||''}${x.time?' · '+fmtWhen(x.time):''}${x.wait_min?' · wait '+x.wait_min+' min':''}${x.note?' · '+esc(x.note):''}</small></div></li>`).join('')||`<li><b>1</b><div>${esc(t.pickup||'')} → ${esc(t.dropoff||'')}</div></li>`;
  $('#items').innerHTML=q.items.filter(x=>x.qty&&x.unit_cents).map(x=>`<tr><td>${esc(x.desc)}</td><td class="r">${x.qty}</td><td class="r">${money(x.unit_cents)}</td><td class="r">${money(x.qty*x.unit_cents)}</td></tr>`).join('');
  $('#tots').innerHTML=`<tr><td colspan="3" class="r">Subtotal</td><td class="r">${money(q.subtotal_cents)}</td></tr>${q.tax_cents?`<tr><td colspan="3" class="r">Tax (${q.tax_rate}%)</td><td class="r">${money(q.tax_cents)}</td></tr>`:''}<tr class="big"><td colspan="3" class="r">Total</td><td class="r">${money(q.total_cents)}</td></tr>`;
  $('#notes').textContent=q.notes||'';

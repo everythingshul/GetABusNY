@@ -21,7 +21,7 @@ try {
   let r = await call('POST', '/api/public/request', { name: 'No Drop', email: 'n@example.com', phone: '5550001', purpose: 'Trip', passengers: 10, depart_at: '2099-07-07T08:00', itinerary: [{ kind: 'pickup', address: '1 A St' }] });
   assert.equal(r.status, 400); assert.match(r.body.error, /final drop-off/i);
   r = await call('POST', '/api/public/request', { name: 'With Drop', email: 'w@example.com', phone: '5550002', purpose: 'Trip', passengers: 10, depart_at: '2099-07-07T08:00', itinerary: IT }); assert.equal(r.status, 200, JSON.stringify(r.body));
-  let em = emails().find((e) => /We got your request/.test(e.subject)); assert.ok(em && /Final drop-off:<\/strong> 22 Final Ave/.test(em.html), 'the request email lists the final drop-off');
+  let em = emails().find((e) => /We got your request/.test(e.subject)); assert.ok(em && /Final drop-off<\/div><div[^>]*>22 Final Ave/.test(em.html), 'the request email lists the final drop-off as a row');
 
   // quote: needs a final drop-off to be sent; the email and page show it; revised emails do not list changes
   const cust = (await call('POST', `${A}/customers`, { name: 'Pay Full', email: 'pf@example.com', phone: '5550003' })).body.id;
@@ -29,7 +29,7 @@ try {
   const bad = await mk([{ kind: 'pickup', address: '1 A St' }, { kind: 'stop', address: '2 B St' }]);
   assert.equal((await call('POST', `${A}/quotes/${bad}/send`, { skip_sms: true })).status, 400, 'a quote cannot be sent without a final drop-off');
   const q = await mk(IT); assert.equal((await call('POST', `${A}/quotes/${q}/send`, { skip_sms: true })).status, 200);
-  em = emails().filter((e) => /Quote Q-/.test(e.subject)).pop(); assert.match(em.html, /Final drop-off:<\/strong> 22 Final Ave/); assert.match(em.html, /pay online/); assert.ok(!/deposit online/.test(em.html));
+  em = emails().filter((e) => /Quote Q-/.test(e.subject)).pop(); assert.match(em.html, /Final drop-off<\/div><div[^>]*>22 Final Ave/); assert.ok(!/Final drop-off:/.test(em.html), 'it is a regular itinerary row, not a separate line'); assert.match(em.html, /pay online/); assert.ok(!/deposit online/.test(em.html));
   await call('PUT', `${A}/quotes/${q}`, { title: 'Changed title', revision_note: 'price fix', items: [{ desc: 'Bus', qty: 1, unit_cents: 90000 }] });
   await call('POST', `${A}/quotes/${q}/send`, { skip_sms: true });
   em = emails().filter((e) => /Updated quote/.test(e.subject)).pop(); assert.ok(em, 'an updated quote email goes out'); assert.ok(!/What changed/i.test(em.html), 'the email does not describe what changed');
@@ -51,7 +51,7 @@ try {
   const pv = await (await fetch(`${base}/api/public/invoice/${itok}`)).json(); assert.equal(pv.trip.itinerary.length, 3, 'the invoice page gets every stop');
   // the address where the bus ends counts as the final drop-off
   const qe = await mk([...IT, { kind: 'end', address: '99 Garage Ln, Brooklyn, NY' }]); await call('POST', `${A}/quotes/${qe}/send`, { skip_sms: true });
-  const ee = emails().filter((e) => /Quote Q-/.test(e.subject)).pop(); assert.match(ee.html, /Final drop-off:<\/strong> 99 Garage Ln/, 'a bus end is the final drop-off'); assert.ok(!/Bus ends/i.test(ee.html), 'the bus own stops are not listed for the customer');
+  const ee = emails().filter((e) => /Quote Q-/.test(e.subject)).pop(); assert.match(ee.html, /Final drop-off<\/div><div[^>]*>99 Garage Ln/, 'a bus end is the final drop-off row'); assert.ok(!/Bus ends/i.test(ee.html), 'the bus own stops are not listed for the customer');
   const bq = await mk([{ kind: 'pickup', address: '1 A St' }, { kind: 'end', address: '5 Yard Rd' }]); assert.equal((await call('POST', `${A}/quotes/${bq}/send`, { skip_sms: true })).status, 200, 'a bus end alone satisfies the final drop-off requirement');
   // an invoice can be switched to pay in full, which clears its deposit
   await call('PUT', `${A}/invoices/${iid}`, { pay_full: 0, deposit_cents: 20000 }); assert.equal((await (await fetch(`${base}/api/public/invoice/${itok}`)).json()).deposit_due_cents, 20000);

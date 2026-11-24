@@ -7,7 +7,7 @@ import { localDate, all, one, run, insert, update, now, token, nextNumber, rando
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner } from './integrations.js';
 import { syncLedger } from './ledger.js';
 import { tripDetail, fmtWhen, fmtDate, localToDate, link, icsKey, naiveMs } from './services.js';
-import { finalDropoff, normItinerary, fromLegacy, itineraryText, KINDS, summarize } from './itinerary.js';
+import { customerItinerary, finalDropoff, normItinerary, fromLegacy, itineraryText, KINDS, summarize } from './itinerary.js';
 import { buildXlsx } from './xlsx.js';
 
 const DATA = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -126,8 +126,7 @@ export async function contractPdf(k, sigPng) {
   text(`${b.trip?.purpose ? b.trip.purpose + ' · ' : ''}Passengers: ${b.trip?.passengers || '-'}${b.trip?.vehicle ? ' · Vehicle: ' + b.trip.vehicle : ''}`);
   text(`Departure: ${fmtWhen(b.trip?.depart_at)}    Return: ${fmtWhen(b.trip?.return_at)}`);
   head('Itinerary');
-  { const fd = finalDropoff(b.itinerary); if (fd) text(`Final drop-off: ${fd}`); }
-  (b.itinerary || []).filter((x) => x.kind !== 'start' && x.kind !== 'end').forEach((x, i) => text(`${i + 1}. ${KINDS[x.kind]}: ${x.address}${x.time ? ' @ ' + fmtWhen(x.time) : ''}${x.wait_min ? ' (wait ' + x.wait_min + ' min)' : ''}${x.note ? ', ' + x.note : ''}`));
+  customerItinerary(b.itinerary).forEach((x, i) => text(`${i + 1}. ${x.kind === 'final' ? 'Final drop-off' : KINDS[x.kind]}: ${x.address}${x.time ? ' @ ' + fmtWhen(x.time) : ''}${x.wait_min ? ' (wait ' + x.wait_min + ' min)' : ''}${x.note ? ', ' + x.note : ''}`));
   head('Price');
   (b.items || []).filter((x) => x.qty && x.unit_cents).forEach((x) => text(`${x.desc}    ${x.qty} x ${money(x.unit_cents)} = ${money(Math.round(x.qty * x.unit_cents))}`));
   if (b.tax_cents) text(`Tax (${b.tax_rate}%): ${money(b.tax_cents)}`);

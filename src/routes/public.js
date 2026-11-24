@@ -1,5 +1,5 @@
 import express from 'express';
-import { finalDropoff, normItinerary } from '../itinerary.js';
+import { customerItinerary, finalDropoff, normItinerary } from '../itinerary.js';
 import { localDate, all, one, run, update, insert, now, getSetting, getJSON, parse, log, cardFeeText } from '../db.js';
 import { limit } from '../auth.js';
 import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
@@ -128,7 +128,7 @@ pub.post('/quote/:token/question', limit('qq', 6, 3600000), (req, res) => {
 });
 
 // ----- invoice payment -----
-const tripForInvoice = (id) => { const t = one('SELECT pickup,dropoff,depart_at,return_at,passengers,itinerary FROM trips WHERE id=?', id); if (!t) return null; const { itinerary, ...rest } = t; const it = normItinerary(parse(itinerary, [])); return { ...rest, itinerary: it.filter((x) => x.kind !== 'start' && x.kind !== 'end'), final_dropoff: finalDropoff(it) || null }; };
+const tripForInvoice = (id) => { const t = one('SELECT pickup,dropoff,depart_at,return_at,passengers,itinerary FROM trips WHERE id=?', id); if (!t) return null; const { itinerary, ...rest } = t; const it = normItinerary(parse(itinerary, [])); return { ...rest, itinerary: customerItinerary(it), final_dropoff: finalDropoff(it) || null }; };
 const invView = (i) => {
   const c = one('SELECT name FROM customers WHERE id=?', i.customer_id);
   const bal = invoiceBalance(i);
