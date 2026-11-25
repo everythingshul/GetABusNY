@@ -244,12 +244,12 @@ export async function quickPayment(b, actor) {
   const cents = Math.round(Number(b.amount_cents));
   if (!Number.isFinite(cents) || cents < 100 || cents > 100_000_000) throw bad('Enter an amount of at least $1.00.');
   const desc = String(b.description || '').trim().slice(0, 200) || 'Payment';
-  const mode = ['link', 'received', 'card_on_file'].includes(b.mode) ? b.mode : 'link';
+  const mode = ['link', 'received', 'card_on_file', 'enter_card'].includes(b.mode) ? b.mode : 'link';
   let customer_id = Number(b.customer_id) || null;
   if (!customer_id) {
     const name = String(b.name || '').trim();
     if (!name) throw bad('Pick a customer or type a name.');
-    if (mode !== 'received' && !b.email && !b.phone) throw bad('Add an email or phone number so the payment link can be sent.');
+    if (mode === 'link' && !b.email && !b.phone) throw bad('Add an email or phone number so the payment link can be sent.');
     customer_id = ensureCustomer({ name, email: String(b.email || '').trim(), phone: String(b.phone || '').trim(), company: b.company });
   }
   const c = one('SELECT * FROM customers WHERE id=?', customer_id); if (!c) throw bad('Customer not found.');
@@ -263,6 +263,8 @@ export async function quickPayment(b, actor) {
     out.paid = true;
   } else if (mode === 'card_on_file') {
     await chargeInvoice(id, cents, actor); out.paid = true;
+  } else if (mode === 'enter_card') {
+    out.enter_card = true; // the staff member types the card next
   } else {
     if (b.send_email && c.email) await sendInvoice(id, actor, { skip_email: false });
     if (b.send_sms && c.phone) { const r = await textCustomer(customer_id, `${getSetting('business_name')}\nPayment link for ${usd(cents)}:\n${out.url}`, 'manual', { force: true }); out.sms = r.ok ? 'sent' : r.error; }

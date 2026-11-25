@@ -20,7 +20,7 @@ try{
  if(!v.ready||!v.publishable_key){$('#err').textContent='Saving cards is not available right now. Please call '+v.phone+'.';$('#err').hidden=false;}
  else{
   let stripe,card;
-  await loadStripe();stripe=window.Stripe(v.publishable_key);card=stripe.elements().create('card',{style:{base:{fontSize:'16px',color:'#10222f'}}});card.mount('#cardel');card.on('change',e=>{$('#err').textContent=e.error?e.error.message:'';$('#err').hidden=!e.error;});$('#go').disabled=false;
+  await loadStripe();stripe=window.Stripe(v.publishable_key);card=stripe.elements().create('card',{disableLink:true,style:{base:{fontSize:'16px',color:'#10222f'}}});card.mount('#cardel');card.on('change',e=>{$('#err').textContent=e.error?e.error.message:'';$('#err').hidden=!e.error;});$('#go').disabled=false;
   $('#cf').onsubmit=async e=>{e.preventDefault();$('#err').hidden=true;if(!$('#ag').checked){$('#err').textContent='Please tick the box to agree.';$('#err').hidden=false;return;}
    const b=$('#go');b.disabled=true;b.textContent='Saving…';
    try{const r=await api(`/save-card/${cid}/${sig}/intent`,{body:{}});const res=await stripe.confirmCardSetup(r.client_secret,{payment_method:{card,billing_details:{name:$('#cn').value||undefined}}});if(res.error)throw new Error(res.error.message);await api(`/save-card/${cid}/${sig}/complete`,{body:{setup_intent:r.id}});$('#ok').hidden=true;$('#done').hidden=false;}

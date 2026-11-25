@@ -60,5 +60,10 @@ try {
   r = await post(`/save-card/${cid}/${sig}/complete`, { setup_intent: 'seti_1' }); assert.equal(r.status, 200, JSON.stringify(r.body));
   const cu = D.one('SELECT * FROM customers WHERE id=?', cid); assert.equal(cu.card_last4, '4242'); assert.equal(cu.card_pm, 'pm_1'); assert.ok(cu.card_consent_at, 'consent is recorded');
   assert.equal((await post(`/save-card/${cid}/${sig}/complete`, { setup_intent: 'nope' })).status, 400);
+  // ---- staff enter a card any time: a payment that is not on a quote, with the card typed next
+  const { quickPayment } = await import('../src/ledger.js');
+  const q = await quickPayment({ name: 'Walk In', amount_cents: 25000, description: 'Deposit', mode: 'enter_card' }, 'admin');
+  assert.equal(q.enter_card, true); const qi = D.one('SELECT * FROM invoices WHERE id=?', q.invoice_id); assert.equal(qi.total_cents, 25000); assert.equal(qi.status, 'sent'); assert.ok(!q.paid);
+  assert.equal(D.all("SELECT * FROM outbox WHERE subject LIKE '%Invoice%'").length, 0, 'nothing is sent to the customer');
   console.log('Site card payment checks passed.');
 } finally { server.close(); }

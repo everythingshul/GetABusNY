@@ -16,8 +16,8 @@ import { allLabels, allLinks, createLabel, updateLabel, deleteLabel, setLabels, 
 import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, ledgerMaaser, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
 import { bannerAdminRouter } from '../banner.js';
 import { recordTerminalIntent } from '../services.js';
-import { chargeInvoice, removeCard, cardOf, saveCardFromPayment } from '../cards.js';
-import { stripeCustomerFor, createTerminalIntent, getPaymentIntent } from '../integrations.js';
+import { chargeInvoice, removeCard, cardOf, saveCardFromPayment, saveCardFromSetup } from '../cards.js';
+import { stripeCustomerFor, createTerminalIntent, createSetupIntent, getSetupIntent, getPaymentIntent } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
@@ -565,6 +565,22 @@ admin.get('/quotes/:id/revisions', wrap((req) => S.quoteRevisions(Number(req.par
 
 // ---------- saved cards ----------
 admin.get('/customers/:id/card', wrap((req) => cardOf(one('SELECT * FROM customers WHERE id=?', req.params.id))));
+// Staff type a card for a customer whenever they like (nothing is charged). The customer has agreed to keep it on file.
+admin.post('/customers/:id/card/intent', wrap(async (req) => {
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PUBLISHABLE_KEY) throw bad('Add STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY on the server to enter cards here.');
+  const c = one('SELECT * FROM customers WHERE id=?', req.params.id); if (!c) throw bad('Not found', 404);
+  const si = await createSetupIntent({ customer_id: c.id, stripeCustomer: await stripeCustomerFor(c) });
+  return { client_secret: si.client_secret, id: si.id, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY };
+}));
+admin.post('/customers/:id/card/complete', wrap(async (req) => {
+  const c = one('SELECT * FROM customers WHERE id=?', req.params.id); if (!c) throw bad('Not found', 404);
+  const id = String(req.body?.setup_intent || ''); if (!/^seti_[A-Za-z0-9_]+$/.test(id)) throw bad('Nothing to save.');
+  const si = await getSetupIntent(id);
+  if (Number(si.metadata?.customer_id) !== c.id) throw bad('That card does not belong to this customer.');
+  if (si.status !== 'succeeded') throw bad('The card could not be saved.');
+  await saveCardFromSetup(c.id, si.customer, si.id); log(req.user.email, 'card.entered_by_staff', 'customer', c.id);
+  return { ok: true, card: cardOf(one('SELECT * FROM customers WHERE id=?', c.id)) };
+}));
 admin.post('/customers/:id/card-link', wrap(async (req) => {
   const c = one('SELECT * FROM customers WHERE id=?', req.params.id); if (!c) throw bad('Not found', 404);
   const saveUrl = `${integ_base()}/save-card/${c.id}/${signLink(`card|${c.id}`)}`;

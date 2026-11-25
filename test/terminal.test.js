@@ -52,5 +52,7 @@ try {
   r = await call('POST', `${A}/invoices/${id}/terminal`, { amount_cents: 99999999, mode: 'charge' }); assert.equal(r.status, 400); assert.match(r.body.error, /cannot be more than the balance/);
   await call('PUT', `${A}/invoices/${id}`, { status: 'void' }); r = await call('POST', `${A}/invoices/${id}/terminal`, { amount_cents: 5000, mode: 'charge' }); assert.equal(r.status, 400, 'a void invoice cannot be charged');
   r = await call('POST', `${A}/invoices/${id}/terminal/complete`, { payment_intent: '' }); assert.ok(r.status >= 400, 'no payment to complete');
+  r = await call('POST', `${A}/customers/${cust}/card/complete`, { setup_intent: 'nope' }); assert.equal(r.status, 400, 'a card cannot be saved without a real setup');
+  assert.equal((await call('POST', `${A}/customers/99999/card/complete`, { setup_intent: 'seti_x' })).status, 404);
   console.log('Card terminal checks passed.');
 } finally { srv.kill(); }

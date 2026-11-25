@@ -85,7 +85,7 @@ async function cardTerminalModal(invoiceId, inv, bal, after) {
       const feeFor = (c) => Math.round(c * (Number(inv.cc_fee_pct) || 0) / 100) + (Number(inv.cc_fee_flat_cents) || 0);
       const sync = () => { const hold = mode() === 'hold', c = d2c($('#ta', ov).value); go.textContent = hold ? `Hold ${usd(c)}` : `Charge ${usd(c + (hasFee && $('#tf', ov).checked ? feeFor(c) : 0))}`; $('#thold', ov).hidden = !hold; if (hasFee) { $('#tfrow', ov).style.display = hold ? 'none' : 'flex'; $('#tfamt', ov).textContent = `(${usd(feeFor(c))})`; } };
       ov.addEventListener('input', sync); ov.addEventListener('change', sync); sync();
-      loadStripeJs().then((Stripe) => { stripe = Stripe(cfg.publishable_key); card = stripe.elements().create('card', { style: { base: { fontSize: '16px', color: '#10222f' } } }); card.mount('#tcard'); card.on('change', (e) => { const er = $('#terr', ov); er.hidden = !e.error; er.textContent = e.error?.message || ''; }); }).catch((e) => { $('#terr', ov).hidden = false; $('#terr', ov).textContent = e.message; });
+      loadStripeJs().then((Stripe) => { stripe = Stripe(cfg.publishable_key); card = stripe.elements().create('card', { disableLink: true, style: { base: { fontSize: '16px', color: '#10222f' } } }); card.mount('#tcard'); card.on('change', (e) => { const er = $('#terr', ov); er.hidden = !e.error; er.textContent = e.error?.message || ''; }); }).catch((e) => { $('#terr', ov).hidden = false; $('#terr', ov).textContent = e.message; });
       go.onclick = async () => {
         if (!stripe || !card) return toast('The secure card field is still loading', true);
         const cents = d2c($('#ta', ov).value); if (cents < 100) return toast('Enter an amount of at least $1.00', true);
@@ -99,6 +99,32 @@ async function cardTerminalModal(invoiceId, inv, bal, after) {
           if (!done.ok) throw new Error('The card was not accepted. Nothing was charged.');
           close(); toast(done.held ? `Hold of ${usd(done.amount_cents)} placed` : `Charged ${usd(done.amount_cents)}`); after?.();
         } catch (e) { toast(e.message, true); go.disabled = false; go.textContent = label; }
+      };
+    } });
+}
+// Staff type a card to keep on file for a customer, any time (nothing is charged).
+async function cardOnFileModal(customerId, name, after) {
+  const cfg = await GET('/terminal/config');
+  if (!cfg.stripe || !cfg.publishable_key) return toast('Add STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY on the server to enter cards here.', true);
+  modal({ title: `Card on file${name ? ' for ' + name : ''}`, small: true, body: `<p class="mut sm">Type the card into the secure field. Nothing is charged. The card number goes straight to Stripe and is never stored here.</p>
+    <label>Name on card<input id="cfn" autocomplete="off"></label>
+    <div id="cfcard" style="border:1px solid var(--line);border-radius:8px;padding:13px 12px;background:#fff;margin-top:10px"></div><div id="cferr" class="err" hidden style="margin-top:8px"></div>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:flex-start;font-weight:500;margin-top:10px"><input type="checkbox" id="cfag" style="margin-top:3px"> <span>The customer agrees to keep this card on file and have it charged later for the remaining balance and extras they agreed to (overtime, gratuity).</span></label>`,
+    footer: `<span class="sp"></span>${button('Save card', 'primary', 'id="go"')}`,
+    onMount(ov, close) {
+      let stripe, card; const go = $('#go', ov);
+      loadStripeJs().then((Stripe) => { stripe = Stripe(cfg.publishable_key); card = stripe.elements().create('card', { disableLink: true, style: { base: { fontSize: '16px', color: '#10222f' } } }); card.mount('#cfcard'); card.on('change', (e) => { const er = $('#cferr', ov); er.hidden = !e.error; er.textContent = e.error?.message || ''; }); }).catch((e) => { $('#cferr', ov).hidden = false; $('#cferr', ov).textContent = e.message; });
+      go.onclick = async () => {
+        if (!stripe || !card) return toast('The secure card field is still loading', true);
+        if (!$('#cfag', ov).checked) return toast('Tick the box to confirm the customer agreed', true);
+        go.disabled = true; go.textContent = 'Saving...';
+        try {
+          const r = await POST(`/customers/${customerId}/card/intent`, {});
+          const res = await stripe.confirmCardSetup(r.client_secret, { payment_method: { card, billing_details: { name: $('#cfn', ov).value || undefined } } });
+          if (res.error) throw new Error(res.error.message);
+          await POST(`/customers/${customerId}/card/complete`, { setup_intent: r.id });
+          close(); toast('Card saved on file'); after?.();
+        } catch (e) { toast(e.message, true); go.disabled = false; go.textContent = 'Save card'; }
       };
     } });
 }
@@ -445,9 +471,10 @@ async function customerModal(id, after) {
       placesFor(ov);
       if (id) GET(`/customers/${id}/card`).then((card) => {
         const d = document.createElement('div'); d.className = 'cardbox';
-        d.innerHTML = card ? `<b>Card on file:</b> ${esc(card.brand)} ending ${esc(card.last4)}, expires ${esc(card.exp)}, saved ${esc(fmt(card.since))} <button class="btn sm danger" id="cdel" type="button">Remove</button>` : `<b>No card on file.</b> <button class="btn sm" id="clink" type="button">Email a link to save a card</button> <button class="btn sm" id="ccopy" type="button">Copy link</button><div class="hint">Saving a card needs the customer's permission. Stripe shows them the wording. Nothing is charged when it is saved.</div>`;
+        d.innerHTML = card ? `<b>Card on file:</b> ${esc(card.brand)} ending ${esc(card.last4)}, expires ${esc(card.exp)}, saved ${esc(fmt(card.since))} <button class="btn sm" id="center" type="button">Enter a new card</button> <button class="btn sm danger" id="cdel" type="button">Remove</button>` : `<b>No card on file.</b> <button class="btn sm primary" id="center" type="button">Enter a card now</button> <button class="btn sm" id="clink" type="button">Email a link to save a card</button> <button class="btn sm" id="ccopy" type="button">Copy link</button><div class="hint">Saving a card needs the customer's permission. Nothing is charged when it is saved.</div>`;
         $('.mb', ov).prepend(d);
         $('#cdel', d)?.addEventListener('click', () => { if (confirm('Remove this saved card?')) guard(async () => { await DEL(`/customers/${id}/card`); close(); customerModal(id); }, 'Card removed'); });
+        $('#center', d)?.addEventListener('click', () => cardOnFileModal(id, c.name, () => { close(); customerModal(id); }));
         $('#clink', d)?.addEventListener('click', () => guard(async () => { await POST(`/customers/${id}/card-link`, { email: true }); }, 'Link emailed'));
         $('#ccopy', d)?.addEventListener('click', () => guard(async () => { const r = await POST(`/customers/${id}/card-link`, {}); prompt('Send the customer this link:', r.url); }));
       }).catch(() => {});
@@ -814,16 +841,18 @@ function quickPaymentModal(after) {
     <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="link" checked> Send a card payment link</label>
     <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="received"> Already received (cash, check, Zelle...)</label>
     <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="card_on_file"> Charge their card on file</label>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="radio" name="qm" value="enter_card"> Enter a card now (charge it or place a hold)</label>
     <div id="qlink" class="fgrid" style="margin-top:6px"><label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qse" checked> Email the link</label><label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qst" checked> Text the link</label></div>
     <div id="qrec" class="fgrid" style="margin-top:6px" hidden><label>Paid with<select id="qpm"><option value="cash">Cash</option><option value="check">Check</option><option value="zelle">Zelle</option><option value="ach">ACH / bank transfer</option><option value="wire">Wire</option><option value="other">Other</option></select></label><label>Reference<input id="qr" placeholder="Check number, confirmation..."></label><label class="full" style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="qrc"> Email them a receipt</label></div>
     <div id="qout"></div>`,
   footer: `<span class="sp"></span>${button('Continue', 'primary', 'id="go"')}`, onMount(ov, close) {
     const mode = () => ov.querySelector('input[name=qm]:checked').value;
-    const sync = () => { $('#qnew', ov).hidden = !!$('#qc', ov).value; $('#qlink', ov).hidden = mode() !== 'link'; $('#qrec', ov).hidden = mode() !== 'received'; $('#go', ov).textContent = mode() === 'link' ? 'Create link' : mode() === 'received' ? 'Record payment' : 'Charge card'; };
+    const sync = () => { $('#qnew', ov).hidden = !!$('#qc', ov).value; $('#qlink', ov).hidden = mode() !== 'link'; $('#qrec', ov).hidden = mode() !== 'received'; $('#go', ov).textContent = mode() === 'link' ? 'Create link' : mode() === 'received' ? 'Record payment' : mode() === 'enter_card' ? 'Enter card' : 'Charge card'; };
     ov.addEventListener('change', sync); sync();
     $('#go', ov).onclick = () => guard(async () => {
       const b = { customer_id: $('#qc', ov).value || null, name: $('#qn', ov).value, phone: $('#qp', ov).value, email: $('#qe', ov).value, amount_cents: d2c($('#qa', ov).value), description: $('#qd', ov).value, mode: mode(), send_email: $('#qse', ov).checked, send_sms: $('#qst', ov).checked, method: $('#qpm', ov).value, reference: $('#qr', ov).value, send_receipt_email: $('#qrc', ov).checked };
       const r = await POST('/payments/quick', b); after?.();
+      if (r.enter_card) { close(); const inv = await GET('/invoices/' + r.invoice_id); await cardTerminalModal(r.invoice_id, inv, (inv.total_cents || 0) - (inv.amount_paid_cents || 0), () => after?.()); return; }
       if (r.paid) { close(); toast(`Payment recorded on ${r.number}`); return; }
       $('#qout', ov).innerHTML = `<div class="alert-ok" style="margin-top:12px"><b>${esc(r.number)} is ready.</b>${r.sms && r.sms !== 'sent' ? `<br>Text not sent: ${esc(r.sms)}` : ''}<div class="copybox" style="margin-top:8px"><input readonly value="${esc(r.url)}" onclick="this.select()"></div><p style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank" rel="noopener">Open the payment page</a></p></div>`;
       $('#go', ov).hidden = true;

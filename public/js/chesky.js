@@ -259,7 +259,7 @@ const Chesky = (() => {
     (async () => {
       await Promise.race([loadStripeJs(), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 12000))]);
       stripeInst ||= window.Stripe(co.publishableKey);
-      const card = stripeInst.elements().create('card', { style: { base: { fontSize: '16px', color: '#10222f' } } });
+      const card = stripeInst.elements().create('card', { disableLink: true, style: { base: { fontSize: '16px', color: '#10222f' } } });
       card.mount(box); btn.disabled = false;
       card.on('change', (e) => { err.textContent = e.error ? e.error.message : ''; err.hidden = !e.error; });
       btn.onclick = async () => {
