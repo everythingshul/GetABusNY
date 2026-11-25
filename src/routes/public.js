@@ -140,7 +140,7 @@ const invView = (i) => {
     paid_cents: i.amount_paid_cents, balance_cents: bal, deposit_due_cents: depDue, due_date: i.due_date, notes: i.notes, customer_name: c?.name, overdue: ['sent', 'partial'].includes(i.status) && i.due_date && i.due_date < today(),
     payments: all("SELECT amount_cents,method,created_at FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id),
     trip: i.trip_id ? tripForInvoice(i.trip_id) : null,
-    payments_enabled: integ().stripe, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email') },
+    payments_enabled: integ().stripe, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address') },
   };
 };
 pub.get('/invoice/:token', (req, res) => {

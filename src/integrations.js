@@ -123,15 +123,16 @@ export function adminPrefs(u) {
 export async function notifyOwner(subject, text, event = 'general') {
   if (testCtx.getStore()) return;
   const users = all('SELECT * FROM users');
-  const sent = new Set();
+  // If an alerts address is set in Settings, every alert email goes there once, instead of to each admin's own email.
+  const extra = String(getSetting('notify_email') || '').trim();
+  let wantEmail = false;
   const html = emailShell(subject, `<p>${esc(text).replace(/\n/g, '<br>')}</p>`, { label: 'Open admin', url: `${BASE_URL()}/admin` });
   for (const u of users) {
     const p = adminPrefs(u)[event] || adminPrefs(u).general;
-    if (p.email && u.email) { sent.add(u.email.toLowerCase()); await sendEmail(u.email, subject, html, { kind: 'admin_alert' }); }
+    if (p.email && u.email) { if (extra) wantEmail = true; else await sendEmail(u.email, subject, html, { kind: 'admin_alert' }); }
     if (p.sms && u.phone) await sendSMS(u.phone, `${subject}\n${String(text).replace(/\s+/g, ' ').slice(0, 220)}\n${BASE_URL()}/admin`, { kind: 'admin_alert' });
   }
-  const extra = getSetting('notify_email');
-  if (extra && !sent.has(extra.toLowerCase())) await sendEmail(extra, subject, html, { kind: 'admin_alert' });
+  if (extra && wantEmail) await sendEmail(extra, subject, html, { kind: 'admin_alert' });
 }
 
 // ---------- Stripe (REST, no SDK) ----------

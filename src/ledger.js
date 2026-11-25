@@ -146,29 +146,96 @@ const win = (s) => String(s ?? '').replace(/[^\x20-\x7E -ÿ]/g, '?');
 const usd = (c) => (Number(c || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 export async function invoicePdf(invoice_id) {
   const i = one('SELECT * FROM invoices WHERE id=?', invoice_id); if (!i) throw bad('Invoice not found', 404);
-  const c = one('SELECT name, company, email, phone FROM customers WHERE id=?', i.customer_id) || {};
+  const c = one('SELECT name, company, email, phone, address FROM customers WHERE id=?', i.customer_id) || {};
   const items = parse(i.items, []), pays = all("SELECT * FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id);
+  const trip = i.trip_id ? one('SELECT purpose, depart_at, return_at, passengers, itinerary FROM trips WHERE id=?', i.trip_id) : null;
+  const stops = trip ? customerItinerary(normItinerary(parse(trip.itinerary, []))) : [];
   const doc = await PDFDocument.create(); const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  let page = doc.addPage([612, 792]); let y = 750; const L = 54, R = 558;
-  const ink = rgb(0.06, 0.13, 0.18), grey = rgb(0.35, 0.42, 0.48), line = rgb(0.58, 0.75, 0.2);
-  const need = (h) => { if (y - h < 60) { page = doc.addPage([612, 792]); y = 750; } };
-  const t = (s, { x = L, size = 10, f = font, color = ink, right = false } = {}) => { const str = win(s); const w = f.widthOfTextAtSize(str, size); page.drawText(str, { x: right ? R - w : x, y, size, font: f, color }); };
-  t(getSetting('business_name'), { size: 20, f: bold }); y -= 18; t(`${getSetting('phone')}   ${getSetting('email')}`, { color: grey }); y -= 30;
-  t(`Invoice ${i.number}`, { size: 14, f: bold }); t(i.status.toUpperCase(), { right: true, f: bold, color: i.status === 'paid' ? rgb(0.2, 0.5, 0.1) : grey }); y -= 16;
-  t(`Date: ${fmtDate(String(i.sent_at || i.created_at).slice(0, 10))}${i.due_date ? `     Due: ${fmtDate(i.due_date)}` : ''}`, { color: grey }); y -= 24;
-  t('Bill to', { f: bold }); y -= 14; t(`${c.name || ''}${c.company ? ', ' + c.company : ''}`); y -= 12; t(`${c.email || ''}  ${c.phone || ''}`, { color: grey }); y -= 28;
-  { const tp = i.trip_id ? one('SELECT itinerary FROM trips WHERE id=?', i.trip_id) : null; const all0 = tp ? normItinerary(parse(tp.itinerary, [])) : []; const stops = customerItinerary(all0);
-    if (stops.length) { need(40); t('Itinerary', { f: bold }); y -= 14; stops.forEach((x, n) => { need(16); t(`${n + 1}. ${x.kind === 'final' ? 'Final drop-off' : KINDS[x.kind] || 'Stop'}: ${x.address}${x.time ? '  ' + fmtDate(String(x.time).slice(0, 10)) + ' ' + String(x.time).slice(11, 16) : ''}${x.wait_min ? `  (wait ${x.wait_min} min)` : ''}`.slice(0, 100), { size: 9.5 }); y -= 13; }); y -= 12; } }
-  page.drawLine({ start: { x: L, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 0.8, color: line });
-  t('Description', { f: bold }); t('Qty', { x: 380, f: bold }); t('Price', { x: 430, f: bold }); t('Amount', { right: true, f: bold }); y -= 18;
-  for (const it of items) { need(20); const amt = Math.round((Number(it.qty) || 0) * (Number(it.unit_cents) || 0)); t(String(it.desc || '').slice(0, 62)); t(String(it.qty ?? ''), { x: 380 }); t(usd(it.unit_cents), { x: 430 }); t(usd(amt), { right: true }); y -= 15; }
-  y -= 6; page.drawLine({ start: { x: L, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 0.5, color: grey });
-  const row2 = (l, v, f = font) => { need(18); t(l, { x: 380, f }); t(v, { right: true, f }); y -= 15; };
+  let logoImg = null; try { logoImg = await doc.embedPng(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'public', 'img', 'logo.png'))); } catch { /* the name is printed instead */ }
+  const W = 612, H = 792, L = 48, R = 564, BOT = 72;
+  const navy = rgb(0.06, 0.13, 0.18), grey = rgb(0.38, 0.45, 0.5), lime = rgb(0.58, 0.75, 0.2), pale = rgb(0.955, 0.965, 0.97), rule = rgb(0.84, 0.87, 0.89), green = rgb(0.13, 0.45, 0.22);
+  const biz = getSetting('business_name'), phone = getSetting('phone'), email = getSetting('email'), addr = getSetting('address');
+  const site = String(process.env.BASE_URL || 'https://getabusny.com').replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const pages = []; let page, y;
+  const wid = (s, size, f = font) => f.widthOfTextAtSize(win(s), size);
+  const t = (s, { x = L, size = 10, f = font, color = navy, right = false, center = false, at = y } = {}) => { const str = win(s); const w = f.widthOfTextAtSize(str, size); page.drawText(str, { x: right ? x - w : center ? x - w / 2 : x, y: at, size, font: f, color }); };
+  const wrap = (s, size, maxW, f = font) => { const out = []; for (const para of String(s ?? '').split(/\r?\n/)) { let cur = ''; for (const word of para.split(/\s+/)) { const tryS = cur ? `${cur} ${word}` : word; if (wid(tryS, size, f) <= maxW) cur = tryS; else { if (cur) out.push(cur); cur = word; } } out.push(cur); } return out; };
+  const header = (first) => {
+    page = doc.addPage([W, H]); pages.push(page); y = H - 48;
+    if (first) {
+      if (logoImg) { const lh = 44, lw = lh * (logoImg.width / logoImg.height); page.drawImage(logoImg, { x: L, y: y - lh + 6, width: lw, height: lh }); } else t(biz, { size: 20, f: bold, at: y - 14 });
+      let ry = y + 2; t(biz, { x: R, right: true, size: 11, f: bold, at: ry }); ry -= 13;
+      for (const ln of [addr, phone, email, site]) if (ln) { t(ln, { x: R, right: true, size: 9.5, color: grey, at: ry }); ry -= 12; }
+      y -= 56; page.drawRectangle({ x: L, y: y, width: R - L, height: 2.5, color: lime }); y -= 30;
+    } else { t(`${biz}   Invoice ${i.number}`, { size: 9, color: grey }); y -= 8; page.drawRectangle({ x: L, y, width: R - L, height: 0.8, color: rule }); y -= 24; }
+  };
+  const need = (h) => { if (y - h < BOT) header(false); };
+  header(true);
+
+  // title and status
+  t('INVOICE', { size: 28, f: bold }); const paid = i.status === 'paid', void_ = i.status === 'void';
+  const stText = void_ ? 'VOID' : paid ? 'PAID' : i.status === 'partial' ? 'PARTIALLY PAID' : 'PAYMENT DUE', stCol = void_ ? grey : paid ? green : navy;
+  { const sw = wid(stText, 10, bold) + 22; page.drawRectangle({ x: R - sw, y: y - 6, width: sw, height: 22, borderColor: stCol, borderWidth: 1.4 }); t(stText, { x: R - sw / 2, center: true, size: 10, f: bold, color: stCol, at: y }); }
+  y -= 28;
+
+  // bill to | details
+  const top = y; const bt = [c.name, c.company, c.address, c.email, c.phone].filter(Boolean);
+  t('BILL TO', { size: 8.5, f: bold, color: grey }); y -= 14; t(bt[0] || '', { size: 12, f: bold }); y -= 14; for (const ln of bt.slice(1)) { for (const w of wrap(ln, 10, 250)) { t(w, { color: grey }); y -= 13; } }
+  const leftEnd = y; y = top;
+  const kv = [['Invoice number', i.number], ['Invoice date', fmtDate(String(i.sent_at || i.created_at).slice(0, 10))], ['Due date', i.due_date ? fmtDate(i.due_date) : 'On receipt']];
+  for (const [k, v] of kv) { t(k, { x: 340, color: grey }); t(v, { x: R, right: true, f: bold }); y -= 15; }
+  y -= 4; page.drawRectangle({ x: 330, y: y - 8, width: R - 330, height: 26, color: pale }); t('Balance due', { x: 340, f: bold, at: y - 1 }); t(usd(invoiceBalance(i)), { x: R - 10, right: true, size: 13, f: bold, at: y - 2 }); y -= 22;
+  y = Math.min(y, leftEnd) - 12;
+
+  // trip
+  if (trip || stops.length) {
+    const rows = []; const meta = [trip?.purpose, trip?.depart_at ? `Departs ${fmtDate(String(trip.depart_at).slice(0, 10))} ${String(trip.depart_at).slice(11, 16)}` : '', trip?.passengers ? `${trip.passengers} passengers` : ''].filter(Boolean).join('   |   ');
+    if (meta) rows.push({ txt: meta, bold: true });
+    stops.forEach((x, n) => rows.push({ txt: `${n + 1}.  ${x.kind === 'final' ? 'Final drop-off' : KINDS[x.kind] || 'Stop'}: ${x.address}${x.time ? `   (${fmtDate(String(x.time).slice(0, 10))} ${String(x.time).slice(11, 16)})` : ''}${x.wait_min ? `   wait ${x.wait_min} min` : ''}` }));
+    const lines = rows.flatMap((r) => wrap(r.txt, 9.5, R - L - 28).map((w, k) => ({ w, bold: r.bold && k === 0 })));
+    const h = lines.length * 13 + 30; need(h + 10);
+    page.drawRectangle({ x: L, y: y - h + 12, width: R - L, height: h, color: pale }); page.drawRectangle({ x: L, y: y - h + 12, width: 3, height: h, color: lime });
+    t('TRIP DETAILS', { x: L + 14, size: 8.5, f: bold, color: grey }); y -= 15; for (const ln of lines) { t(ln.w, { x: L + 14, size: 9.5, f: ln.bold ? bold : font }); y -= 13; } y -= 22;
+  }
+
+  // items table
+  const cQty = 380, cRate = 470;
+  const thead = () => { need(40); page.drawRectangle({ x: L, y: y - 7, width: R - L, height: 22, color: navy }); const w = rgb(1, 1, 1); t('DESCRIPTION', { x: L + 10, size: 8.5, f: bold, color: w, at: y - 1 }); t('QTY', { x: cQty, right: true, size: 8.5, f: bold, color: w, at: y - 1 }); t('RATE', { x: cRate, right: true, size: 8.5, f: bold, color: w, at: y - 1 }); t('AMOUNT', { x: R - 10, right: true, size: 8.5, f: bold, color: w, at: y - 1 }); y -= 26; };
+  thead(); let z = 0;
+  for (const it of items) {
+    const amt = Math.round((Number(it.qty) || 0) * (Number(it.unit_cents) || 0)); const lines = wrap(it.desc || '', 10, cQty - L - 60); const h = lines.length * 13 + 8;
+    if (y - h < BOT) { header(false); thead(); }
+    if (z++ % 2) page.drawRectangle({ x: L, y: y - h + 11, width: R - L, height: h, color: pale });
+    lines.forEach((ln, k) => { t(ln, { x: L + 10, at: y - k * 13 }); });
+    t(String(it.qty ?? ''), { x: cQty, right: true }); t(usd(it.unit_cents), { x: cRate, right: true }); t(usd(amt), { x: R - 10, right: true }); y -= h;
+  }
+  page.drawRectangle({ x: L, y: y + 6, width: R - L, height: 0.8, color: rule }); y -= 16;
+
+  // totals
+  const row2 = (l, v, o = {}) => { need(20); t(l, { x: 340, f: o.f || font, color: o.color || navy, size: o.size || 10 }); t(v, { x: R - 10, right: true, f: o.f || font, color: o.color || navy, size: o.size || 10 }); y -= o.gap || 16; };
   row2('Subtotal', usd(i.subtotal_cents)); if (i.tax_cents) row2(`Tax (${i.tax_rate}%)`, usd(i.tax_cents)); if (i.gratuity_cents) row2('Gratuity', usd(i.gratuity_cents));
-  row2('Total', usd(i.total_cents), bold); row2('Paid', usd(i.amount_paid_cents)); row2('Balance due', usd(invoiceBalance(i)), bold);
-  if (pays.length) { y -= 14; need(40); t('Payments', { f: bold }); y -= 15; for (const p of pays) { need(16); t(`${fmtDate(localDate(new Date(p.created_at)))}  ${methodLabel(p.method, p.stripe_pi)}${p.reference ? '  ' + p.reference : ''}`, { color: grey }); t(usd(p.amount_cents), { right: true }); y -= 14; } }
-  if (i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents)) { y -= 14; need(40); t(cardFeeText(i, usd), { size: 8.5, color: grey }); y -= 12; }
-  if (i.notes) { y -= 14; need(40); t('Notes', { f: bold }); y -= 14; t(String(i.notes).slice(0, 110), { color: grey }); }
+  page.drawRectangle({ x: 330, y: y + 12, width: R - 330, height: 0.8, color: navy }); y -= 4;
+  row2('Total', usd(i.total_cents), { f: bold, size: 11.5, gap: 18 });
+  if (i.amount_paid_cents) row2('Amount paid', `- ${usd(i.amount_paid_cents)}`, { color: green });
+  y -= 6; need(30); page.drawRectangle({ x: 330, y: y - 9, width: R - 330, height: 26, color: lime }); t('Balance due', { x: 340, f: bold, size: 11, at: y - 1 }); t(usd(invoiceBalance(i)), { x: R - 10, right: true, f: bold, size: 13, at: y - 2 }); y -= 30;
+
+  // payments received
+  if (pays.length) { need(40 + pays.length * 14); t('PAYMENTS RECEIVED', { size: 8.5, f: bold, color: grey }); y -= 14; for (const p of pays) { t(`${fmtDate(localDate(new Date(p.created_at)))}   ${methodLabel(p.method, p.stripe_pi)}${p.reference ? '   ' + p.reference : ''}`, { color: grey }); t(usd(p.amount_cents), { x: R - 10, right: true }); y -= 14; } y -= 8; }
+  // how to pay, fee notice, notes
+  const blocks = [];
+  if (!paid && !void_) { blocks.push(['HOW TO PAY', `Pay securely online by card at ${link.pay(i)}. To pay another way, call us at ${phone || 'the number above'}.`]); }
+  if (i.cc_fee_on && (i.cc_fee_pct || i.cc_fee_flat_cents)) blocks.push(['CARD PAYMENTS', cardFeeText(i, usd)]);
+  if (i.notes) blocks.push(['NOTES', String(i.notes)]);
+  for (const [h, body] of blocks) { const lines = wrap(body, 9.5, R - L); need(24 + lines.length * 12); t(h, { size: 8.5, f: bold, color: grey }); y -= 13; for (const ln of lines) { t(ln, { size: 9.5 }); y -= 12; } y -= 10; }
+
+  // footer on every page
+  pages[pages.length - 1].drawText('Thank you for your business.', { x: L, y: 62, size: 10.5, font: bold, color: navy });
+  pages.forEach((pg, n) => {
+    pg.drawRectangle({ x: L, y: 52, width: R - L, height: 0.8, color: rule });
+    const f = [biz, phone, email, site].filter(Boolean).join('   |   '); const w = wid(f, 8.5);
+    pg.drawText(win(f), { x: (W - w) / 2, y: 38, size: 8.5, font, color: grey });
+    const pn = `Page ${n + 1} of ${pages.length}`; pg.drawText(pn, { x: R - wid(pn, 8), y: 26, size: 8, font, color: grey });
+  });
   return Buffer.from(await doc.save());
 }
 

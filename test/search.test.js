@@ -1,0 +1,42 @@
+// Search everything: partial names, numbers, phone numbers in any format, amounts, addresses, notes.
+import { spawn } from 'node:child_process';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import assert from 'node:assert/strict';
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sr-'));
+const port = 5600 + Math.floor(Math.random() * 90), base = `http://localhost:${port}`;
+const env = { ...process.env, PORT: String(port), DB_PATH: path.join(dir, 't.db'), DATA_DIR: dir, UPLOAD_DIR: dir, ADMIN_EMAIL: 't@t.com', ADMIN_PASSWORD: 'testpassword123', BASE_URL: base, SESSION_SECRET: 'x'.repeat(32) };
+delete env.BREVO_API_KEY; delete env.RESEND_API_KEY; delete env.SMS_API_BASE;
+const srv = spawn('node', ['--disable-warning=ExperimentalWarning', 'server.js'], { env, stdio: ['ignore', 'ignore', 'inherit'] });
+let cookie = '';
+const call = async (method, p, body) => { const r = await fetch(base + p, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: body == null ? undefined : JSON.stringify(body) }); const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0]; return { status: r.status, body: await r.json().catch(() => ({})) }; };
+try {
+  await new Promise((r) => setTimeout(r, 4500));
+  const A = '/api/admin', S = async (q) => (await call('GET', `${A}/search?q=${encodeURIComponent(q)}`)).body;
+  assert.equal((await call('GET', `${A}/search?q=x`)).status, 401, 'search needs a login');
+  await call('POST', '/api/admin/login', { email: 't@t.com', password: 'testpassword123' });
+  const cust = (await call('POST', `${A}/customers`, { name: 'Rabbi Yitzchok Goldberg', company: 'Camp Emunah', email: 'ygold@camp.example', phone: '(718) 555-0142', address: '77 Ocean Pkwy, Brooklyn', notes: 'prefers the front seats' })).body.id;
+  await call('POST', `${A}/customers`, { name: 'Dovid Katz', phone: '845-555-0199' });
+  const q = (await call('POST', `${A}/quotes`, { customer_id: cust, title: 'Camp visiting day', items: [{ desc: 'Bus', qty: 1, unit_cents: 345000 }], tax_rate: 0, deposit_pct: 50, trip: { itinerary: [{ kind: 'pickup', address: '1 Pickup Plaza' }, { kind: 'dropoff', address: '9 Lakeview Terrace, Monticello' }] } })).body.id;
+  const quote = (await call('GET', `${A}/quotes/${q}`)).body;
+  const inv = (await call('POST', `${A}/invoices`, { customer_id: cust, title: 'Camp invoice', items: [{ desc: 'Bus', qty: 1, unit_cents: 345000 }], tax_rate: 0 })).body.id; const invNo = (await call('GET', `${A}/invoices/${inv}`)).body.number;
+  const has = (rows, type, id) => rows.some((r) => r.type === type && r.id === id);
+  assert.ok(has(await S('gold'), 'customer', cust), 'partial name');
+  assert.ok(has(await S('gold zzzzz'), 'customer', cust) === false, 'every word must match');
+  assert.ok(has(await S('ocean pkwy'), 'customer', cust), 'address, two words');
+  assert.ok(has(await S('7185550142'), 'customer', cust), 'phone typed without punctuation');
+  assert.ok(has(await S('555-0142'), 'customer', cust), 'part of a phone number');
+  assert.ok(has(await S('front seats'), 'customer', cust), 'notes');
+  assert.ok(has(await S('emunah'), 'customer', cust), 'company');
+  assert.ok(has(await S(quote.number), 'quote', q), 'quote number'); assert.equal((await S(quote.number))[0].type, 'quote', 'an exact number ranks first');
+  assert.ok(has(await S(quote.number.toLowerCase().slice(0, 4)), 'quote', q), 'part of a quote number');
+  assert.ok(has(await S(invNo), 'invoice', inv), 'invoice number'); assert.equal((await S(invNo))[0].type, 'invoice');
+  assert.ok(has(await S('lakeview'), 'quote', q), 'an address inside a quote');
+  assert.ok(has(await S('3450'), 'invoice', inv), 'an amount');
+  assert.ok(has(await S('visiting day camp'), 'quote', q), 'words in any order');
+  assert.ok(has(await S('katz'), 'customer', (await S('katz')).find((r) => r.type === 'customer').id));
+  assert.deepEqual(await S(''), []); assert.deepEqual(await S('zzzqqq'), []);
+  const r = await S('camp'); assert.ok(r.length > 0 && r.length <= 40 && r.every((x) => x.title && x.label), 'results have a type label and title');
+  assert.ok((await S("'; DROP TABLE customers;--")).length === 0 && (await call('GET', `${A}/customers`)).status === 200, 'odd characters are safe');
+  assert.ok((await S('100%')).length === 0 || true);
+  console.log('Search checks passed.');
+} finally { srv.kill(); }

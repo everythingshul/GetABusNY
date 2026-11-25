@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { searchAll } from '../search.js';
 import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe, testCtx } from '../db.js';
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
@@ -63,6 +64,7 @@ admin.get('/dashboard', wrap(() => S.dashboard()));
 admin.get('/analytics', wrap((req) => S.analytics(Number(req.query.months) || 12)));
 admin.get('/analytics/range', wrap((req) => analyticsRange({ from: req.query.from, to: req.query.to })));
 admin.get('/activity', wrap(() => all('SELECT * FROM activity ORDER BY id DESC LIMIT 200')));
+admin.get('/search', wrap((req) => searchAll(req.query.q)));
 admin.get('/outbox', wrap(() => all('SELECT id,to_addr,subject,status,error,created_at FROM outbox ORDER BY id DESC LIMIT 100')));
 
 // ---------- settings ----------
