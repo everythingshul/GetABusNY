@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { searchAll } from '../search.js';
-import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe, testCtx } from '../db.js';
+import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe, testCtx, cardFee } from '../db.js';
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
 import * as S from '../services.js';
@@ -14,8 +14,9 @@ import { analyticsRange } from '../report.js';
 import { allLabels, allLinks, createLabel, updateLabel, deleteLabel, setLabels, PALETTE, LABEL_TYPES } from '../labels.js';
 import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, ledgerMaaser, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
 import { bannerAdminRouter } from '../banner.js';
-import { chargeInvoice, removeCard, cardOf } from '../cards.js';
-import { stripeCustomerFor, createSetupCheckout } from '../integrations.js';
+import { recordTerminalIntent } from '../services.js';
+import { chargeInvoice, removeCard, cardOf, saveCardFromPayment } from '../cards.js';
+import { stripeCustomerFor, createSetupCheckout, createTerminalIntent, getPaymentIntent } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
@@ -363,6 +364,36 @@ admin.get('/export-kinds', (req, res) => res.json(EXPORT_KINDS));
 admin.get('/traffic', wrap((req) => trafficReport(Number(req.query.days) || 30)));
 
 // ---------- card authorizations: hold, capture (full or partial), release ----------
+// ---- take a card right now: the staff member types the card into Stripe's secure field, as a charge or as a hold
+admin.get('/terminal/config', wrap(() => ({ publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || '', stripe: !!process.env.STRIPE_SECRET_KEY })));
+admin.post('/invoices/:id/terminal', wrap(async (req) => {
+  if (!process.env.STRIPE_PUBLISHABLE_KEY) throw bad('Add STRIPE_PUBLISHABLE_KEY on the server to take cards here.');
+  const i = one('SELECT * FROM invoices WHERE id=?', req.params.id);
+  if (!i || i.status === 'void') throw bad('Invoice not found');
+  S.recalcInvoice(i.id);
+  const inv = one('SELECT * FROM invoices WHERE id=?', i.id), bal = S.invoiceBalance(inv);
+  const hold = req.body?.mode === 'hold';
+  const amt = Math.round(Number(req.body?.amount_cents));
+  if (!Number.isFinite(amt) || amt < 100) throw bad('Enter an amount of at least $1.00.');
+  if (amt > bal) throw bad(`The amount cannot be more than the balance, ${money(bal)}.`);
+  const fee = !hold && req.body?.add_fee !== false ? cardFee(inv, amt) : 0;
+  const c = one('SELECT * FROM customers WHERE id=?', inv.customer_id) || {};
+  const saveCard = !!req.body?.save_card && !!req.body?.consent;
+  const stripeCustomer = saveCard ? await stripeCustomerFor(c) : c.stripe_customer_id || undefined;
+  const pi = await createTerminalIntent({ invoice: inv, amount_cents: amt, fee_cents: fee, hold, stripeCustomer, saveCard });
+  log(req.user.email, hold ? 'payment.terminal_hold_started' : 'payment.terminal_charge_started', 'invoice', inv.id, money(amt + fee));
+  return { client_secret: pi.client_secret, id: pi.id, amount_cents: amt, fee_cents: fee, total_cents: hold ? amt : amt + fee, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY };
+}));
+admin.post('/invoices/:id/terminal/complete', wrap(async (req) => {
+  const piId = String(req.body?.payment_intent || ''); if (!/^pi_[A-Za-z0-9_]+$/.test(piId)) throw bad('No payment to complete.');
+  const pi = await getPaymentIntent(piId);
+  if (Number(pi.metadata?.invoice_id) !== Number(req.params.id) || pi.metadata?.terminal !== '1') throw bad('That payment does not belong to this invoice.');
+  recordTerminalIntent(pi);
+  if (pi.metadata.save_card === '1' && ['succeeded', 'requires_capture'].includes(pi.status)) { try { await saveCardFromPayment(Number(pi.metadata.customer_id), pi.customer, pi.id); } catch { /* the payment still went through */ } }
+  const ok = pi.status === 'succeeded' || pi.status === 'requires_capture';
+  if (ok) log(req.user.email, pi.status === 'succeeded' ? 'payment.terminal_charged' : 'payment.terminal_held', 'invoice', Number(req.params.id), money(pi.amount));
+  return { ok, status: pi.status, held: pi.status === 'requires_capture', amount_cents: pi.amount };
+}));
 admin.post('/invoices/:id/auth-link', wrap(async (req) => {
   const i = one('SELECT * FROM invoices WHERE id=?', req.params.id);
   if (!i || i.status === 'void') throw bad('Invoice not found');

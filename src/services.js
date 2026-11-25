@@ -235,6 +235,15 @@ function afterPayment(invoice_id, amount_cents, method, actor, { skip_email = fa
 }
 
 // ---------- card authorizations (holds): authorize -> capture (full or partial) or release ----------
+/** A card the staff typed in themselves (see createTerminalIntent): record the charge, or the hold. Safe to call twice (webhook and the page both do). */
+export function recordTerminalIntent(pi) {
+  const iid = Number(pi?.metadata?.invoice_id);
+  if (!iid || !one('SELECT 1 x FROM invoices WHERE id=?', iid)) return null;
+  if (pi.metadata.mode === 'auth') return pi.status === 'requires_capture' ? recordAuthorization(iid, { amount_cents: pi.amount_capturable || pi.amount, stripe_pi: pi.id }) : null;
+  if (pi.status !== 'succeeded') return null;
+  const fee = Math.max(0, Number(pi.metadata.fee_cents) || 0);
+  return recordPayment(iid, { amount_cents: (pi.amount_received || pi.amount) - fee, fee_cents: fee, method: 'card', stripe_session: pi.id, stripe_pi: pi.id, reference: pi.id, note: 'Card entered by staff' }, 'staff');
+}
 export function recordAuthorization(invoice_id, { amount_cents, stripe_pi }) {
   if (one("SELECT 1 x FROM payments WHERE stripe_pi=? AND method='card_auth'", stripe_pi)) return null; // webhook replay
   const id = insert('payments', { invoice_id, amount_cents, method: 'card_auth', reference: stripe_pi, stripe_pi, status: 'authorized', note: 'Card hold (not charged yet)', created_at: now() });

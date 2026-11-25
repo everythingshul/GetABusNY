@@ -1,6 +1,6 @@
 // Everything Stripe tells us. Kept apart from the route so it can be tested without HTTP.
 import { one, insert, now, log } from './db.js';
-import { recordPayment, recordAuthorization, markCaptured, markReleased, recalcInvoice } from './services.js';
+import { recordTerminalIntent, recordPayment, recordAuthorization, markCaptured, markReleased, recalcInvoice } from './services.js';
 import { notifyOwner, money } from './integrations.js';
 import { saveCardFromSetup, saveCardFromPayment } from './cards.js';
 
@@ -19,6 +19,7 @@ export async function applyStripeEvent(ev) {
       const iid = Number(o.metadata?.invoice_id);
       if (o.metadata?.mode === 'auth' && iid && one('SELECT 1 x FROM invoices WHERE id=?', iid) && o.amount_capturable > 0) recordAuthorization(iid, { amount_cents: o.amount_capturable, stripe_pi: o.id });
     } else if (ev.type === 'payment_intent.succeeded') {
+      if (o.metadata?.terminal === '1' && o.metadata?.mode !== 'auth') recordTerminalIntent(o);
       // only card holds that were captured; normal checkout payments are recorded by checkout.session.completed
       const row = o.metadata?.mode === 'auth' ? one("SELECT * FROM payments WHERE stripe_pi=? AND method='card_auth'", o.id) : null;
       if (row) markCaptured(row, o.amount_received || row.amount_cents);

@@ -184,6 +184,16 @@ export async function createSetupCheckout({ customer_id, stripeCustomer }) {
   return stripe('checkout/sessions', { mode: 'setup', customer: stripeCustomer, currency: 'usd', payment_method_types: { 0: 'card' }, success_url: `${base}/pay?saved=1`, cancel_url: `${base}/pay`, metadata: { customer_id, save_card: '1' }, custom_text: { submit: { message: CARD_CONSENT() } } });
 }
 export const getSetupIntent = (id) => stripe(`setup_intents/${encodeURIComponent(id)}`);
+/** A card payment or hold that staff take by typing the card into Stripe's secure card field. The card number never reaches this server. */
+export async function createTerminalIntent({ invoice, amount_cents, fee_cents = 0, hold = false, stripeCustomer, saveCard = false }) {
+  const total = hold ? amount_cents : amount_cents + fee_cents;
+  return stripe('payment_intents', {
+    amount: total, currency: 'usd', payment_method_types: { 0: 'card' },
+    ...(hold ? { capture_method: 'manual' } : {}), ...(stripeCustomer ? { customer: stripeCustomer } : {}), ...(saveCard ? { setup_future_usage: 'off_session' } : {}),
+    description: `${getSetting('business_name')} invoice ${invoice.number}${hold ? ' (card hold)' : ''}`,
+    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, terminal: '1', ...(hold ? { mode: 'auth' } : {}), ...(!hold && fee_cents ? { fee_cents } : {}), ...(saveCard ? { save_card: '1' } : {}) },
+  });
+}
 export const getPaymentIntent = (id) => stripe(`payment_intents/${encodeURIComponent(id)}`);
 export const getPaymentMethod = (id) => stripe(`payment_methods/${encodeURIComponent(id)}`);
 export const detachPaymentMethod = (id) => stripe(`payment_methods/${encodeURIComponent(id)}/detach`, {});

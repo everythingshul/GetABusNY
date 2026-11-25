@@ -64,6 +64,44 @@ document.addEventListener('click', (e) => { const a = e.target.closest('[data-cu
 const button = (label, cls = '', attrs = '') => `<button class="btn ${cls}" ${attrs}>${label}</button>`;
 async function confirmBox(msg) { return confirm(msg); }
 /** Ask how a send should go. Resolves { skip_email, skip_sms }; never resolves if the box is closed. */
+// ---------- take a card right now (charge or hold), typed into Stripe's secure card field ----------
+let stripeJsP;
+const loadStripeJs = () => (stripeJsP ||= new Promise((res, rej) => { if (window.Stripe) return res(window.Stripe); const s = document.createElement('script'); s.src = 'https://js.stripe.com/v3/'; s.onload = () => res(window.Stripe); s.onerror = () => { stripeJsP = null; rej(new Error('Could not load Stripe. Check your connection.')); }; document.head.appendChild(s); }));
+async function cardTerminalModal(invoiceId, inv, bal, after) {
+  const cfg = await GET('/terminal/config');
+  if (!cfg.stripe) return toast('Stripe is not connected yet. Add STRIPE_SECRET_KEY on the server.', true);
+  if (!cfg.publishable_key) return toast('Add STRIPE_PUBLISHABLE_KEY on the server to take cards here.', true);
+  const hasFee = !!Number(inv.cc_fee_on) && (Number(inv.cc_fee_pct) || Number(inv.cc_fee_flat_cents));
+  modal({ title: 'Take a card', small: true, body: `<p class="mut sm">Type the card into the secure field below. The card number goes straight to Stripe and is never stored here. Balance: <b>${usd(bal)}</b>.</p>
+    <div style="display:flex;gap:18px;margin:6px 0 10px"><label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:600"><input type="radio" name="tm" value="charge" checked> Charge now</label><label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:600"><input type="radio" name="tm" value="hold"> Place a hold (not charged)</label></div>
+    <div class="fgrid"><label>Amount ($)<input id="ta" type="number" step="0.01" min="1" value="${c2d(bal)}"></label><label>Name on card<input id="tn" autocomplete="off"></label></div>
+    ${hasFee ? `<label id="tfrow" style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input type="checkbox" id="tf" checked> Add the card processing fee shown on the invoice <span class="mut sm" id="tfamt"></span></label>` : ''}
+    <div id="tcard" style="border:1px solid var(--line);border-radius:8px;padding:13px 12px;background:#fff;margin-top:10px"></div><div id="terr" class="err" hidden style="margin-top:8px"></div>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:flex-start;font-weight:500;margin-top:10px"><input type="checkbox" id="tsv" style="margin-top:3px"> <span>The customer agrees to keep this card on file and have it charged later for the remaining balance and extras they agreed to (overtime, gratuity).</span></label>
+    <p class="hint" id="thold" hidden>A hold reserves the money on the card without charging it. Capture all or part of it later from the invoice, or release it. Holds usually expire in about 7 days.</p>`,
+    footer: `<span class="sp"></span>${button('Charge card', 'primary', 'id="go"')}`,
+    onMount(ov, close) {
+      let stripe, card; const go = $('#go', ov), mode = () => $('input[name=tm]:checked', ov).value;
+      const feeFor = (c) => Math.round(c * (Number(inv.cc_fee_pct) || 0) / 100) + (Number(inv.cc_fee_flat_cents) || 0);
+      const sync = () => { const hold = mode() === 'hold', c = d2c($('#ta', ov).value); go.textContent = hold ? `Hold ${usd(c)}` : `Charge ${usd(c + (hasFee && $('#tf', ov).checked ? feeFor(c) : 0))}`; $('#thold', ov).hidden = !hold; if (hasFee) { $('#tfrow', ov).style.display = hold ? 'none' : 'flex'; $('#tfamt', ov).textContent = `(${usd(feeFor(c))})`; } };
+      ov.addEventListener('input', sync); ov.addEventListener('change', sync); sync();
+      loadStripeJs().then((Stripe) => { stripe = Stripe(cfg.publishable_key); card = stripe.elements().create('card', { style: { base: { fontSize: '16px', color: '#10222f' } } }); card.mount('#tcard'); card.on('change', (e) => { const er = $('#terr', ov); er.hidden = !e.error; er.textContent = e.error?.message || ''; }); }).catch((e) => { $('#terr', ov).hidden = false; $('#terr', ov).textContent = e.message; });
+      go.onclick = async () => {
+        if (!stripe || !card) return toast('The secure card field is still loading', true);
+        const cents = d2c($('#ta', ov).value); if (cents < 100) return toast('Enter an amount of at least $1.00', true);
+        go.disabled = true; const label = go.textContent; go.textContent = 'Working...';
+        try {
+          const hold = mode() === 'hold', save = $('#tsv', ov).checked;
+          const r = await POST(`/invoices/${invoiceId}/terminal`, { amount_cents: cents, mode: hold ? 'hold' : 'charge', add_fee: hasFee ? $('#tf', ov).checked : false, save_card: save, consent: save });
+          const res = await stripe.confirmCardPayment(r.client_secret, { payment_method: { card, billing_details: { name: $('#tn', ov).value || undefined } } });
+          if (res.error) throw new Error(res.error.message);
+          const done = await POST(`/invoices/${invoiceId}/terminal/complete`, { payment_intent: r.id });
+          if (!done.ok) throw new Error('The card was not accepted. Nothing was charged.');
+          close(); toast(done.held ? `Hold of ${usd(done.amount_cents)} placed` : `Charged ${usd(done.amount_cents)}`); after?.();
+        } catch (e) { toast(e.message, true); go.disabled = false; go.textContent = label; }
+      };
+    } });
+}
 // Card processing fee controls, shared by quotes and invoices.
 const ccBlock = (o) => { const on = !!Number(o.cc_fee_on); return `<div class="fsec" style="margin-top:14px">Card payments</div><label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="cc_on" ${on ? 'checked' : ''}> Add a card processing fee when the customer pays by card</label><div id="cc_box" class="fgrid" style="margin-top:8px" ${on ? '' : 'hidden'}><label>Percent markup (%)<input id="cc_pct" type="number" step="0.01" min="0" max="10" value="${on ? (Number(o.cc_fee_pct) || '') : ''}"></label><label>Flat markup ($)<input id="cc_flat" type="number" step="0.01" min="0" value="${on && o.cc_fee_flat_cents ? c2d(o.cc_fee_flat_cents) : ''}"></label><div class="full hint" id="cc_hint"></div></div>`; };
 function wireCc(ov) {
@@ -615,6 +653,7 @@ async function invoiceModal(id) {
     title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null, labels: id ? { type: 'invoice', id } : null,
     body: `${id ? `<p>${badge(i.status)} <b>${usd(i.total_cents)}</b> total · <b>${usd(i.amount_paid_cents)}</b> paid · balance <b>${usd(bal)}</b></p>` : ''}${formHTML(F, i)}${ccBlock(i)}<div style="margin-top:12px">${itemsEditor(J(i.items).length ? J(i.items) : [], i.tax_rate)}</div>
     ${id ? `<div class="fsec" style="margin-top:18px">Payments</div>${pays.length ? table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Ref', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => usd(p.amount_cents), cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }, { h: '', f: (p) => (p.status === 'authorized' ? `<button class="btn sm primary" data-capture="${p.id}" data-amt="${p.amount_cents}">Capture</button> <button class="btn sm" data-release="${p.id}">Release hold</button>` : p.status === 'succeeded' && p.amount_cents > 0 && p.method !== 'refund' ? `<button class="btn sm danger" data-refund="${p.id}" data-amt="${p.amount_cents}">Refund…</button>` : '') }], pays) : '<p class="mut">No payments yet.</p>'}
+    <div style="margin-top:12px"><button class="btn primary sm" type="button" id="termbtn">Charge or hold a card now</button> <span class="hint">Type the card in yourself, as a charge or a hold.</span></div>
     <form id="payf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px"><label>Record payment ($)<input id="pa" type="number" step="0.01" min="0" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label>Method<select id="pm"><option>cash</option><option>check</option><option>zelle</option><option>venmo</option><option>wire</option><option>card</option><option>other</option></select></label><label>Reference<input id="pr" style="width:150px"></label><button class="btn sm primary">Record</button></form>
     <form id="authf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)"><label>Hold on customer's card ($)<input id="aa" type="number" step="0.01" min="1" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" id="aemail" checked> email the link</label><button class="btn sm">Request card hold</button><span class="hint">Authorizes without charging. Capture all or part later, or release. Holds usually expire in about 7 days.</span></form>` : ''}`,
     footer: `${id && i.status === 'draft' ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id ? button('Copy pay link', '', 'id="lnk"') : ''}${button('Save', '', 'id="save"')}${button(id && i.status !== 'draft' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
@@ -629,6 +668,7 @@ async function invoiceModal(id) {
       if (id) {
         $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft invoice?')) return; await DEL('/invoices/' + id); close(); reload(); }));
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/invoices/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer payment link:', r.url); });
+        $('#termbtn', ov).onclick = () => guard(async () => { await cardTerminalModal(id, i, bal, () => { close(); invoiceModal(id); refresh(); }); });
         $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { const o = await askSend('this payment', { verb: 'Record', test: (f) => sendTest(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...f }) }); await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...o }); close(); reload(); }, 'Payment recorded'); };
         ov.addEventListener('click', (e) => {
           const b = e.target.closest('[data-refund]');
