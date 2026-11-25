@@ -7,7 +7,8 @@ import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextS
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
 import * as S from '../services.js';
-import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, esc, refundPayment, money, createCheckout, capturePayment, cancelPayment } from '../integrations.js';
+import { signLink } from '../auth.js';
+import { emailSender as emailSenderOf, status as integ, sendEmail, emailShell, esc, refundPayment, money, capturePayment, cancelPayment } from '../integrations.js';
 import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { analyticsRange } from '../report.js';
@@ -16,7 +17,7 @@ import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, led
 import { bannerAdminRouter } from '../banner.js';
 import { recordTerminalIntent } from '../services.js';
 import { chargeInvoice, removeCard, cardOf, saveCardFromPayment } from '../cards.js';
-import { stripeCustomerFor, createSetupCheckout, createTerminalIntent, getPaymentIntent } from '../integrations.js';
+import { stripeCustomerFor, createTerminalIntent, getPaymentIntent } from '../integrations.js';
 import { normItinerary, summarize, billableLines, mapsDirUrl, planTimes, isBusCategory } from '../itinerary.js';
 import { createContract, sendContract, contractPdfPath, exportWorkbook, EXPORT_KINDS, trafficReport, contractView } from '../extras.js';
 import { XLSX_TYPE } from '../xlsx.js';
@@ -400,14 +401,14 @@ admin.post('/invoices/:id/auth-link', wrap(async (req) => {
   const amt = Math.round(Number(req.body?.amount_cents));
   if (!Number.isFinite(amt) || amt < 100) throw bad('Enter the amount to hold (at least $1.00).');
   const c = one('SELECT * FROM customers WHERE id=?', i.customer_id) || {};
-  const sess = await createCheckout({ invoice: i, amount_cents: amt, email: c.email, auth: true });
+  const holdUrl = `${integ_base()}/pay/${i.token}?hold=${amt}&sig=${signLink(`hold|${i.token}|${amt}`)}`;
   let emailed = false;
   if (req.body?.email && c.email) {
-    await sendEmail(c.email, `Card authorization for invoice ${i.number}`, emailShell('Please authorize your card', `<p>Hi ${esc((c.name || '').split(' ')[0])}, to hold <b>${money(amt)}</b> on your card for ${esc(i.title || 'your trip')}, use the secure button below. Your card is <b>authorized, not charged</b>. We capture the final amount later, or release the hold. The link works for 24 hours.</p>`, { label: 'Authorize card', url: sess.url }));
+    await sendEmail(c.email, `Card authorization for invoice ${i.number}`, emailShell('Please authorize your card', `<p>Hi ${esc((c.name || '').split(' ')[0])}, to hold <b>${money(amt)}</b> on your card for ${esc(i.title || 'your trip')}, use the secure button below. Your card is <b>authorized, not charged</b>. We capture the final amount later, or release the hold. The link works for 24 hours.</p>`, { label: 'Authorize card', url: holdUrl }));
     emailed = true;
   }
   log(req.user.email, 'payment.auth_link', 'invoice', i.id, money(amt));
-  return { url: sess.url, emailed };
+  return { url: holdUrl, emailed };
 }));
 admin.post('/payments/:id/capture', wrap(async (req) => {
   const p = one('SELECT * FROM payments WHERE id=?', req.params.id);
@@ -566,15 +567,14 @@ admin.get('/quotes/:id/revisions', wrap((req) => S.quoteRevisions(Number(req.par
 admin.get('/customers/:id/card', wrap((req) => cardOf(one('SELECT * FROM customers WHERE id=?', req.params.id))));
 admin.post('/customers/:id/card-link', wrap(async (req) => {
   const c = one('SELECT * FROM customers WHERE id=?', req.params.id); if (!c) throw bad('Not found', 404);
-  const cid = await stripeCustomerFor(c);
-  const sess = await createSetupCheckout({ customer_id: c.id, stripeCustomer: cid });
+  const saveUrl = `${integ_base()}/save-card/${c.id}/${signLink(`card|${c.id}`)}`;
   let emailed = false;
   if (req.body?.email && c.email) {
-    await sendEmail(c.email, 'Save a card on file', emailShell('Save a card for your trip', `<p>Hi ${esc((c.name || '').split(' ')[0])}, use the secure button to save a card with ${esc(S.biz())}. Nothing is charged now. We will only charge it for the balance of your trip and for extras you agreed to, such as overtime or gratuity. You can ask us to remove it any time.</p>`, { label: 'Save my card', url: sess.url }));
+    await sendEmail(c.email, 'Save a card on file', emailShell('Save a card for your trip', `<p>Hi ${esc((c.name || '').split(' ')[0])}, use the secure button to save a card with ${esc(S.biz())}. Nothing is charged now. We will only charge it for the balance of your trip and for extras you agreed to, such as overtime or gratuity. You can ask us to remove it any time.</p>`, { label: 'Save my card', url: saveUrl }));
     emailed = true;
   }
   log(req.user.email, 'card.link', 'customer', c.id);
-  return { url: sess.url, emailed };
+  return { url: saveUrl, emailed };
 }));
 admin.delete('/customers/:id/card', wrap(async (req) => { await removeCard(Number(req.params.id), req.user.email); return { ok: true }; }));
 admin.post('/invoices/:id/charge-saved', wrap((req) => chargeInvoice(Number(req.params.id), req.body?.amount_cents, req.user.email)));

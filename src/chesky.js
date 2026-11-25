@@ -11,7 +11,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db, all, one, run, now as isoNow, token, getSetting, getJSON, parse } from './db.js';
 import { limit } from './auth.js';
-import { env, sendEmail, emailShell, esc, notifyOwner, BASE_URL, createCheckout, money } from './integrations.js';
+import { env, sendEmail, emailShell, esc, notifyOwner, BASE_URL, createTerminalIntent, money } from './integrations.js';
+import { cardFee } from './db.js';
 import { createRequest, dashboard, scheduleTask, invoiceBalance, fmtDate } from './services.js';
 import { AREAS } from './areas-content.js';
 import { TRIPS } from './trips-content.js';
@@ -286,9 +287,11 @@ async function startPayment(input, ctx) {
   const email = one('SELECT email FROM customers WHERE id=?', i.customer_id)?.email;
   const pk = env('STRIPE_PUBLISHABLE_KEY');
   try {
-    const s = await createCheckout({ invoice: i, amount_cents: amount, email, embedded: !!pk });
-    const checkout = { number: i.number, amount: money(amount), payUrl: `${BASE_URL()}/pay/${i.token}`, ...(pk && s.client_secret ? { clientSecret: s.client_secret, publishableKey: pk } : { url: s.url || `${BASE_URL()}/pay/${i.token}` }) };
-    return { status: 'ready', amount: money(amount), note: 'The secure payment form is now shown to the visitor below your message.', _checkout: checkout };
+    // Card fields are shown right in the chat (Stripe's secure fields). Without a publishable key the visitor gets a link to our invoice page instead.
+    const fee = cardFee(i, amount);
+    const checkout = { number: i.number, amount: money(amount + fee), token: i.token, payUrl: `${BASE_URL()}/pay/${i.token}` };
+    if (pk) { const pi = await createTerminalIntent({ invoice: i, amount_cents: amount, fee_cents: fee, hold: false, via: 'site' }); Object.assign(checkout, { clientSecret: pi.client_secret, piId: pi.id, publishableKey: pk }); }
+    return { status: 'ready', amount: money(amount + fee), note: 'The secure payment form is now shown to the visitor below your message.', _checkout: checkout };
   } catch (e) { return { status: 'error', error: 'Could not start the payment. Please try the pay link in your invoice email or call the office.' }; }
 }
 /** Tools that need to wait (Stripe) or need request context. Anything else goes to execTool. */

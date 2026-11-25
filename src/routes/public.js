@@ -1,9 +1,10 @@
 import express from 'express';
 import { customerItinerary, finalDropoff, normItinerary } from '../itinerary.js';
-import { localDate, all, one, run, update, insert, now, getSetting, getJSON, parse, log, cardFeeText } from '../db.js';
-import { limit } from '../auth.js';
-import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, markCaptured, markReleased, handleInboundText } from '../services.js';
-import { createCheckout, stripeCustomerFor, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
+import { localDate, all, one, run, update, insert, now, getSetting, getJSON, parse, log, cardFeeText, cardFee } from '../db.js';
+import { limit, signLink, linkOk } from '../auth.js';
+import { saveCardFromPayment, saveCardFromSetup } from '../cards.js';
+import { createRequest, acceptQuote, recordPayment, invoiceBalance, recalcInvoice, runFollowups, recordAuthorization, recordTerminalIntent, markCaptured, markReleased, handleInboundText } from '../services.js';
+import { CARD_CONSENT, createTerminalIntent, createSetupIntent, getPaymentIntent, getSetupIntent, stripeCustomerFor, verifyStripe, env, status as integ, notifyOwner, money } from '../integrations.js';
 import fs from 'node:fs';
 import { publicOverrides } from '../content.js';
 import { applyStripeEvent } from '../stripe-events.js';
@@ -140,7 +141,7 @@ const invView = (i) => {
     paid_cents: i.amount_paid_cents, balance_cents: bal, deposit_due_cents: depDue, due_date: i.due_date, notes: i.notes, customer_name: c?.name, overdue: ['sent', 'partial'].includes(i.status) && i.due_date && i.due_date < today(),
     payments: all("SELECT amount_cents,method,created_at FROM payments WHERE invoice_id=? AND status='succeeded' ORDER BY id", i.id),
     trip: i.trip_id ? tripForInvoice(i.trip_id) : null,
-    payments_enabled: integ().stripe, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address') },
+    payments_enabled: !!(integ().stripe && env('STRIPE_PUBLISHABLE_KEY')), publishable_key: env('STRIPE_PUBLISHABLE_KEY') || null, business: { name: getSetting('business_name'), phone: getSetting('phone'), email: getSetting('email'), address: getSetting('address') },
   };
 };
 pub.get('/invoice/:token', (req, res) => {
@@ -166,13 +167,64 @@ pub.post('/invoice/:token/pay', limit('pay', 20, 3600000), async (req, res) => {
   else if (mode === 'deposit' && v.deposit_due_cents) amount = v.deposit_due_cents;
   else if (mode === 'custom') amount = Math.round(Number(req.body.amount_cents));
   if (!Number.isFinite(amount) || amount < 100 || amount > v.balance_cents) return fail(res, 400, `Enter an amount between $1.00 and ${money(v.balance_cents)}.`);
+  if (!env('STRIPE_SECRET_KEY') || !env('STRIPE_PUBLISHABLE_KEY')) return fail(res, 502, 'Card payments are not configured yet. Please call us to pay.');
   try {
-    const c = one('SELECT email FROM customers WHERE id=?', i.customer_id);
     const saveCard = !!req.body?.save_card;
     const cust = one('SELECT * FROM customers WHERE id=?', i.customer_id);
     const stripeCustomer = saveCard && cust ? await stripeCustomerFor(cust) : cust?.stripe_customer_id || undefined;
-    const s = await createCheckout({ invoice: i, amount_cents: amount, email: c?.email, saveCard, stripeCustomer });
-    res.json({ url: s.url });
+    const fee = cardFee(i, amount);
+    const pi = await createTerminalIntent({ invoice: i, amount_cents: amount, fee_cents: fee, hold: false, stripeCustomer, saveCard, via: 'site' });
+    res.json({ client_secret: pi.client_secret, id: pi.id, publishable_key: env('STRIPE_PUBLISHABLE_KEY'), amount_cents: amount, fee_cents: fee, total_cents: amount + fee });
+  } catch (e) { fail(res, 502, e.message); }
+});
+// A card hold from a private link the office sends (the amount is signed into the link).
+pub.post('/invoice/:token/hold', limit('hold', 20, 3600000), async (req, res) => {
+  const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
+  if (!i || i.status === 'draft' || i.status === 'void') return fail(res, 404, 'Invoice not found');
+  const cents = Math.round(Number(req.body?.amount_cents));
+  if (!Number.isFinite(cents) || cents < 100 || !linkOk(`hold|${i.token}|${cents}`, req.body?.sig)) return fail(res, 400, 'This authorization link is not valid. Please ask us for a new one.');
+  if (cents > invoiceBalance(i)) return fail(res, 400, 'This invoice no longer has that much due. Please ask us for a new link.');
+  if (!env('STRIPE_SECRET_KEY') || !env('STRIPE_PUBLISHABLE_KEY')) return fail(res, 502, 'Card payments are not configured yet. Please call us.');
+  try {
+    const cust = one('SELECT * FROM customers WHERE id=?', i.customer_id);
+    const pi = await createTerminalIntent({ invoice: i, amount_cents: cents, hold: true, stripeCustomer: cust?.stripe_customer_id || undefined, via: 'site' });
+    res.json({ client_secret: pi.client_secret, id: pi.id, publishable_key: env('STRIPE_PUBLISHABLE_KEY'), amount_cents: cents });
+  } catch (e) { fail(res, 502, e.message); }
+});
+// The page calls this after the card is confirmed; the result is read back from Stripe, never taken from the browser.
+pub.post('/invoice/:token/pay/complete', limit('paydone', 40, 3600000), async (req, res) => {
+  const i = one('SELECT * FROM invoices WHERE token=?', req.params.token);
+  if (!i) return fail(res, 404, 'Invoice not found');
+  const piId = String(req.body?.payment_intent || '');
+  if (!/^pi_[A-Za-z0-9_]+$/.test(piId)) return fail(res, 400, 'No payment to complete.');
+  try {
+    const pi = await getPaymentIntent(piId);
+    if (Number(pi.metadata?.invoice_id) !== i.id || pi.metadata?.terminal !== '1') return fail(res, 400, 'That payment does not belong to this invoice.');
+    recordTerminalIntent(pi);
+    if (pi.metadata.save_card === '1' && ['succeeded', 'requires_capture'].includes(pi.status)) { try { await saveCardFromPayment(Number(pi.metadata.customer_id), pi.customer, pi.id); } catch { /* the payment still went through */ } }
+    res.json({ ok: pi.status === 'succeeded' || pi.status === 'requires_capture', status: pi.status, held: pi.status === 'requires_capture' });
+  } catch (e) { fail(res, 502, e.message); }
+});
+
+// ----- save a card for later (a private link the office sends); nothing is charged -----
+const cardLinkCustomer = (req) => { const c = one('SELECT * FROM customers WHERE id=?', Number(req.params.cid)); return c && linkOk(`card|${c.id}`, req.params.sig) ? c : null; };
+pub.get('/save-card/:cid/:sig', limit('cardg', 60, 3600000), (req, res) => {
+  const c = cardLinkCustomer(req); if (!c) return fail(res, 404, 'This link is not valid.');
+  res.json({ name: String(c.name || '').split(' ')[0], business: getSetting('business_name'), phone: getSetting('phone'), publishable_key: env('STRIPE_PUBLISHABLE_KEY') || null, ready: !!(env('STRIPE_SECRET_KEY') && env('STRIPE_PUBLISHABLE_KEY')), consent: CARD_CONSENT() });
+});
+pub.post('/save-card/:cid/:sig/intent', limit('cardi', 20, 3600000), async (req, res) => {
+  const c = cardLinkCustomer(req); if (!c) return fail(res, 404, 'This link is not valid.');
+  if (!env('STRIPE_SECRET_KEY') || !env('STRIPE_PUBLISHABLE_KEY')) return fail(res, 502, 'Saving cards is not configured yet. Please call us.');
+  try { const si = await createSetupIntent({ customer_id: c.id, stripeCustomer: await stripeCustomerFor(c) }); res.json({ client_secret: si.client_secret, id: si.id, publishable_key: env('STRIPE_PUBLISHABLE_KEY') }); } catch (e) { fail(res, 502, e.message); }
+});
+pub.post('/save-card/:cid/:sig/complete', limit('cardc', 20, 3600000), async (req, res) => {
+  const c = cardLinkCustomer(req); if (!c) return fail(res, 404, 'This link is not valid.');
+  const id = String(req.body?.setup_intent || ''); if (!/^seti_[A-Za-z0-9_]+$/.test(id)) return fail(res, 400, 'Nothing to save.');
+  try {
+    const si = await getSetupIntent(id);
+    if (Number(si.metadata?.customer_id) !== c.id) return fail(res, 400, 'That card does not belong to this link.');
+    if (si.status !== 'succeeded') return fail(res, 400, 'The card could not be saved.');
+    await saveCardFromSetup(c.id, si.customer, si.id); res.json({ ok: true });
   } catch (e) { fail(res, 502, e.message); }
 });
 

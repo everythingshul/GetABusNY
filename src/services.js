@@ -242,7 +242,7 @@ export function recordTerminalIntent(pi) {
   if (pi.metadata.mode === 'auth') return pi.status === 'requires_capture' ? recordAuthorization(iid, { amount_cents: pi.amount_capturable || pi.amount, stripe_pi: pi.id }) : null;
   if (pi.status !== 'succeeded') return null;
   const fee = Math.max(0, Number(pi.metadata.fee_cents) || 0);
-  return recordPayment(iid, { amount_cents: (pi.amount_received || pi.amount) - fee, fee_cents: fee, method: 'card', stripe_session: pi.id, stripe_pi: pi.id, reference: pi.id, note: 'Card entered by staff' }, 'staff');
+  return recordPayment(iid, { amount_cents: (pi.amount_received || pi.amount) - fee, fee_cents: fee, method: 'card', stripe_session: pi.id, stripe_pi: pi.id, reference: pi.id, note: pi.metadata.via === 'site' ? 'Paid online' : 'Card entered by staff' }, pi.metadata.via === 'site' ? 'stripe' : 'staff');
 }
 export function recordAuthorization(invoice_id, { amount_cents, stripe_pi }) {
   if (one("SELECT 1 x FROM payments WHERE stripe_pi=? AND method='card_auth'", stripe_pi)) return null; // webhook replay

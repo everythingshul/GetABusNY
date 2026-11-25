@@ -57,8 +57,8 @@ await assert.rejects(cards.chargeInvoice(iid, 10000, 'test'), /no card on file/)
 // --- customer ticks "save my card" while paying ---
 await applyStripeEvent({ type: 'checkout.session.completed', data: { object: { id: 'cs_p', mode: 'payment', payment_status: 'paid', amount_total: 20000, payment_intent: 'pi_save', customer: 'cus_1', metadata: { invoice_id: String(iid), customer_id: String(cid), save_card: '1' } } } });
 c = one('SELECT * FROM customers WHERE id=?', cid); assert.equal(c.card_last4, '4242'); assert.equal(one('SELECT amount_paid_cents a FROM invoices WHERE id=?', iid).a, 70000);
-const co = await I.createCheckout({ invoice: inv, amount_cents: 5000, email: 'pat@x.com', saveCard: true, stripeCustomer: 'cus_1' });
-const sent = stripeCalls.filter((x) => x.u.endsWith('/v1/checkout/sessions')).pop().body; assert.equal(sent['payment_intent_data[setup_future_usage]'], 'off_session'); assert.equal(sent.customer, 'cus_1');
+await I.createTerminalIntent({ invoice: inv, amount_cents: 5000, saveCard: true, stripeCustomer: 'cus_1', via: 'site' });
+const sent = stripeCalls.filter((x) => x.u.endsWith('/v1/payment_intents')).pop().body; assert.equal(sent.setup_future_usage, 'off_session'); assert.equal(sent.customer, 'cus_1'); assert.ok(!stripeCalls.some((x) => x.u.includes('checkout/sessions')), 'no Stripe Checkout');
 
 // --- operator insurance ---
 const { localDate: ld } = await import('../src/db.js');

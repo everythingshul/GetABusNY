@@ -11,7 +11,7 @@
 <p class="hint">Can't find it? Call us and we'll resend it.</p></div>
 
 <div id="view" hidden>
-<div id="paidmsg" class="alert ok" hidden><b>Thank you!</b> Your payment is being processed. You'll get a receipt by email shortly.</div>
+<div id="paidmsg" class="alert ok" hidden><b>Thank you!</b> Your payment went through. You'll get a receipt by email shortly.</div>
 <div class="printhead" id="phead"></div>
 <div class="card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start"><div><div class="eyebrow" style="margin:0">Invoice</div><h1 style="font-size:2rem;margin:0" id="num"></h1><p class="muted" id="ttl" style="margin:4px 0 0"></p></div><div style="text-align:right"><span class="badge" id="badge"></span><p class="muted" style="margin:8px 0 0;font-size:.9rem" id="due"></p></div></div>
 <div id="trip" class="muted" style="margin:18px 0 0;font-size:.93rem"></div><div id="stops"></div>
@@ -21,8 +21,8 @@
 <div id="notes" class="muted" style="margin-top:14px;font-size:.93rem"></div></div>
 
 <div class="card noprint" id="paybox" style="margin-top:20px"><h3>Pay securely by card</h3>
-<form id="pf"><div class="opt-pay" id="opts"></div><div id="cust" class="field" hidden><label for="ca">Amount (USD)</label><input id="ca" type="number" step="0.01" min="1" placeholder="0.00"></div><label id="svrow" style="display:none;font-weight:400;margin:6px 0 12px"><input type="checkbox" id="svc" style="width:auto;min-height:0;display:inline;margin-right:8px">Save this card for the remaining balance and extras I agreed to, such as overtime. I authorize charging it. I can ask to have it removed.</label><div id="cardnote" class="hint" style="margin-bottom:10px" hidden></div><div id="perr" class="alert err" hidden></div>
-<button class="btn btn-lime" id="pb" style="width:100%;font-size:1.1rem">Pay now</button><p class="hint center" style="margin-top:10px">Payments are processed by Stripe. We never see or store your card number.</p></form></div>
+<form id="pf"><div class="opt-pay" id="opts"></div><div id="cust" class="field" hidden><label for="ca">Amount (USD)</label><input id="ca" type="number" step="0.01" min="1" placeholder="0.00"></div><label id="svrow" style="display:none;font-weight:400;margin:6px 0 12px"><input type="checkbox" id="svc" style="width:auto;min-height:0;display:inline;margin-right:8px">Save this card for the remaining balance and extras I agreed to, such as overtime. I authorize charging it. I can ask to have it removed.</label><div id="cardnote" class="hint" style="margin-bottom:10px" hidden></div><div class="field"><label for="cn">Name on card</label><input id="cn" autocomplete="cc-name"></div><div class="field"><label>Card</label><div id="cardel" style="border:1.5px solid var(--line);border-radius:10px;padding:14px 12px;background:#fff"></div></div><div id="perr" class="alert err" hidden></div>
+<button class="btn btn-lime" id="pb" style="width:100%;font-size:1.1rem" disabled>Pay now</button><p class="hint center" style="margin-top:10px">Payments are processed by Stripe. We never see or store your card number.</p></form></div>
 <p class="center noprint" style="margin-top:16px"><button class="btn btn-line btn-sm" onclick="print()">Print / save PDF</button></p>
 <p class="muted center noprint" id="contact" style="font-size:.9rem"></p>
 </div>
@@ -32,6 +32,8 @@
 <script type="module">
 import {boot,api,$,esc,money,fmtWhen} from '/js/site.js';
 await boot('/pay');
+let stripe,card;
+const loadStripe=()=>window.Stripe?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://js.stripe.com/v3/';s.onload=ok;s.onerror=()=>no(new Error('The secure card form could not load. Please check your connection and try again.'));document.head.appendChild(s);});
 const tok=location.pathname.split('/')[2];
 if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('saved'))$('#savedmsg').hidden=false;
  $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').hidden=true;try{const r=await api('/invoice-lookup',{body:{number:$('#ln').value,email:$('#le').value}});location.href='/pay/'+r.token;}catch(x){$('#lerr').textContent=x.message;$('#lerr').hidden=false;}};
@@ -61,8 +63,18 @@ if(!tok){$('#lookup').hidden=false;if(new URLSearchParams(location.search).get('
    $('#opts').innerHTML=opts.map(([v,l,a],n)=>`<label><input type="radio" name="m" value="${v}" ${n===0?'checked':''}>${l}<b>${a?money(a):''}${fee(a)?`<span class="muted" style="display:block;font-weight:400;font-size:.8rem">+ ${money(fee(a))} card fee = ${money(a+fee(a))}</span>`:''}</b></label>`).join('')+(i.cc_fee?`<p class="muted" style="font-size:.85rem;margin:2px 0 0">${esc(i.cc_fee.text)}</p>`:'');
    const sync=()=>{const m=document.querySelector('input[name=m]:checked').value;$('#cust').hidden=m!=='custom';};document.addEventListener('change',sync);
    $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const m=document.querySelector('input[name=m]:checked').value;const body={mode:m,save_card:!!($('#svc')&&$('#svc').checked&&$('#svrow').style.display!=='none')};if(m==='custom')body.amount_cents=Math.round(parseFloat($('#ca').value||0)*100);
-    const btn=$('#pb');btn.disabled=true;btn.textContent='Redirecting to secure checkout…';
-    try{const r=await api(`/invoice/${tok}/pay`,{body});location.href=r.url;}catch(x){$('#perr').textContent=x.message;$('#perr').hidden=false;btn.disabled=false;btn.textContent='Pay now';}};
+    const btn=$('#pb');btn.disabled=true;btn.textContent='Processing…';
+    try{const r=await api(`/invoice/${tok}/pay`,{body});const res=await stripe.confirmCardPayment(r.client_secret,{payment_method:{card,billing_details:{name:$('#cn').value||undefined,email:undefined}}});if(res.error)throw new Error(res.error.message);await api(`/invoice/${tok}/pay/complete`,{body:{payment_intent:r.id}});location.href=`/pay/${tok}?paid=1`;}catch(x){$('#perr').textContent=x.message;$('#perr').hidden=false;btn.disabled=false;btn.textContent='Pay now';}};
+   // the secure card field (Stripe draws it; the number never touches our server)
+   const hp=new URLSearchParams(location.search),holdCents=Number(hp.get('hold')),holdSig=hp.get('sig');
+   loadStripe().then(()=>{stripe=window.Stripe(i.publishable_key);card=stripe.elements().create('card',{style:{base:{fontSize:'16px',color:'#10222f'}}});card.mount('#cardel');card.on('change',e=>{$('#perr').textContent=e.error?e.error.message:'';$('#perr').hidden=!e.error;});$('#pb').disabled=false;}).catch(x=>{$('#perr').textContent=x.message;$('#perr').hidden=false;});
+   if(holdCents&&holdSig){
+    $('#paybox').querySelector('h3').textContent='Authorize your card';
+    $('#opts').innerHTML=`<p style="margin:0 0 6px"><b>${money(holdCents)}</b> will be held on your card. It is <b>authorized, not charged</b>, until the trip is confirmed or completed. A hold usually drops off in about 7 days if it is not used.</p>`;
+    $('#svrow').style.display='none';$('#pb').textContent='Authorize '+money(holdCents);
+    $('#pf').onsubmit=async e=>{e.preventDefault();$('#perr').hidden=true;const btn=$('#pb');btn.disabled=true;btn.textContent='Processing…';
+     try{const r=await api(`/invoice/${tok}/hold`,{body:{amount_cents:holdCents,sig:holdSig}});const res=await stripe.confirmCardPayment(r.client_secret,{payment_method:{card,billing_details:{name:$('#cn').value||undefined}}});if(res.error)throw new Error(res.error.message);await api(`/invoice/${tok}/pay/complete`,{body:{payment_intent:r.id}});$('#paybox').innerHTML='<div class="alert ok"><b>Thank you.</b> Your card is authorized. Nothing was charged.</div>';}catch(x){$('#perr').textContent=x.message;$('#perr').hidden=false;btn.disabled=false;btn.textContent='Authorize '+money(holdCents);}};
+   }
   }
  }catch(x){$('#nf').hidden=false;}
 }

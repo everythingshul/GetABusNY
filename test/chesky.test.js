@@ -180,16 +180,16 @@ try {
     assert.equal((await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'wrong@x.com' }, ctx)).status, 'error');
     assert.match((await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com' }, ctx)).error, /not set up/);
     process.env.STRIPE_SECRET_KEY = 'sk_test_x'; const stripeBodies = [];
-    globalThis.fetch = async (url, opts) => { if (!String(url).includes('api.stripe.com')) return realFetch(url, opts); stripeBodies.push(String(opts.body)); return new Response(JSON.stringify({ id: 'cs_1', url: 'https://checkout.stripe.test/c/1', client_secret: 'cs_secret_1' }), { status: 200 }); };
+    globalThis.fetch = async (url, opts) => { if (!String(url).includes('api.stripe.com')) return realFetch(url, opts); stripeBodies.push(String(opts.body)); return new Response(JSON.stringify({ id: 'pi_1', client_secret: 'pi_1_secret_a' }), { status: 200 }); };
     let p = await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com' }, ctx);
-    assert.equal(p.status, 'ready'); assert.equal(p._checkout.url, 'https://checkout.stripe.test/c/1'); assert.equal(p._checkout.clientSecret, undefined); assert.ok(stripeBodies[0].includes('success_url') && !stripeBodies[0].includes('ui_mode') && stripeBodies[0].includes('unit_amount%5D=40000'));
+    assert.equal(p.status, 'ready'); assert.match(p._checkout.payUrl, /\/pay\//); assert.equal(p._checkout.clientSecret, undefined); assert.equal(stripeBodies.length, 0, 'without a publishable key the visitor is sent to our invoice page, nothing is created at Stripe'); assert.ok(p._checkout.token);
     process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_x';
     p = await execToolAsync('start_invoice_payment', { number: 'INV-777777', email: 'payer@example.com', which: 'deposit' }, ctx);
-    assert.equal(p._checkout.clientSecret, 'cs_secret_1'); assert.equal(p._checkout.publishableKey, 'pk_test_x'); assert.ok(stripeBodies[1].includes('ui_mode=embedded') && stripeBodies[1].includes('return_url') && stripeBodies[1].includes('unit_amount%5D=10000'));
+    assert.equal(p._checkout.clientSecret, 'pi_1_secret_a'); assert.equal(p._checkout.publishableKey, 'pk_test_x'); assert.equal(p._checkout.piId, 'pi_1'); assert.ok(stripeBodies[0].includes('amount=10000') && !stripeBodies[0].includes('capture_method') && !stripeBodies[0].includes('checkout'), 'a PaymentIntent, not a Checkout session');
     // whole ask() loop: the secret reaches the widget, never the model
     process.env.CHESKY_API_KEY = 'k'; let toolResultSeen = '';
     globalThis.fetch = async (url, opts) => {
-      if (String(url).includes('api.stripe.com')) return new Response(JSON.stringify({ id: 'cs_2', client_secret: 'cs_secret_2' }), { status: 200 });
+      if (String(url).includes('api.stripe.com')) return new Response(JSON.stringify({ id: 'pi_2', client_secret: 'pi_2_secret_b' }), { status: 200 });
       if (!String(url).includes('api.anthropic.com')) return realFetch(url, opts);
       const b = JSON.parse(opts.body); const last = b.messages[b.messages.length - 1];
       if (typeof last.content === 'string') return new Response(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't9', name: 'start_invoice_payment', input: { number: 'INV-777777', email: 'payer@example.com' } }] }), { status: 200 });
@@ -197,7 +197,7 @@ try {
       return new Response(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't10', name: 'respond', input: { reply: 'The payment form is below.' } }] }), { status: 200 });
     };
     const { ask } = await import('../src/chesky.js'); const a = await ask('I want to pay INV-777777, payer@example.com', [], null, false, ctx);
-    assert.equal(a.checkout.clientSecret, 'cs_secret_2'); assert.equal(a.reply, 'The payment form is below.'); assert.ok(!toolResultSeen.includes('cs_secret_2') && toolResultSeen.includes('ready'));
+    assert.equal(a.checkout.clientSecret, 'pi_2_secret_b'); assert.equal(a.reply, 'The payment form is below.'); assert.ok(!toolResultSeen.includes('pi_2_secret_b') && toolResultSeen.includes('ready'));
     // lookup guessing is limited per visitor
     const bad = { ip: '8.8.8.8' }; for (let i = 0; i < 6; i++) await execToolAsync('find_invoice', { number: `INV-${i}`, email: 'a@b.com' }, bad);
     assert.match((await execToolAsync('find_invoice', { number: 'INV-777777', email: 'payer@example.com' }, bad)).error, /Too many/);

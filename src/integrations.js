@@ -156,21 +156,6 @@ async function stripe(path, body) {
   return j;
 }
 
-/** embedded: true returns a client_secret for Stripe's embedded form (card details go only to Stripe); otherwise a hosted page url. */
-export async function createCheckout({ invoice, amount_cents, email, auth = false, saveCard = false, stripeCustomer, embedded = false }) {
-  const base = BASE_URL();
-  const fee = auth ? 0 : cardFee(invoice, amount_cents);
-  return stripe('checkout/sessions', {
-    mode: 'payment',
-    ...(stripeCustomer ? { customer: stripeCustomer } : { customer_email: email || undefined }),
-    ...(embedded ? { ui_mode: 'embedded', return_url: `${base}/pay/${invoice.token}?paid=1` } : { success_url: `${base}/pay/${invoice.token}?paid=1`, cancel_url: `${base}/pay/${invoice.token}` }),
-    client_reference_id: String(invoice.id),
-    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, ...(fee ? { fee_cents: fee } : {}), ...(auth ? { mode: 'auth' } : {}), ...(saveCard ? { save_card: '1' } : {}) },
-    payment_intent_data: { ...(auth ? { capture_method: 'manual' } : {}), ...(saveCard ? { setup_future_usage: 'off_session' } : {}), metadata: { invoice_id: invoice.id, invoice_number: invoice.number, ...(auth ? { mode: 'auth' } : {}) }, description: `${getSetting('business_name')} invoice ${invoice.number}${auth ? ' (card hold)' : ''}` },
-    line_items: { ...(fee ? { 1: { quantity: 1, price_data: { currency: 'usd', unit_amount: fee, product_data: { name: 'Card processing fee', description: `Only for paying by card (invoice ${invoice.number})` } } } } : {}), 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount_cents, product_data: { name: auth ? `Card hold for invoice ${invoice.number}` : `Invoice ${invoice.number}`, description: auth ? 'Your card is authorized, not charged, until the trip is confirmed or completed.' : (invoice.title || 'Charter bus service') } } } },
-  });
-}
-
 export const CARD_CONSENT = () => `I authorize ${getSetting('business_name')} to charge this card for the balance of my trip and for extras I agreed to, such as overtime and gratuity.`;
 export async function stripeCustomerFor({ id, name, email, phone, stripe_customer_id }) {
   if (stripe_customer_id) return stripe_customer_id;
@@ -178,20 +163,19 @@ export async function stripeCustomerFor({ id, name, email, phone, stripe_custome
   run('UPDATE customers SET stripe_customer_id=? WHERE id=?', c.id, id);
   return c.id;
 }
-/** Stripe-hosted page that saves a card without charging it. */
-export async function createSetupCheckout({ customer_id, stripeCustomer }) {
-  const base = BASE_URL();
-  return stripe('checkout/sessions', { mode: 'setup', customer: stripeCustomer, currency: 'usd', payment_method_types: { 0: 'card' }, success_url: `${base}/pay?saved=1`, cancel_url: `${base}/pay`, metadata: { customer_id, save_card: '1' }, custom_text: { submit: { message: CARD_CONSENT() } } });
+/** Saves a card without charging it, using card fields on our own page. */
+export async function createSetupIntent({ customer_id, stripeCustomer }) {
+  return stripe('setup_intents', { customer: stripeCustomer, payment_method_types: { 0: 'card' }, usage: 'off_session', metadata: { customer_id } });
 }
 export const getSetupIntent = (id) => stripe(`setup_intents/${encodeURIComponent(id)}`);
-/** A card payment or hold that staff take by typing the card into Stripe's secure card field. The card number never reaches this server. */
-export async function createTerminalIntent({ invoice, amount_cents, fee_cents = 0, hold = false, stripeCustomer, saveCard = false }) {
+/** A card payment or hold taken with Stripe's secure card field, on our own pages (the customer's or the staff's). The card number never reaches this server. */
+export async function createTerminalIntent({ invoice, amount_cents, fee_cents = 0, hold = false, stripeCustomer, saveCard = false, via = 'staff' }) {
   const total = hold ? amount_cents : amount_cents + fee_cents;
   return stripe('payment_intents', {
     amount: total, currency: 'usd', payment_method_types: { 0: 'card' },
     ...(hold ? { capture_method: 'manual' } : {}), ...(stripeCustomer ? { customer: stripeCustomer } : {}), ...(saveCard ? { setup_future_usage: 'off_session' } : {}),
     description: `${getSetting('business_name')} invoice ${invoice.number}${hold ? ' (card hold)' : ''}`,
-    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, terminal: '1', ...(hold ? { mode: 'auth' } : {}), ...(!hold && fee_cents ? { fee_cents } : {}), ...(saveCard ? { save_card: '1' } : {}) },
+    metadata: { invoice_id: invoice.id, invoice_number: invoice.number, customer_id: invoice.customer_id, terminal: '1', via, ...(hold ? { mode: 'auth' } : {}), ...(!hold && fee_cents ? { fee_cents } : {}), ...(saveCard ? { save_card: '1' } : {}) },
   });
 }
 export const getPaymentIntent = (id) => stripe(`payment_intents/${encodeURIComponent(id)}`);

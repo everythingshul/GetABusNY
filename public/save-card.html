@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Save a Card | Get A Bus NY</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/css/site.css"></head><body>
+<div id="hdr"></div><main id="main">
+<section style="padding-top:40px"><div class="wrap narrow">
+<div id="ok" class="card" hidden><div class="eyebrow">Card on file</div><h1 style="font-size:2rem" id="hi">Save a card</h1>
+<p class="muted">Nothing is charged now. Your card is kept securely by Stripe, and we never see or store the number.</p>
+<form id="cf"><div class="field"><label for="cn">Name on card</label><input id="cn" autocomplete="cc-name"></div><div class="field"><label>Card</label><div id="cardel" style="border:1.5px solid var(--line);border-radius:10px;padding:14px 12px;background:#fff"></div></div>
+<label style="font-weight:400;display:flex;gap:10px;align-items:flex-start;margin:10px 0 14px"><input type="checkbox" id="ag" style="width:auto;min-height:0;margin-top:5px"><span id="consent"></span></label>
+<div id="err" class="alert err" hidden></div><button class="btn btn-lime" id="go" style="width:100%;font-size:1.1rem" disabled>Save card</button></form></div>
+<div id="done" class="card center" hidden><h2>Card saved</h2><p class="muted">Thank you. Nothing was charged. You can close this page.</p></div>
+<div id="bad" class="card center" hidden><h2>This link is not valid</h2><p class="muted">Please call us and we will send a new one.</p></div>
+</div></section></main><div id="ftr"></div>
+<script type="module">
+import {boot,api,$} from '/js/site.js';
+await boot('/pay');
+const parts=location.pathname.split('/'),cid=parts[2],sig=parts[3];
+const loadStripe=()=>window.Stripe?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://js.stripe.com/v3/';s.onload=ok;s.onerror=()=>no(new Error('The secure card form could not load. Please try again.'));document.head.appendChild(s);});
+try{
+ const v=await api(`/save-card/${cid}/${sig}`);
+ $('#ok').hidden=false;$('#hi').textContent=v.name?`Hi ${v.name}, save a card`:'Save a card';$('#consent').textContent=v.consent;
+ if(!v.ready||!v.publishable_key){$('#err').textContent='Saving cards is not available right now. Please call '+v.phone+'.';$('#err').hidden=false;}
+ else{
+  let stripe,card;
+  await loadStripe();stripe=window.Stripe(v.publishable_key);card=stripe.elements().create('card',{style:{base:{fontSize:'16px',color:'#10222f'}}});card.mount('#cardel');card.on('change',e=>{$('#err').textContent=e.error?e.error.message:'';$('#err').hidden=!e.error;});$('#go').disabled=false;
+  $('#cf').onsubmit=async e=>{e.preventDefault();$('#err').hidden=true;if(!$('#ag').checked){$('#err').textContent='Please tick the box to agree.';$('#err').hidden=false;return;}
+   const b=$('#go');b.disabled=true;b.textContent='Saving…';
+   try{const r=await api(`/save-card/${cid}/${sig}/intent`,{body:{}});const res=await stripe.confirmCardSetup(r.client_secret,{payment_method:{card,billing_details:{name:$('#cn').value||undefined}}});if(res.error)throw new Error(res.error.message);await api(`/save-card/${cid}/${sig}/complete`,{body:{setup_intent:r.id}});$('#ok').hidden=true;$('#done').hidden=false;}
+   catch(x){$('#err').textContent=x.message;$('#err').hidden=false;b.disabled=false;b.textContent='Save card';}};
+ }
+}catch(x){$('#bad').hidden=false;}
+</script></body></html>

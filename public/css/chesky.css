@@ -442,3 +442,11 @@
   .chesky-fab, .chesky-panel, .chesky-nudge, .chesky-typing span, .chesky-msg, .chesky-fab::before,
   .chesky-rec-dot, .chesky-rec-wave i, .chesky-vp-btn { transition: none; animation: none; }
 }
+
+.chesky-checkout { width: 100%; min-height: 0; background: #fff; border: 1px solid #dfe8ee; border-radius: 14px; padding: 14px; box-sizing: border-box; }
+.chesky-cardbox { border: 1.5px solid #cfdbe3; border-radius: 10px; padding: 13px 12px; background: #fff; }
+.chesky-carderr { color: #b3261e; font-size: 0.85rem; margin-top: 8px; }
+.chesky-paybtn { width: 100%; margin-top: 12px; border: 0; border-radius: 10px; background: #94c033; color: #10222f; font: 700 1rem inherit; padding: 12px; cursor: pointer; }
+.chesky-paybtn:disabled { opacity: 0.6; cursor: default; }
+.chesky-cardnote { margin-top: 8px; font-size: 0.75rem; color: #5b6b78; text-align: center; }
+.chesky-paid { color: #17623a; font-weight: 600; }

@@ -235,9 +235,9 @@ const Chesky = (() => {
     }
   }
 
-  // Chesky started an invoice payment. Stripe's own form is mounted in the chat when the site has a publishable key;
-  // otherwise a Pay now button opens Stripe's hosted page. Card details only ever go to Stripe, never to this page or our server.
-  let stripeJs = null, stripeInst = null, activeCheckout = null;
+  // Chesky started an invoice payment. Stripe's secure card field is shown right in the chat when the site has a publishable key;
+  // otherwise a Pay now button opens our own invoice page. Card details only ever go to Stripe, never to this page or our server.
+  let stripeJs = null, stripeInst = null;
   function loadStripeJs() {
     if (window.Stripe) return Promise.resolve();
     stripeJs ||= new Promise((resolve, reject) => {
@@ -252,14 +252,26 @@ const Chesky = (() => {
   function showCheckout(co) {
     const log = document.getElementById('cheskyLog'); if (!log) return;
     if (!co.clientSecret || !co.publishableKey) { log.appendChild(el(payButton(co))); scrollLog(); return; }
-    const node = el('<div class="chesky-checkout"></div>'); log.appendChild(node); scrollLog();
+    const node = el(`<div class="chesky-checkout"><div class="chesky-cardbox"></div><div class="chesky-carderr" hidden></div><button type="button" class="chesky-paybtn" disabled>Pay ${escapeHtml(co.amount || '')}</button><div class="chesky-cardnote">Secure payment by Stripe. We never see your card number.</div></div>`);
+    log.appendChild(node); scrollLog();
+    const box = node.querySelector('.chesky-cardbox'), err = node.querySelector('.chesky-carderr'), btn = node.querySelector('.chesky-paybtn');
     const fallback = () => { node.replaceWith(el(payButton({ ...co, url: co.payUrl }))); scrollLog(); };
     (async () => {
       await Promise.race([loadStripeJs(), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 12000))]);
       stripeInst ||= window.Stripe(co.publishableKey);
-      try { activeCheckout?.destroy(); } catch { /* already gone */ }
-      activeCheckout = await Promise.race([stripeInst.initEmbeddedCheckout({ clientSecret: co.clientSecret }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 15000))]);
-      activeCheckout.mount(node);
+      const card = stripeInst.elements().create('card', { style: { base: { fontSize: '16px', color: '#10222f' } } });
+      card.mount(box); btn.disabled = false;
+      card.on('change', (e) => { err.textContent = e.error ? e.error.message : ''; err.hidden = !e.error; });
+      btn.onclick = async () => {
+        btn.disabled = true; const label = btn.textContent; btn.textContent = 'Processing...'; err.hidden = true;
+        try {
+          const res = await stripeInst.confirmCardPayment(co.clientSecret, { payment_method: { card } });
+          if (res.error) throw new Error(res.error.message);
+          const done = await fetch(`/api/public/invoice/${encodeURIComponent(co.token)}/pay/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ payment_intent: co.piId }) });
+          if (!done.ok) throw new Error('Your card was charged but we could not confirm it here. We will email your receipt shortly.');
+          node.innerHTML = `<div class="chesky-paid">Thank you! Your payment of ${escapeHtml(co.amount || '')} went through. A receipt is on its way to your email.</div>`; scrollLog();
+        } catch (e) { err.textContent = e.message; err.hidden = false; btn.disabled = false; btn.textContent = label; }
+      };
     })().catch(fallback);
   }
 

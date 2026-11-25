@@ -13,6 +13,9 @@ function secret() {
   return s;
 }
 const SECRET = secret();
+/** Signs a short string, for private links that carry a fixed amount or customer. */
+export const signLink = (s) => crypto.createHmac('sha256', SECRET).update(String(s)).digest('hex').slice(0, 24);
+export const linkOk = (s, sig) => { const a = Buffer.from(signLink(s)), b = Buffer.from(String(sig || '')); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 
 export function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
