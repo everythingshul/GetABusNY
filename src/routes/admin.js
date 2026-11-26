@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { searchAll } from '../search.js';
+import { trashRecord, restoreTrash, trashList, TRASHABLE } from '../trash.js';
 import { all, one, run, insert, update, now, token, nextNumber, randomRef, nextSeq, allSettings, setSetting, DEFAULT_SETTINGS, log, parse, totals, getSetting as getSettingSafe, testCtx, cardFee } from '../db.js';
 import { BASE_URL as integ_base } from '../integrations.js';
 import { requireAdmin, checkPassword, hashPassword, makeSession, limit } from '../auth.js';
@@ -13,7 +14,7 @@ import { chatAdminRouter } from '../chesky.js';
 import { listTexts, saveTexts, PAGE_LABELS } from '../content.js';
 import { analyticsRange } from '../report.js';
 import { allLabels, allLinks, createLabel, updateLabel, deleteLabel, setLabels, PALETTE, LABEL_TYPES } from '../labels.js';
-import { ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, ledgerMaaser, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
+import { syncPaymentToLedger, ledgerList, ledgerCreate, ledgerUpdate, ledgerDelete, ledgerAttach, ledgerFile, ledgerRemoveFile, ledgerMaaser, invoicePdf, quickPayment, ledgerOptions } from '../ledger.js';
 import { bannerAdminRouter } from '../banner.js';
 import { recordTerminalIntent } from '../services.js';
 import { chargeInvoice, removeCard, cardOf, saveCardFromPayment, saveCardFromSetup } from '../cards.js';
@@ -66,6 +67,10 @@ admin.get('/dashboard', wrap(() => S.dashboard()));
 admin.get('/analytics', wrap((req) => S.analytics(Number(req.query.months) || 12)));
 admin.get('/analytics/range', wrap((req) => analyticsRange({ from: req.query.from, to: req.query.to })));
 admin.get('/activity', wrap(() => all('SELECT * FROM activity ORDER BY id DESC LIMIT 200')));
+// ---- the trash: everything deleted lands here, is counted nowhere, is never destroyed, and can be restored
+admin.get('/trash', wrap(() => trashList()));
+admin.post('/trash/:entity/:id', wrap((req) => trashRecord(req.params.entity, req.params.id, req.user.email)));
+admin.post('/trash-items/:id/restore', wrap((req) => restoreTrash(Number(req.params.id), req.user.email)));
 admin.get('/search', wrap((req) => searchAll(req.query.q)));
 admin.get('/outbox', wrap(() => all('SELECT id,to_addr,subject,status,error,created_at FROM outbox ORDER BY id DESC LIMIT 100')));
 
@@ -119,7 +124,7 @@ for (const [name, cfg] of Object.entries(RES)) {
     const rows = all(`${cfg.sel} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${cfg.order} LIMIT ${Math.min(Number(req.query.limit) || 300, 1000)}`, ...args);
     return cfg.extra ? rows.map(cfg.extra) : rows;
   }));
-  admin.get(`/${name}/:id`, wrap((req) => {
+  admin.get(`/${name}/:id`, (req, res, next) => (/^\d+$/.test(req.params.id) ? next() : next('route')), wrap((req) => {
     const r = one(`${cfg.sel} WHERE t.id=?`, req.params.id);
     if (!r) throw bad('Not found', 404);
     return cfg.extra ? cfg.extra(r) : r;
@@ -138,23 +143,23 @@ for (const [name, cfg] of Object.entries(RES)) {
     log(req.user.email, `${name}.created`, name, id);
     return one(`${cfg.sel} WHERE t.id=?`, id);
   }));
-  admin.put(`/${name}/:id`, wrap((req) => {
+  admin.put(`/${name}/:id`, (req, res, next) => (/^\d+$/.test(req.params.id) ? next() : next('route')), wrap((req) => {
     const id = Number(req.params.id);
     if (!one(`SELECT 1 x FROM ${table} WHERE id=?`, id)) throw bad('Not found', 404);
     let o = pick(req.body || {});
     if (cfg.before) o = cfg.before(o);
     const prev = name === 'quotes' ? one('SELECT * FROM quotes WHERE id=?', id) : null;
-    if (prev && prev.status === 'accepted') throw bad('This quote was accepted and signed, so it is locked. Change the trip or add an invoice instead.', 409);
     if (name === 'customers' && o.sms_optin) o.sms_optin_at = now();
     if (name === 'invoices' && o.status === 'sent') delete o.status; // use the Send action
     update(table, id, { ...o, ...(table !== 'followups' && table !== 'messages' ? { updated_at: now() } : {}) });
     if (name === 'followups' && o.status && o.status !== 'pending') update('followups', id, { done_at: now() });
     if (name === 'trips' && o.status === 'cancelled') log(req.user.email, 'trip.cancelled', 'trip', id);
     cfg.after?.(id, false);
-    if (prev && ['sent', 'declined', 'expired'].includes(prev.status)) S.recordQuoteRevision(prev, one('SELECT * FROM quotes WHERE id=?', id), { by: req.user.email, reason: String(req.body?.revision_note || '').slice(0, 300) });
+    if (prev && ['sent', 'declined', 'expired', 'accepted'].includes(prev.status)) S.recordQuoteRevision(prev, one('SELECT * FROM quotes WHERE id=?', id), { by: req.user.email, reason: String(req.body?.revision_note || '').slice(0, 300) });
     return one(`${cfg.sel} WHERE t.id=?`, id);
   }));
-  admin.delete(`/${name}/:id`, wrap((req) => {
+  admin.delete(`/${name}/:id`, (req, res, next) => (/^\d+$/.test(req.params.id) ? next() : next('route')), wrap((req) => {
+    if (TRASHABLE.includes(name)) return trashRecord(name, req.params.id, req.user.email); // nothing is ever destroyed: it goes to the trash
     if (!cfg.del(req.params.id)) throw bad('This record has related history and cannot be deleted. Mark it inactive/cancelled/void instead.');
     run(`DELETE FROM ${table} WHERE id=?`, req.params.id);
     log(req.user.email, `${name}.deleted`, name, Number(req.params.id));
@@ -195,6 +200,20 @@ admin.get('/quotes/:id/link', wrap((req) => ({ url: S.link.quote(one('SELECT tok
 admin.post('/invoices/:id/send', wrap(async (req) => ({ ok: true, email: await S.sendInvoice(Number(req.params.id), req.user.email, { skip_email: !!req.body?.skip_email }) })));
 admin.get('/invoices/:id/link', wrap((req) => ({ url: S.link.pay(one('SELECT token FROM invoices WHERE id=?', req.params.id)) })));
 admin.get('/invoices/:id/payments', wrap((req) => all('SELECT * FROM payments WHERE invoice_id=? ORDER BY id', req.params.id)));
+// Fix a payment that was typed in by hand (cash, check, Zelle...). Card payments come from Stripe and are changed by refunds.
+admin.put('/payments/:id', wrap((req) => {
+  const p = one('SELECT * FROM payments WHERE id=?', req.params.id); if (!p) throw bad('Not found', 404);
+  if (p.stripe_pi || ['card', 'card_auth', 'refund'].includes(p.method) || p.status !== 'succeeded') throw bad('Card payments come from Stripe and cannot be edited here. Refund or release them instead.');
+  const b = req.body || {}, o = {};
+  if ('amount_cents' in b) { const c = Math.round(Number(b.amount_cents)); if (!Number.isFinite(c) || c < 1 || c > 100_000_000) throw bad('Enter a valid amount.'); o.amount_cents = c; }
+  if (b.method) { if (!['cash', 'check', 'zelle', 'venmo', 'ach', 'wire', 'other', 'manual'].includes(b.method)) throw bad('Pick how it was paid.'); o.method = b.method; }
+  if ('reference' in b) o.reference = String(b.reference || '').slice(0, 120) || null;
+  if ('note' in b) o.note = String(b.note || '').slice(0, 300) || null;
+  if (b.date) { if (!/^\d{4}-\d\d-\d\d$/.test(b.date)) throw bad('Use a date like 2026-11-25.'); o.created_at = `${b.date}T12:00:00.000Z`; }
+  update('payments', p.id, o); S.recalcInvoice(p.invoice_id); syncPaymentToLedger(p.id);
+  log(req.user.email, 'payment.edited', 'invoice', p.invoice_id, Object.keys(o).join(', '));
+  return { ok: true };
+}));
 admin.post('/invoices/:id/payments', wrap((req) => {
   const amt = Math.round(Number(req.body.amount_cents));
   if (!Number.isFinite(amt) || amt <= 0) throw bad('Enter a payment amount');
@@ -229,7 +248,7 @@ admin.get('/ledger/options', wrap(() => ledgerOptions()));
 admin.post('/ledger', wrap((req) => ledgerCreate(req.body || {}, req.user.email)));
 admin.put('/ledger/:id', wrap((req) => ledgerUpdate(Number(req.params.id), req.body || {}, req.user.email)));
 admin.put('/ledger/:id/maaser', wrap((req) => ledgerMaaser(Number(req.params.id), !!req.body?.given, req.user.email)));
-admin.delete('/ledger/:id', wrap((req) => { ledgerDelete(Number(req.params.id), req.user.email); return { ok: true }; }));
+admin.delete('/ledger/:id', wrap((req) => trashRecord('ledger', Number(req.params.id), req.user.email)));
 admin.post('/ledger/:id/file', express.raw({ type: ['application/pdf', 'image/*'], limit: '10mb' }), wrap((req) => { ledgerAttach(Number(req.params.id), req.body, decodeURIComponent(String(req.headers['x-file-name'] || '')), req.user.email); return { ok: true }; }));
 admin.delete('/ledger/:id/file', wrap((req) => { ledgerRemoveFile(Number(req.params.id), req.user.email); return { ok: true }; }));
 admin.get('/ledger/:id/file', (req, res) => { const f = ledgerFile(Number(req.params.id)); if (!f) return res.status(404).json({ error: 'No file attached' }); res.setHeader('Content-Type', f.type); res.setHeader('Content-Disposition', `inline; filename="${f.name.replace(/[^\x20-\x7e]/g, '_')}"`); res.setHeader('X-Content-Type-Options', 'nosniff'); res.sendFile(f.path); });
@@ -238,6 +257,7 @@ admin.post('/payments/quick', wrap((req) => quickPayment(req.body || {}, req.use
 admin.get('/payments', wrap(() => all('SELECT p.*, i.number invoice_number, c.id customer_id, c.name customer_name FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id ORDER BY p.id DESC LIMIT 300')));
 
 admin.get('/trips/:id/detail', wrap((req) => ({ ...S.tripDetail(Number(req.params.id)), events: all('SELECT * FROM trip_events WHERE trip_id=? ORDER BY id DESC', req.params.id), rfqs: all('SELECT r.*, v.name vendor_name FROM rfqs r JOIN vendors v ON v.id=r.vendor_id WHERE r.trip_id=?', req.params.id), invoices: all('SELECT id,number,status,total_cents,amount_paid_cents FROM invoices WHERE trip_id=?', req.params.id), contracts: all('SELECT id,number,status,signer_name,signed_at,total_cents FROM contracts WHERE trip_id=? ORDER BY id DESC', req.params.id), maps_url: mapsDirUrl(normItinerary(parse(one('SELECT itinerary FROM trips WHERE id=?', req.params.id)?.itinerary, []))) })));
+admin.post('/trips/:id/driver-info', wrap(async (req) => ({ ok: true, result: await S.sendDriverInfo(Number(req.params.id), { to: (Array.isArray(req.body?.to) ? req.body.to : ['customer']).filter((x) => ['customer', 'contact'].includes(x)), email: req.body?.email !== false, sms: req.body?.sms !== false }) })));
 admin.post('/trips/:id/confirm-email', wrap(async (req) => ({ ok: true, email: await S.sendTripConfirmation(Number(req.params.id)) })));
 admin.post('/trips/:id/invoice', wrap((req) => {
   const t = one('SELECT * FROM trips WHERE id=?', req.params.id);

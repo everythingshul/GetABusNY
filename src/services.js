@@ -272,6 +272,28 @@ export function tripDetail(id) {
   if (!t) return null;
   return { ...t, itinerary: normItinerary(parse(t.itinerary, [])), customer: customerOf(t.customer_id), vehicle: one('SELECT id,name,capacity,category FROM vehicles WHERE id=?', t.vehicle_id) || null, vendor: one('SELECT id,name,phone,contact_name FROM vendors WHERE id=?', t.vendor_id) || null, driver: one('SELECT id,name,phone FROM drivers WHERE id=?', t.driver_id) || null };
 }
+/** Tell the customer and/or the trip's on-site contact who the driver is. Only the driver and the vehicle are shared, never the vendor or anything about it. */
+export async function sendDriverInfo(trip_id, { to = ['customer'], email = true, sms = true } = {}) {
+  const t = tripDetail(trip_id); if (!t) throw Object.assign(new Error('Trip not found'), { status: 404 });
+  if (!t.driver) throw Object.assign(new Error('Assign a driver to this trip first.'), { status: 400 });
+  const first = normItinerary(t.itinerary).find((x) => x.kind === 'pickup' || x.kind === 'return_pickup');
+  const lines = [`Your driver: ${t.driver.name}`, t.driver.phone ? `Driver's phone: ${t.driver.phone}` : '', t.vehicle?.name ? `Vehicle: ${t.vehicle.name}` : '', `Trip: ${fmtWhen(t.depart_at)}`, first?.address ? `Pickup: ${first.address}` : ''].filter(Boolean);
+  const out = { customer: null, contact: null };
+  const want = new Set(to);
+  if (want.has('customer')) {
+    const c = t.customer || {}; out.customer = {};
+    if (email) out.customer.email = c.email ? await sendEmail(c.email, `Your driver for ${fmtWhen(t.depart_at)}`, emailShell('Your driver', `<p>Hi ${esc(String(c.name || '').split(' ')[0])}, here are your driver's details for your trip.</p><p>${lines.map((l) => esc(l)).join('<br>')}</p><p>The driver will contact you on the day of the trip. Questions? Call ${esc(getSetting('phone'))}.</p>`)) : { ok: false, error: 'email skipped' };
+    if (sms && c.phone) out.customer.sms = await textCustomer(c.id, `${getSetting('business_name')}\n${lines.join('\n')}`, 'driver_info', { trip_id, force: true });
+  }
+  if (want.has('contact')) {
+    const ten = String(t.onsite_phone || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+    if (ten.length !== 10) throw Object.assign(new Error('This trip has no on-site contact phone number.'), { status: 400 });
+    const stop = one("SELECT 1 x FROM customers WHERE sms_stop_at IS NOT NULL AND replace(replace(replace(replace(replace(phone,'-',''),' ',''),'(',''),')',''),'+','') LIKE ?", `%${ten}`);
+    out.contact = stop ? { ok: false, error: 'that number replied STOP' } : await sendSMS(ten, `${getSetting('business_name')}\n${lines.join('\n')}`, { kind: 'driver_info', trip_id });
+  }
+  log('admin', 'trip.driver_info_sent', 'trip', trip_id, [...want].join(', '));
+  return out;
+}
 export async function sendDriverLink(driver_id, via = 'email') {
   const d = one('SELECT * FROM drivers WHERE id=?', driver_id);
   const url = link.driver(d);

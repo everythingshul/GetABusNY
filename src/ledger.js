@@ -95,6 +95,13 @@ export function ledgerUpdate(id, b, actor) {
   log(actor, 'ledger.edited', 'ledger', id);
   return one('SELECT * FROM ledger WHERE id=?', id);
 }
+/** After a manual payment is edited, make its ledger row match. */
+export function syncPaymentToLedger(payment_id) {
+  const p = one('SELECT * FROM payments WHERE id=?', payment_id); const l = one("SELECT * FROM ledger WHERE src='payment' AND src_id=?", payment_id);
+  if (!p || !l) return;
+  const cents = Math.abs(p.amount_cents) + (p.amount_cents < 0 ? 0 : Number(p.fee_cents) || 0);
+  update('ledger', l.id, { date: localDate(new Date(p.created_at)), amount_cents: cents, paid_with: methodLabel(p.method, p.stripe_pi), account: accountFor(p.method), maaser_cents: l.direction === 'in' ? maaserFor(cents) : 0, notes: [p.reference ? `Ref: ${p.reference}` : '', p.fee_cents ? `Includes a ${usd(p.fee_cents)} card processing fee` : '', p.note || ''].filter(Boolean).join('. '), updated_at: now() });
+}
 export function ledgerDelete(id, actor) {
   const r = one('SELECT * FROM ledger WHERE id=?', id); if (!r) throw bad('Not found', 404);
   if (r.src === 'payment') throw bad('This entry comes from a payment on an invoice. To reverse it, refund the payment.');

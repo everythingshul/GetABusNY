@@ -94,6 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_ledger_date ON ledger(date);`);
 db.exec(`CREATE TABLE IF NOT EXISTS labels(id INTEGER PRIMARY KEY, name TEXT NOT NULL, color TEXT DEFAULT '#e7e7e7', parent_id INTEGER, sort INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS label_links(label_id INTEGER, entity_type TEXT, entity_id INTEGER, PRIMARY KEY(label_id, entity_type, entity_id));
 CREATE INDEX IF NOT EXISTS idx_label_links_entity ON label_links(entity_type, entity_id);`);
+db.exec(`CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY, entity TEXT, entity_id INTEGER, title TEXT, sub TEXT, seq INTEGER, data TEXT, children TEXT, deleted_by TEXT, deleted_at TEXT, restored_at TEXT, restored_by TEXT); CREATE INDEX IF NOT EXISTS idx_trash_entity ON trash(entity, seq);`);
 addCol('ledger', 'maaser_given', 'INTEGER DEFAULT 0'); addCol('ledger', 'maaser_given_at', 'TEXT'); addCol('ledger', 'maaser_of', 'INTEGER');
 // maaser is a fixed 10% of money in
 db.exec("UPDATE ledger SET maaser_cents=CAST(ROUND(amount_cents*0.1) AS INTEGER) WHERE direction='in' AND maaser_cents IS NOT (CAST(ROUND(amount_cents*0.1) AS INTEGER)); UPDATE ledger SET maaser_cents=0 WHERE direction='out' AND maaser_cents<>0");
@@ -198,7 +199,8 @@ export function randomRef(prefix, table, col) {
   return `${prefix}-${Date.now()}`;
 }
 /** Internal consecutive number shown only in the admin. */
-export const nextSeq = (table) => (db.prepare(`SELECT COALESCE(MAX(seq),0)+1 n FROM ${table}`).get().n);
+// Numbers are never reused: the highest number ever issued counts, including anything in the trash.
+export const nextSeq = (table) => Math.max(db.prepare(`SELECT COALESCE(MAX(seq),0) n FROM ${table}`).get().n, db.prepare('SELECT COALESCE(MAX(seq),0) n FROM trash WHERE entity=?').get(table).n) + 1;
 
 /** The business time zone (Settings). All "today", due dates and daily reports use it, never the server's UTC clock. */
 export const tzName = () => getSetting('timezone') || 'America/New_York';

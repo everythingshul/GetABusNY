@@ -233,7 +233,40 @@ async function lookups() {
 }
 const custOpts = () => opts(S.L.customers, (c) => `${c.name}${c.company ? ', ' + c.company : ''}${c.email ? ' (' + c.email + ')' : ''}`, 'Select customer…');
 const vehOpts = () => opts(S.L.vehicles.filter((v) => v.active), (v) => `${v.name} (${v.capacity})`, 'Not specified');
-const drvOpts = () => opts(S.L.drivers.filter((d) => d.active), (d) => d.name, 'Unassigned');
+const drvOpts = () => opts(S.L.drivers.filter((d) => d.active), (d) => `${d.name}${d.vendor_name ? '  (' + d.vendor_name + ')' : ''}`, 'Unassigned');
+const localDay = (v) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: window.TZ || undefined }).format(new Date(v)); } catch { return String(v || '').slice(0, 10); } };
+// Move anything to the trash. Nothing is ever destroyed; it just stops counting, and can be restored.
+async function trashIt(entity, id, what, done) {
+  if (!confirm(`Move this ${what} to the trash?\n\n` + 'It stops counting everywhere (totals, lists, reports) but is never destroyed. You can restore it any time from Trash.')) return;
+  await POST(`/trash/${entity}/${id}`, {}); toast(`Moved to trash. Restore it any time from Trash.`); await done?.();
+}
+// Adds a search box above a dropdown. Every word typed must appear in the option or in its extra text (for example a driver's vendor name).
+function searchableSelect(sel, extra = () => '') {
+  if (!sel || sel._ss) return; sel._ss = true;
+  const all0 = [...sel.options].map((o) => ({ v: o.value, t: o.textContent, s: `${o.textContent} ${extra(o.value) || ''}`.toLowerCase() }));
+  const box = document.createElement('input'); box.type = 'search'; box.placeholder = 'Type to search...'; box.autocomplete = 'off'; box.style.cssText = 'margin-bottom:4px;min-height:36px';
+  sel.parentNode.insertBefore(box, sel);
+  box.addEventListener('input', () => { const toks = box.value.trim().toLowerCase().split(/\s+/).filter(Boolean), cur = sel.value; sel.innerHTML = all0.filter((o) => !toks.length || o.v === cur || toks.every((t) => o.s.includes(t))).map((o) => `<option value="${esc(o.v)}" ${o.v === cur ? 'selected' : ''}>${esc(o.t)}</option>`).join(''); });
+}
+// Tell the customer and/or the trip's on-site contact who the driver is (never the vendor).
+function driverInfoModal(tripId, t) {
+  if (!t.driver_id) return toast('Assign a driver to this trip first', true);
+  const c = t.customer || {}, hasContact = !!String(t.onsite_phone || '').trim();
+  modal({ title: 'Send driver info', small: true, body: `<p class="mut sm">Sends the driver's name and phone, the vehicle and the pickup. It never includes the vendor or anything about it.</p>
+    <div class="fsec">Send to</div>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="checkbox" id="dic" checked> The customer: ${esc(c.name || '')} <span class="mut sm">${esc([c.email, c.phone].filter(Boolean).join('  '))}</span></label>
+    ${hasContact ? `<label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="checkbox" id="dik" checked> The on-site contact: ${esc(t.onsite_name || '')} <span class="mut sm">${esc(t.onsite_phone)}</span> <span class="mut sm">(text only)</span></label>` : '<p class="hint">Add an on-site contact name and phone on the trip to also send it to them.</p>'}
+    <div class="fsec">How</div>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="checkbox" id="die" checked> Email (the customer)</label>
+    <label style="flex-direction:row;display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="checkbox" id="dis" checked> Text</label>`,
+    footer: `${testBtn()}<span class="sp"></span>${button('Send', 'primary', 'id="go"')}`,
+    onMount(ov, close) {
+      const body = () => ({ to: [$('#dic', ov).checked ? 'customer' : '', $('#dik', ov)?.checked ? 'contact' : ''].filter(Boolean), email: $('#die', ov).checked, sms: $('#dis', ov).checked });
+      const ok = () => { const b = body(); if (!b.to.length) { toast('Pick who to send it to', true); return null; } return b; };
+      $('#tst', ov).onclick = () => guard(async () => { const b = ok(); if (b) await sendTest(`/trips/${tripId}/driver-info`, b); });
+      $('#go', ov).onclick = () => guard(async () => { const b = ok(); if (!b) return; await POST(`/trips/${tripId}/driver-info`, b); close(); }, 'Driver info sent');
+    } });
+}
 const vndOpts = () => opts(S.L.vendors.filter((v) => v.active), (v) => v.name, 'Own / none');
 
 // ---------- nav ----------
@@ -243,7 +276,7 @@ const NAV = [
   ['', 'Operations'], ['trips', 'Trips'], ['drivers', 'Drivers'], ['fleet', 'Fleet'],
   ['', 'Vendors'], ['vendors', 'Vendors'], ['rfqs', 'Vendor quotes', 'rfqs_waiting'],
   ['', 'Money'], ['invoices', 'Invoices'], ['payments', 'Payments'], ['ledger', 'Ledger'], ['contracts', 'Contracts'],
-  ['', 'Other'], ['labels', 'Labels'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['settings', 'Settings'],
+  ['', 'Other'], ['labels', 'Labels'], ['inbox', 'Inbox', 'unread_messages'], ['banner', 'Home banner'], ['sitetext', 'Website text'], ['chesky', 'Chesky'], ['messages', 'Sent messages'], ['activity', 'Activity'], ['trash', 'Trash'], ['settings', 'Settings'],
 ];
 const VIEWS = {};
 // ---------- search everything (sidebar) ----------
@@ -466,7 +499,7 @@ async function customerModal(id, after) {
   const h = id ? await GET(`/customers/${id}/history`) : null;
   const m = modal({
     title: id ? c.name : 'New customer', labels: id ? { type: 'customer', id } : null, body: formHTML(CUST_F, c) + (h ? `<div class="fsec" style="margin-top:20px">History</div><div class="kv"><div><dt>Trips</dt><dd>${h.trips.length}</dd></div><div><dt>Quotes</dt><dd>${h.quotes.length}</dd></div><div><dt>Invoiced</dt><dd>${usd(h.invoices.reduce((s, i) => s + i.total_cents, 0))}</dd></div><div><dt>Outstanding</dt><dd>${usd(h.invoices.filter((i) => ['sent', 'partial'].includes(i.status)).reduce((s, i) => s + i.total_cents - i.amount_paid_cents, 0))}</dd></div></div><p>${h.trips.map((t) => `<a href="#" data-trip="${t.id}">${esc(t.ref)}</a> ${fmt(t.depart_at)} ${badge(t.status)}`).join('<br>')}</p>` : ''),
-    footer: `${id ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && !c.sms_stop_at ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
+    footer: `${id ? button('Move to trash', 'danger', 'id="del"') : ''}<span class="sp"></span>${id && c.email ? button('Email…', '', 'id="mail"') : ''}${id && c.phone && !c.sms_stop_at ? button('Text…', '', 'id="txt"') : ''}${id ? button('New quote', '', 'id="nq"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       placesFor(ov);
       if (id) GET(`/customers/${id}/card`).then((card) => {
@@ -481,7 +514,7 @@ async function customerModal(id, after) {
       $('#txt', ov)?.addEventListener('click', () => composeText({ customer_id: id, name: c.name, phone: c.phone }));
       $('#save', ov).onclick = () => guard(async () => { const o = readForm(CUST_F, ov); if (!reqCheck(CUST_F, o)) return; id ? await PUT('/customers/' + id, o) : await POST('/customers', o); close(); await refresh(); after?.(); }, 'Saved');
       if (id) {
-        $('#del', ov).onclick = () => guard(async () => { if (!confirm('Delete this customer?')) return; await DEL('/customers/' + id); close(); await refresh(); }, 'Deleted');
+        $('#del', ov).onclick = () => guard(async () => { await trashIt('customers', id, 'customer', async () => { close(); await refresh(); }); });
         $('#nq', ov).onclick = () => { close(); quoteModal(null, { customer_id: id }); };
         $('#mail', ov)?.addEventListener('click', () => composeEmail({ to: c.email, entity_type: 'customer', entity_id: id }));
         ov.addEventListener('click', (e) => { const a = e.target.closest('[data-trip]'); if (a) { e.preventDefault(); close(); tripModal(+a.dataset.trip); } });
@@ -528,10 +561,10 @@ function leadModal(r) {
   modal({
     title: `${r.ref} - ${r.name}`, contact: { type: 'request', id: r.id }, labels: { type: 'request', id: r.id }, body: `<dl class="kv"><div><dt>Contact</dt><dd>${custLink(r.customer_id, r.name)}<br>${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a><br>` : ''}${r.phone ? `<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>` : ''}</dd></div><div><dt>Purpose</dt><dd>${esc(d.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(d))}</dd></div><div><dt>Departure</dt><dd>${fmt(d.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(d.return_at)}</dd></div><div><dt>Passengers</dt><dd>${d.passengers || '-'}</dd></div><div><dt>Vehicle</dt><dd>${esc(v?.name || d.vehicle_pref || 'No preference')}</dd></div><div><dt>Type</dt><dd>${esc(d.trip_type || '')}</dd></div><div><dt>Source</dt><dd>${esc(r.source)}${r.referred_by ? ` · via ${esc(r.referred_by)}` : ''}</dd></div></dl>
     ${r.original_details ? `<div class="alert-ok" style="margin:10px 0">Revised by staff. <a href="#" id="vorig">View the customer's original request</a></div>` : ''}${d.comments ? `<p><b>Customer notes:</b><br>${esc(d.comments)}</p>` : ''}<div class="fgrid" style="margin-top:12px"><label>Status<select id="st">${['new', 'quoting', 'quoted', 'converted', 'lost'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Internal notes (INTERNAL ONLY, never shown to the customer)<textarea id="nt">${esc(r.notes || '')}</textarea></label></div>`,
-    footer: `${button('Delete', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
+    footer: `${button('Move to trash', 'danger', 'id="del"')}<span class="sp"></span>${button('Request vendor prices', '', 'id="rfq"')}${button('Save', '', 'id="save"')}${button('Create quote →', 'primary', 'id="mkq"')}`,
     onMount(ov, close) {
       $('#save', ov).onclick = () => guard(async () => { await PUT('/requests/' + r.id, { status: $('#st', ov).value, notes: $('#nt', ov).value }); close(); reload(); }, 'Saved');
-      $('#del', ov).onclick = () => guard(async () => { if (!confirm('Delete this lead?')) return; await DEL('/requests/' + r.id); close(); reload(); });
+      $('#del', ov).onclick = () => guard(async () => { await trashIt('requests', r.id, 'lead', () => { close(); reload(); }); });
       $('#mkq', ov).onclick = () => guard(async () => { const x = await POST(`/requests/${r.id}/quote`); close(); await refresh(); quoteModal(x.quote_id); });
       $('#vorig', ov)?.addEventListener('click', (e) => { e.preventDefault(); const o = J(r.original_details); modal({ title: `${r.ref} original request`, small: true, body: `<p class="mut sm">Exactly what the customer submitted.</p><dl class="kv"><div><dt>Purpose</dt><dd>${esc(o.purpose || '-')}</dd></div><div style="grid-column:1/-1"><dt>Route</dt><dd style="font-weight:500">${itinList(legacyItin(o))}</dd></div><div><dt>Departure</dt><dd>${fmt(o.depart_at)}</dd></div><div><dt>Return</dt><dd>${fmt(o.return_at)}</dd></div><div><dt>Passengers</dt><dd>${o.passengers || '-'}</dd></div></dl>${o.comments ? `<p><b>Customer notes:</b><br>${esc(o.comments)}</p>` : ''}`, footer: '' }); });
       $('#rfq', ov).onclick = () => rfqModal({ request_id: r.id, label: `${r.ref} ${d.pickup || ''} → ${d.dropoff || ''}`, src: d });
@@ -565,11 +598,11 @@ async function quoteModal(id, preset = {}) {
   const F = [{ k: 'customer_id', l: 'Customer', t: 'select', o: custOpts(), req: 1 }, { k: 'title', l: 'Title', help: 'Shown to the customer, e.g. "Camp Sample visiting day"' }, { sec: 'Trip' }, ...tf, { k: '_r', t: 'custom', html: routeBlock }, { k: 'tnotes', l: 'Trip notes (shared with driver & vendors)', t: 'textarea', full: 1, def: trip.notes }, { sec: 'Pricing (you enter every price)' }];
   const resend = ['sent', 'declined', 'expired'].includes(q.status);
   const F2 = [...(resend ? [{ k: 'revision_note', l: 'Reason for this change (optional, goes in the history)', full: 1 }] : []), { k: 'tax_rate', l: 'Tax %', t: 'number', step: 0.001 }, { k: 'deposit_pct', l: 'Deposit % due to book', t: 'number', step: 1 }, { k: 'valid_until', l: 'Valid until', t: 'date' }, { k: 'notes', l: 'Note to customer (shown on quote)', t: 'textarea', full: 1 }, { k: 'pay_full', l: 'Payment in full to book (no deposit option)', t: 'check', full: 1 }, { k: 'sig_waived', l: 'Signature override: the customer does not need to sign, they only click Accept', t: 'check', full: 1 }];
-  const locked = id && ['accepted'].includes(q.status);
+  const accepted = id && q.status === 'accepted'; const locked = false;
   modal({
     title: id ? `Quote #${q.seq || q.id} (${q.number})` : 'New quote', contact: id ? { type: 'quote', id } : null, labels: id ? { type: 'quote', id } : null,
     body: `<div style="margin-bottom:10px">${id ? badge(q.status) + (q.viewed_at ? ` <span class="mut sm">viewed ${ago(q.viewed_at)}</span>` : '') : ''} <button class="link sm" id="newcust" type="button">+ new customer</button></div>${formHTML(F, { ...q, ...trip })}${itemsEditor(items, q.tax_rate)}<div style="margin-top:14px">${formHTML(F2, q)}</div>${ccBlock(q)}${id ? '<div class="fsec" style="margin-top:18px">Revision history</div><div id="revhist" class="mut">Loading...</div>' : ''}`,
-    footer: `${id && q.status === 'draft' ? button('Delete', 'danger', 'id="del"') : ''}${id ? button('Duplicate', '', 'id="dup"') : ''}${id ? button('Copy customer link', '', 'id="lnk"') : ''}<span class="sp"></span>${id && !locked ? button('Mark accepted', '', 'id="acc"') : ''}${locked ? '<span class="mut sm">Accepted and signed, so this quote is locked.</span>' : button('Save', '', 'id="save"') + button(q.status === 'sent' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
+    footer: `${id ? button('Move to trash', 'danger', 'id="del"') : ''}${id ? button('Duplicate', '', 'id="dup"') : ''}${id ? button('Copy customer link', '', 'id="lnk"') : ''}<span class="sp"></span>${id && !accepted ? button('Mark accepted', '', 'id="acc"') : ''}${accepted ? '<span class="mut sm">Accepted. Saving here changes the quote only, not the trip or invoice already made.</span>' : ''}${button('Save', '', 'id="save"')}${accepted ? '' : button(q.status === 'sent' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
     onMount(ov, close) {
       const ed = itineraryEditor($('#itn_box', ov), { staff: true, value: legacyItin(trip) });
       const zm = wireZmanim(ov, ed, { depart: () => $('#f_depart_at', ov).value, ret: () => $('#f_return_at', ov).value });
@@ -590,7 +623,7 @@ async function quoteModal(id, preset = {}) {
       $('#send', ov)?.addEventListener('click', () => guard(async () => { const o = await askSend('this quote', { test: async (f) => { if (!id) return toast('Save the quote first, then send a test', true); const qid = await save(); if (qid) await sendTest(`/quotes/${qid}/send`, f); } }); const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`, o); close(); reload(); }, 'Quote marked as sent'));
       const _unused = () => guard(async () => { const qid = await save(); if (!qid) return; await POST(`/quotes/${qid}/send`); close(); reload(); }, 'Quote sent to customer');
       if (id) {
-        $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft?')) return; await DEL('/quotes/' + id); close(); reload(); }));
+        $('#del', ov)?.addEventListener('click', () => guard(async () => { await trashIt('quotes', id, 'quote', () => { close(); reload(); }); }));
         $('#dup', ov).onclick = () => guard(async () => { const r = await POST(`/quotes/${id}/duplicate`); close(); quoteModal(r.id); });
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/quotes/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer quote link:', r.url); });
         $('#acc', ov)?.addEventListener('click', () => guard(async () => { const why = prompt('Mark as accepted without an online signature. This creates the trip and an invoice, and a record of the override.\n\nReason (for example: signed on paper, confirmed by phone):'); if (why === null) return; await save(); const ar = await POST(`/quotes/${id}/accept`, { reason: why }); close(); await refresh(); if (ar.invoice_id) { toast('Accepted. The invoice is a draft: review it, then send it.'); invoiceModal(ar.invoice_id); } }));
@@ -628,18 +661,23 @@ async function tripModal(id) {
     <div class="fsec">Invoices</div>${t.invoices.length ? t.invoices.map((i) => `<div><a href="#" data-inv="${i.id}">${esc(i.number)}</a> ${badge(i.status)} ${usd(i.total_cents)} (paid ${usd(i.amount_paid_cents)})</div>`).join('') : '<p class="mut">None yet.</p>'}
     ${t.rfqs.length ? `<div class="fsec">Vendor quotes</div>${t.rfqs.map((r) => `<div>${esc(r.vendor_name)} ${badge(r.status)} ${r.price_cents ? usd(r.price_cents) : ''}</div>`).join('')}` : ''}
     <div class="fsec">Driver timeline</div><div class="tl">${t.events.length ? t.events.map((e) => `<div><b>${esc(e.status.replace('_', ' '))}</b> <span class="mut sm">${fmt(e.at)}</span>${e.note ? `<br>${esc(e.note)}` : ''}</div>`).join('') : '<span class="mut">No driver updates yet.</span>'}</div>` : ''}`,
-    footer: `<span class="sp"></span>${id ? button('Email confirmation', '', 'id="conf"') + button('Request Google review', '', 'id="rev"') + button('Vendor prices', '', 'id="rfq"') + button('Create invoice', '', 'id="inv"') : ''}${button('Save', 'primary', 'id="save"')}`,
+    footer: `${id ? button('Move to trash', 'danger', 'id="trash"') : ''}<span class="sp"></span>${id ? button('Send driver info', '', 'id="drvinfo"') + button('Email confirmation', '', 'id="conf"') + button('Request Google review', '', 'id="rev"') + button('Vendor prices', '', 'id="rfq"') + button('Create invoice', '', 'id="inv"') : ''}${button('Save', 'primary', 'id="save"')}`,
     onMount(ov, close) {
       const ed = itineraryEditor($('#itn_box', ov), { staff: true, value: legacyItin(t) });
       const zm = wireZmanim(ov, ed, { depart: () => $('#f_depart_at', ov).value, ret: () => $('#f_return_at', ov).value });
       wireRouteTools(ov, ed, { vehicle: () => $('#f_vehicle_id', ov).value, depart: () => $('#f_depart_at', ov).value, purpose: () => $('#f_purpose', ov).value, onLines: () => toast('Open a quote or invoice to add the lines') });
       $('#rt_lines', ov).style.display = 'none';
+      searchableSelect($('#f_driver_id', ov), (v) => { const d = S.L.drivers.find((x) => String(x.id) === String(v)); return `${d?.vendor_name || ''} ${d?.phone || ''}`; });
+      searchableSelect($('#f_vendor_id', ov), (v) => { const x = S.L.vendors.find((y) => String(y.id) === String(v)); return `${x?.contact_name || ''} ${x?.phone || ''} ${x?.service_area || ''}`; });
+      searchableSelect($('#f_customer_id', ov), (v) => { const x = S.L.customers?.find?.((y) => String(y.id) === String(v)); return `${x?.company || ''} ${x?.phone || ''} ${x?.email || ''}`; });
       $('#save', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; o.itinerary = ed.get();
         if (!zm.confirmBad()) return;
         if (o.vendor_id) { const ic = await GET(`/vendors/${o.vendor_id}/insurance-check${o.depart_at ? '?on=' + o.depart_at.slice(0, 10) : ''}`); if (ic.today.status === 'expired' && !confirm(`${ic.name}'s insurance expired on ${fmt(ic.expires)}. Assign them anyway?`)) return; if (ic.today.status !== 'expired' && ic.covers_trip === false && !confirm(`${ic.name}'s insurance expires on ${fmt(ic.expires)}, before this trip. Assign them anyway?`)) return; }
         if (o.depart_at) { const cf = await GET(`/trips/conflicts?id=${id || 0}&from=${encodeURIComponent(o.depart_at)}&to=${encodeURIComponent(o.return_at || '')}&driver_id=${o.driver_id || ''}&vehicle_id=${o.vehicle_id || ''}`); if (cf.length && !confirm(cf.map((c) => `${c.what === 'driver' ? 'This driver' : 'This vehicle'} is already on ${c.ref} (${c.customer_name}, ${fmt(c.depart_at)})`).join('\n') + '\n\nSave anyway?')) return; }
         id ? await PUT('/trips/' + id, o) : await POST('/trips', o); close(); reload(); }, 'Saved');
       if (id) {
+        $('#trash', ov).onclick = () => guard(async () => { await trashIt('trips', id, 'trip', () => { close(); reload(); }); });
+        $('#drvinfo', ov).onclick = () => driverInfoModal(id, t);
         $('#conf', ov).onclick = async () => { if (await confirmSend('the trip confirmation', { test: () => sendTest(`/trips/${id}/confirm-email`) })) guard(() => POST(`/trips/${id}/confirm-email`), 'Confirmation emailed'); };
         $('#rev', ov).onclick = async () => { if (await confirmSend('the review request', { test: () => sendTest(`/trips/${id}/review-request`) })) guard(async () => { const r = await POST(`/trips/${id}/review-request`); toast(r.sms ? 'Review request sent by email and text' : 'Review request emailed'); }); };
         $('#rfq', ov).onclick = () => rfqModal({ trip_id: id, label: `${t.ref} ${t.pickup || ''} → ${t.dropoff || ''}`, src: t });
@@ -679,11 +717,11 @@ async function invoiceModal(id) {
   modal({
     title: id ? `Invoice #${i.seq || i.id} (${i.number})` : 'New invoice', contact: id ? { type: 'invoice', id } : null, labels: id ? { type: 'invoice', id } : null,
     body: `${id ? `<p>${badge(i.status)} <b>${usd(i.total_cents)}</b> total · <b>${usd(i.amount_paid_cents)}</b> paid · balance <b>${usd(bal)}</b></p>` : ''}${formHTML(F, i)}${ccBlock(i)}<div style="margin-top:12px">${itemsEditor(J(i.items).length ? J(i.items) : [], i.tax_rate)}</div>
-    ${id ? `<div class="fsec" style="margin-top:18px">Payments</div>${pays.length ? table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Ref', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => usd(p.amount_cents), cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }, { h: '', f: (p) => (p.status === 'authorized' ? `<button class="btn sm primary" data-capture="${p.id}" data-amt="${p.amount_cents}">Capture</button> <button class="btn sm" data-release="${p.id}">Release hold</button>` : p.status === 'succeeded' && p.amount_cents > 0 && p.method !== 'refund' ? `<button class="btn sm danger" data-refund="${p.id}" data-amt="${p.amount_cents}">Refund…</button>` : '') }], pays) : '<p class="mut">No payments yet.</p>'}
+    ${id ? `<div class="fsec" style="margin-top:18px">Payments</div>${pays.length ? table([{ h: 'Date', f: (p) => fmt(p.created_at) }, { h: 'Method', f: (p) => esc(p.method) }, { h: 'Ref', f: (p) => esc(p.reference || '') }, { h: 'Amount', f: (p) => usd(p.amount_cents), cls: 'r' }, { h: 'Status', f: (p) => (p.status === 'authorized' ? '<span class="badge b-a">hold</span>' : p.status === 'released' ? '<span class="badge">released</span>' : p.method === 'refund' ? '<span class="badge b-r">refund</span>' : '<span class="badge b-g">paid</span>') }, { h: '', f: (p) => (p.status === 'authorized' ? `<button class="btn sm primary" data-capture="${p.id}" data-amt="${p.amount_cents}">Capture</button> <button class="btn sm" data-release="${p.id}">Release hold</button>` : p.status === 'succeeded' && p.amount_cents > 0 && p.method !== 'refund' ? `<button class="btn sm danger" data-refund="${p.id}" data-amt="${p.amount_cents}">Refund…</button>${!p.stripe_pi && p.status === 'succeeded' && !['card', 'card_auth', 'refund'].includes(p.method) ? ` <button class="btn sm" data-editpay="${p.id}">Edit</button>` : ''}` : '') }], pays) : '<p class="mut">No payments yet.</p>'}
     <div style="margin-top:12px"><button class="btn primary sm" type="button" id="termbtn">Charge or hold a card now</button> <span class="hint">Type the card in yourself, as a charge or a hold.</span></div>
     <form id="payf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px"><label>Record payment ($)<input id="pa" type="number" step="0.01" min="0" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label>Method<select id="pm"><option>cash</option><option>check</option><option>zelle</option><option>venmo</option><option>wire</option><option>card</option><option>other</option></select></label><label>Reference<input id="pr" style="width:150px"></label><button class="btn sm primary">Record</button></form>
     <form id="authf" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)"><label>Hold on customer's card ($)<input id="aa" type="number" step="0.01" min="1" value="${bal > 0 ? c2d(bal) : ''}" style="width:130px"></label><label style="flex-direction:row;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" id="aemail" checked> email the link</label><button class="btn sm">Request card hold</button><span class="hint">Authorizes without charging. Capture all or part later, or release. Holds usually expire in about 7 days.</span></form>` : ''}`,
-    footer: `${id && i.status === 'draft' ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${id ? button('Copy pay link', '', 'id="lnk"') : ''}${button('Save', '', 'id="save"')}${button(id && i.status !== 'draft' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
+    footer: `${id ? button('Move to trash', 'danger', 'id="del"') : ''}<span class="sp"></span>${id ? button('Copy pay link', '', 'id="lnk"') : ''}${button('Save', '', 'id="save"')}${button(id && i.status !== 'draft' ? 'Re-send' : 'Send to customer', 'primary', 'id="send"')}`,
     onMount(ov, close) {
       wireCc(ov);
       wireItems(ov, () => $('#f_tax_rate', ov).value);
@@ -693,11 +731,14 @@ async function invoiceModal(id) {
       $('#save', ov).onclick = () => guard(async () => { if (await save()) { close(); reload(); } }, 'Saved');
       $('#send', ov).onclick = () => guard(async () => { const o = await askSend('this invoice', { sms: false, test: async (f) => { if (!id) return toast('Save the invoice first, then send a test', true); const x = await save(); if (x) await sendTest(`/invoices/${x}/send`, { skip_email: f.skip_email }); } }); const x = await save(); if (!x) return; await POST(`/invoices/${x}/send`, { skip_email: o.skip_email }); close(); reload(); }, 'Invoice marked as sent');
       if (id) {
-        $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete draft invoice?')) return; await DEL('/invoices/' + id); close(); reload(); }));
+        $('#del', ov)?.addEventListener('click', () => guard(async () => { await trashIt('invoices', id, (i.amount_paid_cents ? 'invoice (its payments go with it and stop counting)' : 'invoice'), () => { close(); reload(); }); }));
         $('#lnk', ov).onclick = () => guard(async () => { const r = await GET(`/invoices/${id}/link`); await navigator.clipboard?.writeText(r.url).catch(() => {}); prompt('Customer payment link:', r.url); });
         $('#termbtn', ov).onclick = () => guard(async () => { await cardTerminalModal(id, i, bal, () => { close(); invoiceModal(id); refresh(); }); });
         $('#payf', ov).onsubmit = (e) => { e.preventDefault(); guard(async () => { const o = await askSend('this payment', { verb: 'Record', test: (f) => sendTest(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...f }) }); await POST(`/invoices/${id}/payments`, { amount_cents: d2c($('#pa', ov).value), method: $('#pm', ov).value, reference: $('#pr', ov).value, ...o }); close(); reload(); }, 'Payment recorded'); };
         ov.addEventListener('click', (e) => {
+          const ep = e.target.closest('[data-editpay]');
+          if (ep) { const p = pays.find((x) => String(x.id) === ep.dataset.editpay); const PF = [{ k: 'amount', l: 'Amount ($)', t: 'number', step: 0.01 }, { k: 'date', l: 'Date', t: 'date' }, { k: 'method', l: 'Paid with', t: 'select', o: [['cash', 'Cash'], ['check', 'Check'], ['zelle', 'Zelle'], ['venmo', 'Venmo'], ['ach', 'ACH / bank transfer'], ['wire', 'Wire'], ['other', 'Other']] }, { k: 'reference', l: 'Reference' }, { k: 'note', l: 'Note', full: 1 }];
+            modal({ title: 'Edit payment', small: true, body: formHTML(PF, { amount: c2d(p.amount_cents), date: localDay(p.created_at), method: p.method === 'manual' ? 'other' : p.method, reference: p.reference || '', note: p.note || '' }), footer: `<span class="sp"></span>${button('Save', 'primary', 'id="go"')}`, onMount(ov2, close2) { $('#go', ov2).onclick = () => guard(async () => { const o = readForm(PF, ov2); await PUT(`/payments/${p.id}`, { amount_cents: d2c(o.amount), date: o.date, method: o.method, reference: o.reference, note: o.note }); close2(); close(); invoiceModal(id); refresh(); }, 'Payment updated'); } }); return; }
           const b = e.target.closest('[data-refund]');
           if (b) { const amt = prompt(`Refund amount ($), up to ${c2d(b.dataset.amt)}. Leave as is for a full refund; enter less for a partial refund.`, c2d(b.dataset.amt)); if (!amt) return; guard(async () => { await POST(`/payments/${b.dataset.refund}/refund`, { amount_cents: d2c(amt) }); close(); reload(); }, 'Refund sent'); return; }
           const c = e.target.closest('[data-capture]');
@@ -760,7 +801,7 @@ function ledgerModal(entry, opts, after) {
     <div id="ledfiles" class="sm" style="margin:6px 0"></div>
     <label class="btn" style="cursor:pointer">${isNew ? 'Choose a receipt or invoice' : 'Upload or replace'}<input type="file" id="ledfile" accept="application/pdf,image/png,image/jpeg,image/webp" hidden></label> <span class="mut sm" id="lfn"></span>
     <p class="hint">PDF or photo, up to 10 MB: vendor invoices, receipts, bank statements.</p>`,
-    footer: `${!isNew && !auto ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${button(isNew ? 'Add to ledger' : 'Save', 'primary', 'id="go"')}`,
+    footer: `${!isNew && !auto ? button('Move to trash', 'danger', 'id="del"') : ''}<span class="sp"></span>${button(isNew ? 'Add to ledger' : 'Save', 'primary', 'id="go"')}`,
     onMount(ov, close) {
       let picked = null;
       const wasGiven = !!e.maaser_given;
@@ -780,7 +821,7 @@ function ledgerModal(entry, opts, after) {
         if (picked) { const r = await fetch(`/api/admin/ledger/${saved.id}/file`, { method: 'POST', headers: { 'content-type': picked.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(picked.name) }, body: picked }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(`Saved, but the file did not upload: ${j.error || r.status}`); }
         close(); after?.();
       }, isNew ? 'Added to the ledger' : 'Saved');
-      $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete this entry?')) return; await DEL(`/ledger/${e.id}`); close(); after?.(); }, 'Deleted'));
+      $('#del', ov)?.addEventListener('click', () => guard(async () => { await trashIt('ledger', e.id, 'ledger entry', () => { close(); after?.(); }); }));
     },
   });
 }
@@ -991,9 +1032,9 @@ function vendorModal(v) {
 function simpleModal(title, F, rec, base, extraFooter = '', onMount2) {
   const defaults = rec ? rec : { active: 1 };
   const LT = { '/vendors': 'vendor', '/drivers': 'driver', '/vehicles': 'vehicle' }[base];
-  return modal({ title, labels: rec && LT ? { type: LT, id: rec.id } : null, body: formHTML(F, defaults), footer: `${rec ? button('Delete', 'danger', 'id="del"') : ''}<span class="sp"></span>${extraFooter}${button('Save', 'primary', 'id="save"')}`, onMount(ov, close) {
+  return modal({ title, labels: rec && LT ? { type: LT, id: rec.id } : null, body: formHTML(F, defaults), footer: `${rec ? button('Move to trash', 'danger', 'id="del"') : ''}<span class="sp"></span>${extraFooter}${button('Save', 'primary', 'id="save"')}`, onMount(ov, close) {
     $('#save', ov).onclick = () => guard(async () => { const o = readForm(F, ov); if (!reqCheck(F, o)) return; rec ? await PUT(`${base}/${rec.id}`, o) : await POST(base, o); close(); await refresh(); }, 'Saved');
-    $('#del', ov)?.addEventListener('click', () => guard(async () => { if (!confirm('Delete?')) return; await DEL(`${base}/${rec.id}`); close(); await refresh(); }, 'Deleted'));
+    $('#del', ov)?.addEventListener('click', () => guard(async () => { await trashIt(base.replace(/^\//, ''), rec.id, 'record', async () => { close(); await refresh(); }); }));
     onMount2?.(ov, close);
   } });
 }
@@ -1007,6 +1048,11 @@ function rfqModal({ request_id, trip_id, label, src }) {
     onMount(ov, close) { const ed = src ? itineraryEditor($('#itn_box', ov), { staff: true, value: legacyItin(src) }) : null; const snapStart = src ? JSON.stringify([readForm(TF, ov), ed.get()]) : ''; $('#go', ov).onclick = () => guard(async () => { const ids = $$('input[type=checkbox]:checked', ov).map((x) => +x.value); if (!ids.length) return toast('Select at least one vendor', true); const lapsed = S.L.vendors.filter((x) => ids.includes(x.id) && insDays(x.insurance_expires) !== null && insDays(x.insurance_expires) < 0); if (lapsed.length && !confirm(`${lapsed.map((x) => x.name).join(', ')} ${lapsed.length > 1 ? 'have' : 'has'} expired insurance. Send the request anyway?`)) return; let edits; if (src) { const f = readForm(TF, ov), it = ed.get(); if (JSON.stringify([f, it]) !== snapStart) { if (!it.length) return toast('Add at least a pickup and destination', true); edits = { ...f, itinerary: it }; } } const r = await POST('/rfqs', { request_id, trip_id, vendor_ids: ids, message: $('#msg', ov).value, edits, save_to_request: !!(edits && $('#savereq', ov)?.checked) }); const bad = r.sent.filter((s) => !s.email.ok).length; close(); toast(bad ? `${r.sent.length - bad} sent, ${bad} failed` : `Sent to ${r.sent.length} vendor(s)`, !!bad); reload(); }); },
   });
 }
+VIEWS.trash = async (el) => {
+  const rows = await GET('/trash');
+  el.innerHTML = `<p class="mut">Everything you delete lands here. It is not counted anywhere (lists, totals, reports, search), it is never destroyed, and you can put it back exactly as it was.</p>${table([{ h: 'Moved', f: (r) => `${ago(r.deleted_at)}<br><span class="mut sm">${esc(fmt(r.deleted_at))}</span>` }, { h: 'Type', f: (r) => `<span class="badge b-a">${esc(r.label)}</span>` }, { h: 'What', f: (r) => `<span class="bold">${esc(r.title)}</span><br><span class="mut sm">${esc(r.sub || '')}</span>` }, { h: 'By', f: (r) => esc(r.deleted_by || '') }, { h: '', f: (r) => (r.restored_at ? `<span class="mut sm">Restored ${esc(fmt(r.restored_at))}</span>` : `<button class="btn sm primary" data-rs="${r.id}">Restore</button>`) }], rows, { empty: 'The trash is empty.' })}`;
+  el.addEventListener('click', (e) => { const b = e.target.closest('[data-rs]'); if (b) guard(async () => { await POST(`/trash-items/${b.dataset.rs}/restore`, {}); await refresh(); }, 'Restored'); });
+};
 VIEWS.rfqs = async (el) => {
   let st = '';
   const draw = async () => {
@@ -1172,8 +1218,8 @@ VIEWS.activity = async (el) => {
 // ---------- contracts ----------
 VIEWS.contracts = async (el) => {
   const rows = await GET('/contracts');
-  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">#${k.seq || k.id}</span><br><span class="mut sm">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => custLink(k.customer_id, k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? (k.has_pdf ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : '<span class="mut sm">signature waived</span>') : `<button class="btn sm" data-ovr="${k.id}">Mark signed (override)</button> <button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button>`) }], rows, { empty: 'No agreements yet.' })}`;
-  el.addEventListener('click', (e) => { const ov1 = e.target.closest('[data-ovr]'); if (ov1) { signOverride(ov1.dataset.ovr, () => reload()); return; } const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) confirmSend('the agreement', { test: () => sendTest(`/contracts/${s1.dataset.send}/send`) }).then((go) => go && guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent')); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
+  el.innerHTML = `<div class="toolbar">${exportBtn('contracts')}<span class="mut sm">Customers sign automatically when they accept a quote online. Create one for any trip from the trip screen.</span></div>${table([{ h: 'Agreement', f: (k) => `<span class="bold">#${k.seq || k.id}</span><br><span class="mut sm">${esc(k.number)}</span>` }, { h: 'Customer', f: (k) => custLink(k.customer_id, k.customer_name) }, { h: 'Trip', f: (k) => esc(k.trip_ref || '-') }, { h: 'Total', f: (k) => usd(k.total_cents), cls: 'r' }, { h: 'Status', f: (k) => badge(k.status === 'signed' ? 'accepted' : k.status).replace(/>[^<]*</, `>${esc(k.status)}<`) }, { h: 'Signed', f: (k) => (k.signed_at ? `${esc(k.signer_name)}<br><span class="mut sm">${ago(k.signed_at)}</span>` : '-') }, { h: '', f: (k) => (k.status === 'signed' ? (k.has_pdf ? `<a class="btn sm" href="/api/admin/contracts/${k.id}/pdf" target="_blank">PDF</a>` : '<span class="mut sm">signature waived</span>') : `<button class="btn sm" data-ovr="${k.id}">Mark signed (override)</button> <button class="btn sm" data-send="${k.id}">${k.status === 'draft' ? 'Send' : 'Re-send'}</button> <button class="btn sm danger" data-void="${k.id}">Void</button> <button class="btn sm" data-trash="${k.id}">Trash</button>`) }], rows, { empty: 'No agreements yet.' })}`;
+  el.addEventListener('click', (e) => { const tr1 = e.target.closest('[data-trash]'); if (tr1) { guard(async () => { await trashIt('contracts', tr1.dataset.trash, 'agreement', () => reload()); }); return; } const ov1 = e.target.closest('[data-ovr]'); if (ov1) { signOverride(ov1.dataset.ovr, () => reload()); return; } const s1 = e.target.closest('[data-send]'); const v = e.target.closest('[data-void]'); if (s1) confirmSend('the agreement', { test: () => sendTest(`/contracts/${s1.dataset.send}/send`) }).then((go) => go && guard(async () => { await POST(`/contracts/${s1.dataset.send}/send`); reload(); }, 'Sent')); if (v && confirm('Void this agreement?')) guard(async () => { await POST(`/contracts/${v.dataset.void}/void`); reload(); }); });
 };
 VIEWS.messages = async (el) => {
   let type = 'all', q = '';
