@@ -121,11 +121,11 @@ try {
   r = await api('POST', '/api/admin/drivers', { name: 'Sam Driver', phone: '5559998888', email: 'sam@example.com' }); ok(r, 'driver'); const drv = r.body;
   assert.ok(drv.token && drv.token.length >= 24);
   r = await api('PUT', `/api/admin/trips/${trip.id}`, { driver_id: drv.id, depart_at: new Date(Date.now() + 3600e3).toISOString().slice(0, 16), return_at: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16) }); ok(r, 'assign');
-  r = await api('GET', `/api/driver/${drv.token}`); ok(r, 'driver portal'); assert.equal(r.body.trips.length, 1); assert.equal(r.body.trips[0].contact_unlocked, true); assert.equal(r.body.trips[0].contact.phone, '5551234567'); step('driver sees customer phone inside window, no password');
+  r = await api('GET', `/api/driver/${drv.token}`); ok(r, 'driver portal'); assert.equal(r.body.trips.length, 1); assert.equal(r.body.trips[0].status_open, true); assert.equal(r.body.trips[0].contact, undefined); assert.ok(!JSON.stringify(r.body).includes('5551234567'), 'no customer phone'); step('driver gets no customer details, only the on-site contact, no password');
   r = await api('PUT', `/api/admin/trips/${trip.id}`, { depart_at: '2099-06-01T08:00', return_at: '2099-06-01T23:00' });
   r = await api('GET', `/api/driver/${drv.token}`); assert.equal(r.body.trips.length, 0); step('far-future trip hidden from driver');
   r = await api('PUT', `/api/admin/trips/${trip.id}`, { depart_at: new Date(Date.now() + 40 * 3600e3).toISOString().slice(0, 16), return_at: new Date(Date.now() + 50 * 3600e3).toISOString().slice(0, 16) });
-  r = await api('GET', `/api/driver/${drv.token}`); assert.equal(r.body.trips[0].contact_unlocked, false); assert.equal(r.body.trips[0].contact, null); step('customer contact locked outside the window');
+  r = await api('GET', `/api/driver/${drv.token}`); assert.equal(r.body.trips[0].status_open, false); assert.equal(r.body.trips[0].contact, undefined); step('status updates wait for the trip window');
   r = await api('GET', '/api/driver/nottoken123'); assert.equal(r.status, 404); step('bad driver token rejected');
   r = await api('POST', `/api/driver/${drv.token}/trips/${trip.id}/status`, { status: 'en_route' }); ok(r, 'driver status'); step('driver status update');
   // vendors / RFQ
