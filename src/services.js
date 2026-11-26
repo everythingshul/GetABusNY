@@ -1,7 +1,7 @@
 // Business logic shared by public, admin, driver and bot routes.
 import { testCtx, cardFeeText, db, localDate, all, one, run, insert, update, tx, now, token, nextNumber, randomRef, nextSeq, totals, parse, getSetting, setSetting, log } from './db.js';
 import { sendEmail, emailShell, esc, money, BASE_URL, notifyOwner, sendSMS, smsRaw, smsConfigured, env } from './integrations.js';
-import { finalDropoff, normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
+import { customerItinerary, finalDropoff, normItinerary, fromLegacy, summarize, itineraryText, itineraryHtml, KINDS, mapsDirUrl } from './itinerary.js';
 import { quietUntil } from './zmanim.js';
 
 // ---------- time helpers (trip times are "naive" local times in the business timezone) ----------
@@ -271,6 +271,27 @@ export function tripDetail(id) {
   const t = one('SELECT * FROM trips WHERE id=?', id);
   if (!t) return null;
   return { ...t, itinerary: normItinerary(parse(t.itinerary, [])), customer: customerOf(t.customer_id), vehicle: one('SELECT id,name,capacity,category FROM vehicles WHERE id=?', t.vehicle_id) || null, vendor: one('SELECT id,name,phone,contact_name FROM vendors WHERE id=?', t.vendor_id) || null, driver: one('SELECT id,name,phone FROM drivers WHERE id=?', t.driver_id) || null };
+}
+/** The driver's own link for one trip. Made when first needed; a new driver on the trip gets a new link and the old one stops working. */
+export function tripDriverLink(trip_id) {
+  const t = one('SELECT id, driver_token FROM trips WHERE id=?', trip_id); if (!t) return null;
+  let tok = t.driver_token;
+  if (!tok) { tok = token(24); db.prepare('UPDATE trips SET driver_token=? WHERE id=?').run(tok, trip_id); } // direct write: the link must exist even while testing
+  return `${BASE_URL()}/t/${tok}`;
+}
+/** Text the driver the trip (with the vendor's name) and their link for it. The customer's details only appear behind the link, inside the unlock window. */
+export async function textDriverTrip(trip_id) {
+  const t = tripDetail(trip_id); if (!t) throw Object.assign(new Error('Trip not found'), { status: 404 });
+  if (!t.driver) throw Object.assign(new Error('Assign a driver to this trip first.'), { status: 400 });
+  const d = one('SELECT * FROM drivers WHERE id=?', t.driver_id);
+  if (!d.phone) throw Object.assign(new Error(`${d.name} has no phone number. Add one on the Drivers page.`), { status: 400 });
+  const stops = normItinerary(t.itinerary).filter((x) => x.kind !== 'start' && x.kind !== 'end');
+  const first = stops.find((x) => x.kind === 'pickup'), last = customerItinerary(normItinerary(t.itinerary)).filter((x) => x.kind === 'final')[0];
+  const vendor = t.vendor_id ? one('SELECT name FROM vendors WHERE id=?', t.vendor_id)?.name : '';
+  const lines = [`${getSetting('business_name')}: trip for ${String(d.name).split(' ')[0]}`, fmtWhen(t.depart_at), vendor ? `Vendor: ${vendor}` : '', first?.address ? `Pickup: ${first.address}` : '', last?.address ? `Final drop-off: ${last.address}` : '', stops.length > 2 ? `${stops.length} stops in all` : '', t.passengers ? `Passengers: ${t.passengers}` : '', t.vehicle?.name ? `Vehicle: ${t.vehicle.name}` : '', 'Open your trip, call and update status:', tripDriverLink(trip_id)].filter(Boolean);
+  const r = await sendSMS(d.phone, lines.join('\n'), { kind: 'driver_trip', trip_id });
+  log('admin', 'trip.driver_texted', 'trip', trip_id, d.name);
+  return r;
 }
 /** Tell the customer and/or the trip's on-site contact who the driver is. Only the driver and the vehicle are shared, never the vendor or anything about it. */
 export async function sendDriverInfo(trip_id, { to = ['customer'], email = true, sms = true } = {}) {

@@ -140,6 +140,7 @@ for (const [name, cfg] of Object.entries(RES)) {
     if (name === 'followups' && !o.due_at) o.due_at = now();
     const id = insert(table, { ...o, ...stamp });
     cfg.after?.(id, true);
+    if (name === 'trips' && o.driver_id && getSettingSafe('driver_auto_text') === '1') S.textDriverTrip(id).catch((e) => log('system', 'trip.driver_text_failed', 'trip', id, e.message));
     log(req.user.email, `${name}.created`, name, id);
     return one(`${cfg.sel} WHERE t.id=?`, id);
   }));
@@ -149,12 +150,16 @@ for (const [name, cfg] of Object.entries(RES)) {
     let o = pick(req.body || {});
     if (cfg.before) o = cfg.before(o);
     const prev = name === 'quotes' ? one('SELECT * FROM quotes WHERE id=?', id) : null;
+    const prevTrip = name === 'trips' ? one('SELECT driver_id FROM trips WHERE id=?', id) : null;
+    const driverChanged = !!prevTrip && 'driver_id' in o && Number(o.driver_id || 0) !== Number(prevTrip.driver_id || 0);
+    if (driverChanged) o.driver_token = null;
     if (name === 'customers' && o.sms_optin) o.sms_optin_at = now();
     if (name === 'invoices' && o.status === 'sent') delete o.status; // use the Send action
     update(table, id, { ...o, ...(table !== 'followups' && table !== 'messages' ? { updated_at: now() } : {}) });
     if (name === 'followups' && o.status && o.status !== 'pending') update('followups', id, { done_at: now() });
     if (name === 'trips' && o.status === 'cancelled') log(req.user.email, 'trip.cancelled', 'trip', id);
     cfg.after?.(id, false);
+    if (driverChanged && o.driver_id && getSettingSafe('driver_auto_text') === '1') S.textDriverTrip(id).catch((e) => log('system', 'trip.driver_text_failed', 'trip', id, e.message));
     if (prev && ['sent', 'declined', 'expired', 'accepted'].includes(prev.status)) S.recordQuoteRevision(prev, one('SELECT * FROM quotes WHERE id=?', id), { by: req.user.email, reason: String(req.body?.revision_note || '').slice(0, 300) });
     return one(`${cfg.sel} WHERE t.id=?`, id);
   }));
@@ -257,6 +262,7 @@ admin.post('/payments/quick', wrap((req) => quickPayment(req.body || {}, req.use
 admin.get('/payments', wrap(() => all('SELECT p.*, i.number invoice_number, c.id customer_id, c.name customer_name FROM payments p JOIN invoices i ON i.id=p.invoice_id LEFT JOIN customers c ON c.id=i.customer_id ORDER BY p.id DESC LIMIT 300')));
 
 admin.get('/trips/:id/detail', wrap((req) => ({ ...S.tripDetail(Number(req.params.id)), events: all('SELECT * FROM trip_events WHERE trip_id=? ORDER BY id DESC', req.params.id), rfqs: all('SELECT r.*, v.name vendor_name FROM rfqs r JOIN vendors v ON v.id=r.vendor_id WHERE r.trip_id=?', req.params.id), invoices: all('SELECT id,number,status,total_cents,amount_paid_cents FROM invoices WHERE trip_id=?', req.params.id), contracts: all('SELECT id,number,status,signer_name,signed_at,total_cents FROM contracts WHERE trip_id=? ORDER BY id DESC', req.params.id), maps_url: mapsDirUrl(normItinerary(parse(one('SELECT itinerary FROM trips WHERE id=?', req.params.id)?.itinerary, []))) })));
+admin.post('/trips/:id/text-driver', wrap(async (req) => { const r = await S.textDriverTrip(Number(req.params.id)); if (!r?.ok) throw bad(r?.error || 'The text did not send.'); return { ok: true }; }));
 admin.post('/trips/:id/driver-info', wrap(async (req) => ({ ok: true, result: await S.sendDriverInfo(Number(req.params.id), { to: (Array.isArray(req.body?.to) ? req.body.to : ['customer']).filter((x) => ['customer', 'contact'].includes(x)), email: req.body?.email !== false, sms: req.body?.sms !== false }) })));
 admin.post('/trips/:id/confirm-email', wrap(async (req) => ({ ok: true, email: await S.sendTripConfirmation(Number(req.params.id)) })));
 admin.post('/trips/:id/invoice', wrap((req) => {

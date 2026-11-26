@@ -22,7 +22,7 @@ const PAGES = {
   '/privacy': { file: 'privacy.html', title: () => `Privacy Policy | ${biz()}`, desc: 'How we handle your contact details, payments and text message preferences.' },
 };
 
-const NOINDEX = ['/bus.html', '/trip.html', '/admin', '/driver', '/d/', '/quote/', '/pay/', '/save-card/', '/contract/', '/cal/', '/banner/', '/api/', '/uploads/', '/r/'];
+const NOINDEX = ['/bus.html', '/trip.html', '/admin', '/driver', '/d/', '/t/', '/quote/', '/pay/', '/save-card/', '/contract/', '/cal/', '/banner/', '/api/', '/uploads/', '/r/'];
 
 function orgSchema(base) {
   const days = [['Sunday', 'Thursday', '10:00', '19:00'], ['Friday', 'Friday', '10:00', '12:30']];

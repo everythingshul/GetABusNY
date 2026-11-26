@@ -55,7 +55,7 @@ addCol('vendors', 'insurance_verified_at', 'TEXT');
 addCol('vendors', 'insurance_verified_by', 'TEXT');
 addCol('vendors', 'insurance_verify_note', 'TEXT');
 addCol('quotes', 'revision', 'INTEGER DEFAULT 1');
-addCol('requests', 'original_details', 'TEXT'); for (const t of ['quotes', 'invoices']) { addCol(t, 'cc_fee_on', 'INTEGER DEFAULT 0'); addCol(t, 'cc_fee_pct', 'REAL DEFAULT 0'); addCol(t, 'cc_fee_flat_cents', 'INTEGER DEFAULT 0'); } addCol('payments', 'fee_cents', 'INTEGER DEFAULT 0'); addCol('quotes', 'pay_full', 'INTEGER DEFAULT 0'); addCol('invoices', 'pay_full', 'INTEGER DEFAULT 0'); addCol('quotes', 'sig_waived', 'INTEGER DEFAULT 0'); addCol('rfqs', 'closed_by', 'INTEGER'); addCol('rfqs', 'awarded_at', 'TEXT'); addCol('requests', 'seq', 'INTEGER'); addCol('quotes', 'seq', 'INTEGER'); addCol('invoices', 'seq', 'INTEGER'); addCol('trips', 'seq', 'INTEGER'); addCol('rfqs', 'seq', 'INTEGER');
+addCol('requests', 'original_details', 'TEXT'); for (const t of ['quotes', 'invoices']) { addCol(t, 'cc_fee_on', 'INTEGER DEFAULT 0'); addCol(t, 'cc_fee_pct', 'REAL DEFAULT 0'); addCol(t, 'cc_fee_flat_cents', 'INTEGER DEFAULT 0'); } addCol('payments', 'fee_cents', 'INTEGER DEFAULT 0'); addCol('trips', 'driver_token', 'TEXT'); db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_driver_token ON trips(driver_token) WHERE driver_token IS NOT NULL'); addCol('quotes', 'pay_full', 'INTEGER DEFAULT 0'); addCol('invoices', 'pay_full', 'INTEGER DEFAULT 0'); addCol('quotes', 'sig_waived', 'INTEGER DEFAULT 0'); addCol('rfqs', 'closed_by', 'INTEGER'); addCol('rfqs', 'awarded_at', 'TEXT'); addCol('requests', 'seq', 'INTEGER'); addCol('quotes', 'seq', 'INTEGER'); addCol('invoices', 'seq', 'INTEGER'); addCol('trips', 'seq', 'INTEGER'); addCol('rfqs', 'seq', 'INTEGER');
 for (const t of ['requests', 'quotes', 'invoices', 'trips', 'rfqs']) db.exec(`UPDATE ${t} SET seq=id WHERE seq IS NULL`);
 db.exec(`CREATE TABLE IF NOT EXISTS quote_revisions(id INTEGER PRIMARY KEY, quote_id INTEGER, revision INTEGER, changed_at TEXT, changed_by TEXT, reason TEXT, changes TEXT, total_before INTEGER, total_after INTEGER, snapshot TEXT, sent_at TEXT)`);
 addCol('invoices', 'gratuity_cents', 'INTEGER DEFAULT 0');
@@ -174,6 +174,7 @@ export const DEFAULT_SETTINGS = {
   bus_length_cm: '1370',
   bus_weight_kg: '18000',
   sms_enabled: '1',
+  driver_auto_text: '1',
   sms_quiet_start: 'Fri 14:00',
   sms_quiet_end: 'Sat 21:30',
   sms_auto_reminder_hours: '24',

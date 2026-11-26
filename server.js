@@ -27,8 +27,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  if (req.path.startsWith('/d/') || req.path.startsWith('/api/driver') || req.path.startsWith('/admin') || req.path.startsWith('/pay/') || req.path.startsWith('/save-card/') || req.path.startsWith('/quote/') || req.path.startsWith('/contract/') || req.path.startsWith('/cal/') || req.path.startsWith('/r/')) res.setHeader('Cache-Control', 'no-store');
-  if (req.path.startsWith('/d/') || req.path.startsWith('/quote/') || req.path.startsWith('/pay/') || req.path.startsWith('/save-card/') || req.path.startsWith('/contract/')) res.setHeader('Referrer-Policy', 'no-referrer'); // tokens live in the URL
+  if (req.path.startsWith('/d/') || req.path.startsWith('/t/') || req.path.startsWith('/api/driver') || req.path.startsWith('/admin') || req.path.startsWith('/pay/') || req.path.startsWith('/save-card/') || req.path.startsWith('/quote/') || req.path.startsWith('/contract/') || req.path.startsWith('/cal/') || req.path.startsWith('/r/')) res.setHeader('Cache-Control', 'no-store');
+  if (req.path.startsWith('/d/') || req.path.startsWith('/t/') || req.path.startsWith('/quote/') || req.path.startsWith('/pay/') || req.path.startsWith('/save-card/') || req.path.startsWith('/contract/')) res.setHeader('Referrer-Policy', 'no-referrer'); // tokens live in the URL
   next();
 });
 
@@ -79,6 +79,7 @@ const page = (f) => (req, res) => res.sendFile(path.join(PUB, f));
 app.get('/admin', page('admin/index.html'));
 app.get('/driver', page('driver.html'));
 app.get('/d/:token', page('driver.html'));
+app.get('/t/:token', page('driver.html'));
 app.get('/quote/:token', page('quote.html'));
 app.get('/contract/:token', page('contract.html'));
 app.get('/pay/:token', page('pay.html'));

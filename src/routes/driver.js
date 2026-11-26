@@ -19,6 +19,16 @@ function load(req, res, next) {
   req.driver = d;
   next();
 }
+// ---- a private link for ONE trip (texted to the driver when the trip is assigned)
+function loadTrip(req, res, next) {
+  const t = one('SELECT * FROM trips WHERE driver_token=? AND driver_token IS NOT NULL', req.params.ttoken);
+  const d = t && t.driver_id ? one('SELECT * FROM drivers WHERE id=? AND active=1', t.driver_id) : null;
+  if (!t || !d || t.status === 'cancelled') return res.status(404).json({ error: 'This link is no longer valid. The trip may have changed. Call dispatch.' });
+  req.trip = t; req.driver = d; next();
+}
+driver.get('/trip/:ttoken', loadTrip, (req, res) => res.json({ driver: { name: req.driver.name }, mode: 'trip', now: new Date().toISOString(), dispatch: { phone: getSetting('phone'), email: getSetting('email') }, trips: [shape(req.trip, nowLocalMs())] }));
+driver.post('/trip/:ttoken/status', loadTrip, (req, res) => setStatus(req, res, req.trip));
+driver.post('/trip/:ttoken/note', loadTrip, (req, res) => addNote(req, res, req.trip));
 driver.use('/:token', load);
 
 function shape(t, now_ms) {
@@ -38,6 +48,7 @@ function shape(t, now_ms) {
     contact: open ? { name: c.name, phone: c.phone, email: c.email, onsite_name: t.onsite_name, onsite_phone: t.onsite_phone } : null,
     unlocks_in_hours: open ? 0 : Math.max(hours_until, 0),
     dispatch_phone: getSetting('phone'),
+    vendor: t.vendor_id ? one('SELECT name FROM vendors WHERE id=?', t.vendor_id)?.name || null : null, // the driver sees who the trip is for; the customer never does
   };
 }
 
@@ -48,8 +59,8 @@ driver.get('/:token', (req, res) => {
   res.json({ driver: { name: req.driver.name }, now: new Date().toISOString(), dispatch: { phone: getSetting('phone'), email: getSetting('email') }, trips: rows.map((t) => shape(t, nm)) });
 });
 
-driver.post('/:token/trips/:id/status', (req, res) => {
-  const t = one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id);
+driver.post('/:token/trips/:id/status', (req, res) => setStatus(req, res, one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id)));
+function setStatus(req, res, t) {
   if (!t) return res.status(404).json({ error: 'Trip not found' });
   const st = req.body?.status;
   if (!STATUSES.includes(st)) return res.status(400).json({ error: 'Bad status' });
@@ -65,12 +76,12 @@ driver.post('/:token/trips/:id/status', (req, res) => {
       : `Get A Bus NY\nYour driver ${dr.name.split(' ')[0]} has arrived.${dr.phone ? `\nCall or text ${dr.phone}` : ''}`, 'driver_' + st, { trip_id: t.id, force: true }).catch(() => {});
   }
   res.json({ ok: true });
-});
+}
 
-driver.post('/:token/trips/:id/note', (req, res) => {
-  const t = one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id);
+driver.post('/:token/trips/:id/note', (req, res) => addNote(req, res, one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id)));
+function addNote(req, res, t) {
   if (!t || !req.body?.note) return res.status(400).json({ error: 'Missing note' });
   insert('trip_events', { trip_id: t.id, status: 'note', note: String(req.body.note).slice(0, 1000), at: now() });
   log(`driver:${req.driver.name}`, 'trip.note', 'trip', t.id, String(req.body.note));
   res.json({ ok: true });
-});
+}
