@@ -107,11 +107,11 @@ function card(t){
   ${t.route_url?`<a class="btn2 b-navy" style="margin-bottom:18px" href="${esc(t.route_url)}" target="_blank" rel="noopener">${ICON.route}Open full route in Maps</a>`:''}
   <ol class="tl">${list.map((x,i)=>`<li class="k-${esc(x.kind)}"><span class="dot">${i+1}</span><div class="stopb"><div class="kind">${esc(x.label||'Stop')}</div><div class="addr">${esc(x.address)}</div>
    <div class="meta">${[x.time?esc(dateShort(x.time)):'',x.wait_min?'wait '+x.wait_min+' min':'',x.pax?x.pax+' passengers':''].filter(Boolean).join(' &middot; ')}</div>
-   ${x.note?`<div class="meta">${esc(x.note)}</div>`:''}${x.contact_name||x.contact_phone?`<div class="meta">Contact at this stop: <b>${esc(x.contact_name||'')}</b> ${x.contact_phone?`<a href="${tel(x.contact_phone)}">${esc(x.contact_phone)}</a>`:''}</div>`:''}
+   ${x.note?`<div class="meta">${esc(x.note)}</div>`:''}${x.contact_name||x.contact_phone?`<div class="meta">Contact at this stop: <b>${esc(x.contact_name||'')}</b> ${x.contact_phone?`<a data-act="call_stop" data-t="${t.id}" href="${tel(x.contact_phone)}">${esc(x.contact_phone)}</a>`:''}</div>`:''}
    <a class="nav" href="${esc(x.map)}" target="_blank" rel="noopener">${ICON.nav}Navigate</a></div></li>`).join('')}</ol></div>
- <div class="sec"><h3>On-site contact</h3>${t.onsite&&(t.onsite.phone||t.onsite.name)?`<div class="person"><div class="avatar">${esc(initials(t.onsite.name))}</div><div><b>${esc(t.onsite.name||'On-site contact')}</b><span>${esc(t.onsite.phone||'')}</span></div></div>${t.onsite.phone?`<div class="row2"><a class="btn2 b-main" href="${tel(t.onsite.phone)}">${ICON.call}Call</a><a class="btn2 b-soft" href="${sms(t.onsite.phone)}">${ICON.text}Text</a></div>`:''}`:`<div class="empty2">No on-site contact was set for this trip. Call dispatch if you need to reach someone.</div>`}</div>
+ <div class="sec"><h3>On-site contact</h3>${t.onsite&&(t.onsite.phone||t.onsite.name)?`<div class="person"><div class="avatar">${esc(initials(t.onsite.name))}</div><div><b>${esc(t.onsite.name||'On-site contact')}</b><span>${esc(t.onsite.phone||'')}</span></div></div>${t.onsite.phone?`<div class="row2"><a class="btn2 b-main" data-act="call_onsite" data-t="${t.id}" href="${tel(t.onsite.phone)}">${ICON.call}Call</a><a class="btn2 b-soft" data-act="text_onsite" data-t="${t.id}" href="${sms(t.onsite.phone)}">${ICON.text}Text</a></div>`:''}`:`<div class="empty2">No on-site contact was set for this trip. Call dispatch if you need to reach someone.</div>`}</div>
  ${t.notes||t.driver_notes?`<div class="sec"><h3>Notes from dispatch</h3><div class="note">${esc([t.driver_notes,t.notes].filter(Boolean).join('\n'))}</div></div>`:''}
- <div class="sec"><h3>Dispatch</h3><a class="btn2 b-line" href="${tel(t.dispatch_phone)}">${ICON.call}Call dispatch &middot; ${esc(t.dispatch_phone)}</a>
+ <div class="sec"><h3>Dispatch</h3><a class="btn2 b-line" data-act="call_dispatch" data-t="${t.id}" href="${tel(t.dispatch_phone)}">${ICON.call}Call dispatch &middot; ${esc(t.dispatch_phone)}</a>
   <div class="noteform"><input id="n${t.id}" placeholder="Send a note to dispatch" autocomplete="off"><button data-note="${t.id}">Send</button></div></div>
  ${tripMode?'':ns?`<div class="sec" style="padding-bottom:18px"><button class="btn2 b-main" data-s="${ns[0]}" data-t="${t.id}" ${canGo?'':'disabled'}>${ICON.check}${esc(ns[2])}</button>${canGo?'':`<div class="lockmsg">Status updates open ${t.unlocks_in_hours?`in about ${t.unlocks_in_hours} hour${t.unlocks_in_hours>1?'s':''}`:'soon'}.</div>`}</div>`:`<div style="height:14px"></div>`}
  </article>`;
@@ -133,6 +133,8 @@ async function load(){
  document.querySelector('.cta')?.remove();document.body.insertAdjacentHTML('beforeend',bar());
 }
 document.addEventListener('click',async e=>{
+ const act=e.target.closest('a[data-act]');
+ if(act){try{fetch(tripMode?`${API}/action`:`${API}/trips/${act.dataset.t}/action`,{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({action:act.dataset.act})});}catch{}return;}
  const b=e.target.closest('button[data-s]');
  if(b){b.disabled=true;await fetch(tripMode?`${API}/status`:`${API}/trips/${b.dataset.t}/status`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:b.dataset.s})});load();return;}
  const n=e.target.closest('button[data-note]');

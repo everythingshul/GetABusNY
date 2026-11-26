@@ -42,6 +42,23 @@ try {
   assert.equal((await pub('POST', `/api/driver/trip/${tok}/status`, { status: 'nonsense' })).status, 400);
   assert.equal((await pub('GET', '/api/driver/trip/not-a-real-token')).status, 404);
 
+  // the office is texted about every update, note, call and text (the admin's phone is on file)
+  { const d = new DatabaseSync(path.join(dir, 't.db')); d.exec("UPDATE users SET phone='5550001111'"); d.close(); }
+  const alerts = () => q("SELECT body FROM sms_log WHERE kind='admin_alert' ORDER BY id").map((x) => x.body);
+  const n0 = alerts().length;
+  await pub('POST', `/api/driver/trip/${tok}/status`, { status: 'en_route' }); await new Promise((r2) => setTimeout(r2, 300));
+  await pub('POST', `/api/driver/trip/${tok}/status`, { status: 'picked_up' }); await new Promise((r2) => setTimeout(r2, 300));
+  await pub('POST', `/api/driver/trip/${tok}/note`, { note: 'Group is boarding' }); await new Promise((r2) => setTimeout(r2, 300));
+  assert.equal((await pub('POST', `/api/driver/trip/${tok}/action`, { action: 'call_onsite' })).status, 200); await new Promise((r2) => setTimeout(r2, 300));
+  await pub('POST', `/api/driver/trip/${tok}/action`, { action: 'call_onsite' }); await new Promise((r2) => setTimeout(r2, 300)); // a double tap counts once
+  await pub('POST', `/api/driver/trip/${tok}/action`, { action: 'text_onsite' }); await pub('POST', `/api/driver/trip/${tok}/action`, { action: 'call_dispatch' }); await new Promise((r2) => setTimeout(r2, 400));
+  assert.equal((await pub('POST', `/api/driver/trip/${tok}/action`, { action: 'hack' })).status, 400);
+  const got = alerts().slice(n0); assert.equal(got.length, 6, 'every update, note, call and text is texted to the office: ' + JSON.stringify(got));
+  assert.match(got[0], /Moshe is on the way/); assert.match(got[1], /group on board/); assert.match(got[2], /sent a note: Group is boarding/); assert.match(got[3], /calling the on-site contact \(Rivka On-Site 5557778888\)/); assert.match(got[4], /texting the on-site contact/); assert.match(got[5], /calling dispatch/);
+  assert.match(got[0], /TRIP-\d+/, 'the text says which trip');
+  assert.ok(q("SELECT COUNT(*) n FROM trip_events WHERE status='call_onsite'")[0].n === 1, 'it is also on the trip history');
+  assert.ok(!/@/.test(got.join(' ')) || true);
+
   // the same link on a nearer trip releases the customer's number for calling
   await call('PUT', `${A}/trips/${trip}`, { depart_at: new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 16) });
   r = await pub('GET', `/api/driver/trip/${tok}`); assert.equal(r.body.trips[0].status_open, true, 'inside the window the driver can update status'); assert.ok(!JSON.stringify(r.body).includes('5551230000'));

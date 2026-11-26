@@ -113,7 +113,7 @@ export const NOTIFY_EVENTS = [
   { key: 'message', label: 'Contact form or quote question', email: true, sms: false },
   { key: 'chat', label: 'Website chat needs a person', email: true, sms: false },
   { key: 'sms_reply', label: 'Customer replied to a text', email: false, sms: false },
-  { key: 'driver_status', label: 'Driver started, arrived or finished a trip', email: false, sms: false },
+  { key: 'driver_activity', label: 'Driver activity: every status update, note, call and text from the driver page', email: false, sms: true },
   { key: 'general', label: 'Other alerts', email: true, sms: false },
 ];
 export function adminPrefs(u) {

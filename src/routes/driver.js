@@ -29,8 +29,30 @@ function loadTrip(req, res, next) {
 driver.get('/trip/:ttoken', loadTrip, (req, res) => res.json({ driver: { name: req.driver.name }, mode: 'trip', now: new Date().toISOString(), dispatch: { phone: getSetting('phone') }, trips: [shape(req.trip, nowLocalMs())] }));
 driver.post('/trip/:ttoken/status', loadTrip, (req, res) => setStatus(req, res, req.trip));
 driver.post('/trip/:ttoken/note', loadTrip, (req, res) => addNote(req, res, req.trip));
+driver.post('/trip/:ttoken/action', loadTrip, (req, res) => logAction(req, res, req.trip));
 driver.use('/:token', load);
 
+// The office hears about everything a driver does on the page: status updates, notes, and every tap on a call or text button.
+const LABEL = { acknowledged: 'got the trip', en_route: 'is on the way', arrived: 'has arrived', picked_up: 'has the group on board', dropped_off: 'dropped the group off', completed: 'completed the trip' };
+function tell(driver_, t, what) {
+  const when = String(t.depart_at || '').replace('T', ' ').slice(0, 16);
+  notifyOwner(`Driver ${String(driver_.name).split(' ')[0]} ${what}`.slice(0, 120), `${t.ref}${t.purpose ? ' ' + t.purpose : ''}${when ? ', departs ' + when : ''}`, 'driver_activity').catch(() => {});
+}
+const ACTIONS = { call_onsite: 'is calling the on-site contact', text_onsite: 'is texting the on-site contact', call_dispatch: 'is calling dispatch', call_stop: 'is calling a contact at a stop' };
+const lastAction = new Map();
+function logAction(req, res, t) {
+  const a = String(req.body?.action || '');
+  if (!t || !ACTIONS[a]) return res.status(400).json({ error: 'Bad action' });
+  const key = `${t.id}|${req.driver.id}|${a}`, nowMs = Date.now();
+  if (nowMs - (lastAction.get(key) || 0) > 20000) { // a double tap is one call
+    lastAction.set(key, nowMs);
+    const who = a.endsWith('onsite') ? [t.onsite_name, t.onsite_phone].filter(Boolean).join(' ') : '';
+    insert('trip_events', { trip_id: t.id, status: a, note: `${ACTIONS[a]}${who ? ': ' + who : ''}`, at: now() });
+    log(`driver:${req.driver.name}`, `trip.${a}`, 'trip', t.id, who);
+    tell(req.driver, t, `${ACTIONS[a]}${who ? ' (' + who + ')' : ''}`);
+  }
+  res.json({ ok: true });
+}
 // Nothing about the customer reaches a driver: only the on-site contact the office set for the trip, and no email address anywhere.
 const scrub = (v) => String(v ?? '').replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '').replace(/\s{2,}/g, ' ').trim();
 
@@ -70,7 +92,7 @@ function setStatus(req, res, t) {
   update('trips', t.id, { driver_status: st, driver_status_at: now(), ...(st === 'completed' ? { status: 'completed' } : t.status === 'confirmed' || t.status === 'booked' ? { status: 'in_progress' } : {}), updated_at: now() });
   insert('trip_events', { trip_id: t.id, status: st, note, at: now() });
   log(`driver:${req.driver.name}`, `trip.${st}`, 'trip', t.id, note);
-  if (['en_route', 'arrived', 'completed'].includes(st)) notifyOwner(`Driver ${req.driver.name}: ${st.replace('_', ' ')}`, `${t.ref} ${t.title || ''}`.trim(), 'driver_status').catch(() => {});
+  tell(req.driver, t, `${LABEL[st] || st.replace('_', ' ')}${note ? ': ' + note : ''}`);
   if (st === 'en_route' || st === 'arrived') {
     const dr = req.driver;
     textCustomer(t.customer_id, st === 'en_route'
@@ -80,9 +102,11 @@ function setStatus(req, res, t) {
   res.json({ ok: true });
 }
 
+driver.post('/:token/trips/:id/action', (req, res) => logAction(req, res, one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id)));
 driver.post('/:token/trips/:id/note', (req, res) => addNote(req, res, one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id)));
 function addNote(req, res, t) {
   if (!t || !req.body?.note) return res.status(400).json({ error: 'Missing note' });
+  tell(req.driver, t, `sent a note: ${String(req.body.note).slice(0, 160)}`);
   insert('trip_events', { trip_id: t.id, status: 'note', note: String(req.body.note).slice(0, 1000), at: now() });
   log(`driver:${req.driver.name}`, 'trip.note', 'trip', t.id, String(req.body.note));
   res.json({ ok: true });
