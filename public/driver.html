@@ -1,67 +1,142 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#0d1b26"><title>Driver Portal | Get A Bus NY</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=VT323&display=swap" rel="stylesheet"><link rel="stylesheet" href="/css/site.css">
 <style>
-body{background:#eef3f7;padding-bottom:40px}
-.dh{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:10}
-.dh img{height:30px;background:#fff;padding:4px 8px;border-radius:6px}.dh small{display:block;color:#9db2c1}
-.dw{max-width:640px;margin:0 auto;padding:16px}
-.trip{background:#fff;border-radius:16px;box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden;border:1px solid var(--line)}
-.trip.live{border:2px solid var(--lime)}
-.th{padding:16px 16px 10px}.th .when{font:700 1.25rem var(--head)}.th .ref{color:var(--ink-2);font-size:.85rem}
-.sec{padding:12px 16px;border-top:1px solid var(--line)}
-.sec h4{font:600 .75rem var(--head);text-transform:uppercase;letter-spacing:.1em;color:var(--ink-2);margin:0 0 6px}
-.addr{font-weight:600;font-size:1.05rem}.addr a{text-decoration:none;color:var(--blue)}
-.cust{display:grid;gap:10px}
-.callbtn{display:flex;align-items:center;gap:12px;background:var(--lime);color:#0d1b26;border-radius:12px;padding:14px 16px;text-decoration:none;font-weight:700;font-size:1.1rem;min-height:58px}
-.callbtn small{display:block;font-weight:500;font-size:.8rem;opacity:.8}
-.callbtn.alt{background:var(--blue-l);color:var(--blue-d)}
-.lock{background:#fff7e0;border-radius:10px;padding:12px;color:#7a5a08;font-size:.93rem}
-.steps{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.steps button{min-height:54px;border-radius:11px;border:2px solid var(--line);background:#fff;font:600 .95rem var(--head);cursor:pointer}
-.steps button.done{background:var(--lime-l);border-color:var(--lime);color:var(--lime-d)}
-.steps button.cur{background:var(--blue);color:#fff;border-color:var(--blue)}
-.steps button:disabled{opacity:.5}
-.pillx{display:inline-block;font:600 .72rem var(--head);padding:3px 10px;border-radius:20px;background:var(--blue-l);color:var(--blue-d);text-transform:uppercase;letter-spacing:.06em}
-.tl{list-style:none;margin:0;padding:0}.tl li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.tl li:last-child{border:0}.tl li>b{flex:none;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:.85rem}.mut{color:var(--ink-2);font-size:.9rem}.empty{text-align:center;padding:50px 20px;color:var(--ink-2)}
+:root{--card:#fff;--bg:#eef2f6;--line:#dde5ec;--ok:#2e7d32}
+*{box-sizing:border-box}
+body{background:var(--bg);margin:0;color:var(--ink);font-family:var(--body,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif);-webkit-font-smoothing:antialiased;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+.top{background:var(--navy);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 18px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:20;box-shadow:0 2px 12px rgba(5,15,25,.35)}
+.top img{height:30px;background:#fff;padding:5px 9px;border-radius:8px;display:block}
+.top .who{text-align:right;line-height:1.25}.top .who b{display:block;font-size:.98rem;font-weight:700}.top .who small{color:#9fb4c4;font-size:.8rem;letter-spacing:.02em}
+.wrap{max-width:560px;margin:0 auto;padding:18px 14px}
+.trip{background:var(--card);border-radius:20px;box-shadow:0 1px 2px rgba(10,30,45,.06),0 10px 28px rgba(10,30,45,.08);margin-bottom:22px;overflow:hidden}
+.hero{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff;padding:20px 20px 18px;position:relative}
+.hero:after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--lime)}
+.eyebrow2{font:700 .7rem var(--head,inherit);letter-spacing:.16em;text-transform:uppercase;color:#a9bfce;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pill{display:inline-block;font:700 .68rem var(--head,inherit);letter-spacing:.09em;text-transform:uppercase;padding:5px 11px;border-radius:99px;background:rgba(148,191,51,.18);color:#c9e58a;border:1px solid rgba(148,191,51,.45)}
+.pill.idle{background:rgba(255,255,255,.1);color:#d5e1ea;border-color:rgba(255,255,255,.25)}
+.date{font:700 1.7rem/1.15 var(--head,inherit);margin:10px 0 2px;letter-spacing:-.01em}
+.time{font-size:1.15rem;color:#d7e4ee;font-weight:600}
+.purpose{margin-top:8px;color:#a9bfce;font-size:.92rem}
+.steps{display:flex;padding:16px 14px 6px;gap:0}
+.stp{flex:1;text-align:center;position:relative;font-size:.66rem;color:#7b8f9e;font-weight:600;letter-spacing:.02em}
+.stp i{display:block;width:22px;height:22px;border-radius:50%;margin:0 auto 6px;background:#fff;border:2px solid #c8d4de;position:relative;z-index:1;font-style:normal;color:#fff;font-size:.7rem;line-height:18px}
+.stp:before{content:"";position:absolute;top:10px;left:-50%;right:50%;height:2px;background:#c8d4de}
+.stp:first-child:before{display:none}
+.stp.done i{background:var(--lime);border-color:var(--lime)}.stp.done:before,.stp.done+.stp:before{background:var(--lime)}
+.stp.done{color:var(--ink)}
+.stp.now i{border-color:var(--lime);box-shadow:0 0 0 4px rgba(148,191,51,.25)}.stp.now{color:var(--ink)}
+.fcs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);margin-top:12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.fc{background:#fff;padding:13px 18px}.fc small{display:block;font:700 .64rem var(--head,inherit);letter-spacing:.12em;text-transform:uppercase;color:#6b7f8e;margin-bottom:3px}.fc b{font-size:1rem;font-weight:700}
+.sec{padding:18px 18px 4px}
+.sec h3{margin:0 0 12px;font:700 .72rem var(--head,inherit);letter-spacing:.14em;text-transform:uppercase;color:#6b7f8e}
+.btn2{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;border-radius:14px;border:0;text-decoration:none;font:700 1.02rem var(--head,inherit);cursor:pointer;padding:0 16px}
+.btn2 svg{width:22px;height:22px;flex:none}
+.b-main{background:var(--lime);color:#10222f}.b-main:active{filter:brightness(.95)}
+.b-navy{background:var(--navy);color:#fff}
+.b-soft{background:#e8f1f8;color:#0a4f7e}
+.b-line{background:#fff;color:var(--ink);border:2px solid var(--line)}
+.btn2:disabled{opacity:.45;cursor:default}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl li{display:flex;gap:14px;position:relative;padding-bottom:20px}
+.tl li:last-child{padding-bottom:6px}
+.tl li:before{content:"";position:absolute;left:15px;top:32px;bottom:-2px;width:2px;background:#d4dee7}
+.tl li:last-child:before{display:none}
+.dot{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 .85rem var(--head,inherit);position:relative;z-index:1}
+.k-pickup .dot{background:var(--lime-d)}.k-stop .dot{background:var(--blue)}.k-dropoff .dot,.k-final .dot{background:var(--navy)}.k-return_pickup .dot{background:#b36b00}.k-final .dot{background:#10222f;box-shadow:0 0 0 3px rgba(16,34,47,.15)}
+.stopb{flex:1;min-width:0}
+.kind{font:700 .66rem var(--head,inherit);letter-spacing:.13em;text-transform:uppercase;color:#6b7f8e}
+.k-pickup .kind{color:var(--lime-d)}.k-final .kind{color:#10222f}
+.addr{font-weight:700;font-size:1.04rem;line-height:1.3;margin:2px 0 3px;word-wrap:break-word}
+.meta{color:#4d6270;font-size:.88rem}
+.nav{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-weight:700;font-size:.88rem;color:#0a4f7e;text-decoration:none;background:#e8f1f8;border-radius:99px;padding:7px 13px}
+.nav svg{width:15px;height:15px}
+.person{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.avatar{flex:none;width:46px;height:46px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font:700 1.05rem var(--head,inherit)}
+.person b{display:block;font-size:1.08rem}.person span{color:#5b6f7d;font-size:.9rem}
+.empty2{background:#f4f7fa;border-radius:12px;padding:14px;color:#4d6270;font-size:.93rem;line-height:1.45}
+.note{background:#fff9e8;border:1px solid #f1e2b0;border-radius:12px;padding:13px 14px;font-size:.94rem;line-height:1.5;color:#5a4a10;white-space:pre-wrap}
+.lockmsg{font-size:.85rem;color:#6b7f8e;text-align:center;margin:8px 0 0}
+.cta{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom))}
+.cta .in{max-width:560px;margin:0 auto}
+.cta small{display:block;text-align:center;color:#6b7f8e;font-size:.78rem;margin-bottom:7px}
+.foot{text-align:center;color:#6b7f8e;font-size:.8rem;padding:6px 18px 24px}
+.noteform{display:flex;gap:8px;margin-top:10px}.noteform input{flex:1;min-height:48px;border:2px solid var(--line);border-radius:12px;padding:0 14px;font-size:1rem}
+.noteform button{min-height:48px;border-radius:12px;border:0;background:var(--navy);color:#fff;font-weight:700;padding:0 18px;font-size:.95rem}
+.err2{text-align:center;padding:60px 24px}.err2 h2{margin:0 0 8px}
 </style></head><body>
-<div class="dh"><img src="/img/logo.png" alt="Get A Bus NY"><div style="text-align:right"><b id="who"></b><small id="clock"></small></div></div>
-<div class="dw" id="app"><div class="empty">Loading…</div></div>
+<div class="top"><img src="/img/logo.png" alt="Get A Bus NY"><div class="who"><b id="who"></b><small id="clock"></small></div></div>
+<div class="wrap" id="app"><div class="empty2">Loading...</div></div>
 <script type="module">
-import {$,esc,fmtWhen} from '/js/site.js';
+import {$,esc} from '/js/site.js';
 const parts=location.pathname.split('/');const tripMode=parts[1]==='t';let tok=(parts[1]==='d'||tripMode)?parts[2]:null;
 try{if(tok&&!tripMode)localStorage.gabDriver=tok;else if(!tok)tok=localStorage.gabDriver;}catch{}
 const API=tripMode?'/api/driver/trip/'+tok:'/api/driver/'+tok;
 const app=$('#app');
-if(!tok){app.innerHTML=`<div class="card"><h2>Driver portal</h2><p>Open the personal link dispatch sent you (by text or email). It signs you in automatically, no password. Once opened, this page remembers you on this phone.</p><p class="muted">Lost your link? Call dispatch.</p></div>`;}
+const ICON={call:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>',
+ text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+ nav:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>',
+ route:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>',
+ check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'};
+if(!tok){app.innerHTML=`<div class="err2"><h2>Driver portal</h2><p>Open the personal link dispatch sent you by text. It signs you in automatically, with no password.</p></div>`;$('#who').textContent='';}
 else{
-const tel=(p)=>'tel:'+String(p||'').replace(/[^+\d]/g,'');
-const sms=(p)=>'sms:'+String(p||'').replace(/[^+\d]/g,'');
-const map=(a)=>'https://maps.google.com/?q='+encodeURIComponent(a||'');
-const FLOW=[['acknowledged','Got it'],['en_route','En route'],['arrived','Arrived'],['picked_up','Group on board'],['dropped_off','Dropped off'],['completed','Trip complete']];
+const tel=p=>'tel:'+String(p||'').replace(/[^+\d]/g,''),sms=p=>'sms:'+String(p||'').replace(/[^+\d]/g,'');
+const FLOW=[['acknowledged','Got it','I have this trip'],['en_route','On my way',"I'm on my way"],['arrived','Arrived','I have arrived'],['picked_up','On board','Group is on board'],['dropped_off','Dropped','Group dropped off'],['completed','Done','Trip complete']];
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],DAY=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const dt=s=>{const m=/^(\d{4})-(\d\d)-(\d\d)(?:[T ](\d\d):(\d\d))?/.exec(String(s||''));if(!m)return null;return {y:+m[1],mo:+m[2]-1,d:+m[3],h:m[4]==null?null:+m[4],mi:m[5]==null?null:+m[5]};};
+const tm=p=>p&&p.h!=null?`${p.h%12||12}:${String(p.mi).padStart(2,'0')} ${p.h<12?'AM':'PM'}`:'';
+const dateLong=s=>{const p=dt(s);if(!p)return 'Date to be confirmed';return `${DAY[new Date(p.y,p.mo,p.d).getDay()]}, ${MON[p.mo]} ${p.d}`;};
+const dateShort=s=>{const p=dt(s);if(!p)return '';return `${MON[p.mo]} ${p.d}`+(tm(p)?`, ${tm(p)}`:'');};
+const initials=n=>String(n||'?').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('')||'?';
+let data=null;
+function nextStep(t){const i=FLOW.findIndex(f=>f[0]===t.driver_status);return i+1<FLOW.length?FLOW[i+1]:null;}
+function card(t){
+ const idx=FLOW.findIndex(f=>f[0]===t.driver_status),p=dt(t.depart_at),ret=dt(t.return_at);
+ const ns=nextStep(t),canGo=ns&&(ns[0]==='acknowledged'||t.status_open);
+ const stops=t.itinerary.filter(x=>x.kind!=='start'&&x.kind!=='end');
+ let fin=-1;for(let i=t.itinerary.length-1;i>=0;i--){if(t.itinerary[i].kind==='dropoff'||t.itinerary[i].kind==='end'){fin=i;break;}}
+ const list=t.itinerary.filter(x=>x.kind!=='start'&&x.kind!=='end');
+ if(fin>=0&&t.itinerary[fin].kind==='dropoff'){const f=t.itinerary[fin];const k=list.indexOf(f);if(k>=0)list[k]={...f,kind:'final',label:'Final drop-off'};}
+ else if(fin>=0&&t.itinerary[fin].kind==='end'){list.push({...t.itinerary[fin],kind:'final',label:'Final drop-off'});}
+ return `<article class="trip" data-id="${t.id}">
+ <div class="hero"><div class="eyebrow2"><span>Trip ${esc(t.ref||'')}</span><span class="pill ${t.driver_status?'':'idle'}">${esc(t.driver_status?FLOW[idx][1]:'New')}</span></div>
+  <div class="date">${esc(dateLong(t.depart_at))}</div><div class="time">${esc(tm(p)||'')}${t.return_at?` <span style="color:#8ea6b7;font-weight:500">&middot; returns ${esc(dateShort(t.return_at))}</span>`:''}</div>
+  ${t.purpose?`<div class="purpose">${esc(t.purpose)}</div>`:''}</div>
+ <div class="steps">${FLOW.map((f,i)=>`<div class="stp ${i<=idx?'done':''} ${i===idx+1?'now':''}"><i>${i<=idx?'&#10003;':''}</i>${esc(f[1])}</div>`).join('')}</div>
+ <div class="fcs"><div class="fc"><small>Passengers</small><b>${t.passengers||'-'}</b></div><div class="fc"><small>Vehicle</small><b>${esc(t.vehicle||'-')}</b></div>${t.vendor?`<div class="fc" style="grid-column:1/-1"><small>Vendor</small><b>${esc(t.vendor)}</b></div>`:''}</div>
+ <div class="sec"><h3>Route${list.length?` &middot; ${list.length} stops`:''}</h3>
+  ${t.route_url?`<a class="btn2 b-navy" style="margin-bottom:18px" href="${esc(t.route_url)}" target="_blank" rel="noopener">${ICON.route}Open full route in Maps</a>`:''}
+  <ol class="tl">${list.map((x,i)=>`<li class="k-${esc(x.kind)}"><span class="dot">${i+1}</span><div class="stopb"><div class="kind">${esc(x.label||'Stop')}</div><div class="addr">${esc(x.address)}</div>
+   <div class="meta">${[x.time?esc(dateShort(x.time)):'',x.wait_min?'wait '+x.wait_min+' min':'',x.pax?x.pax+' passengers':''].filter(Boolean).join(' &middot; ')}</div>
+   ${x.note?`<div class="meta">${esc(x.note)}</div>`:''}${x.contact_name||x.contact_phone?`<div class="meta">Contact at this stop: <b>${esc(x.contact_name||'')}</b> ${x.contact_phone?`<a href="${tel(x.contact_phone)}">${esc(x.contact_phone)}</a>`:''}</div>`:''}
+   <a class="nav" href="${esc(x.map)}" target="_blank" rel="noopener">${ICON.nav}Navigate</a></div></li>`).join('')}</ol></div>
+ <div class="sec"><h3>On-site contact</h3>${t.onsite&&(t.onsite.phone||t.onsite.name)?`<div class="person"><div class="avatar">${esc(initials(t.onsite.name))}</div><div><b>${esc(t.onsite.name||'On-site contact')}</b><span>${esc(t.onsite.phone||'')}</span></div></div>${t.onsite.phone?`<div class="row2"><a class="btn2 b-main" href="${tel(t.onsite.phone)}">${ICON.call}Call</a><a class="btn2 b-soft" href="${sms(t.onsite.phone)}">${ICON.text}Text</a></div>`:''}`:`<div class="empty2">No on-site contact was set for this trip. Call dispatch if you need to reach someone.</div>`}</div>
+ ${t.notes||t.driver_notes?`<div class="sec"><h3>Notes from dispatch</h3><div class="note">${esc([t.driver_notes,t.notes].filter(Boolean).join('\n'))}</div></div>`:''}
+ <div class="sec"><h3>Dispatch</h3><a class="btn2 b-line" href="${tel(t.dispatch_phone)}">${ICON.call}Call dispatch &middot; ${esc(t.dispatch_phone)}</a>
+  <div class="noteform"><input id="n${t.id}" placeholder="Send a note to dispatch" autocomplete="off"><button data-note="${t.id}">Send</button></div></div>
+ ${tripMode?'':ns?`<div class="sec" style="padding-bottom:18px"><button class="btn2 b-main" data-s="${ns[0]}" data-t="${t.id}" ${canGo?'':'disabled'}>${ICON.check}${esc(ns[2])}</button>${canGo?'':`<div class="lockmsg">Status updates open ${t.unlocks_in_hours?`in about ${t.unlocks_in_hours} hour${t.unlocks_in_hours>1?'s':''}`:'soon'}.</div>`}</div>`:`<div style="height:14px"></div>`}
+ </article>`;
+}
+function bar(){
+ if(!tripMode||!data||!data.trips[0])return '';
+ const t=data.trips[0],ns=nextStep(t),canGo=ns&&(ns[0]==='acknowledged'||t.status_open);
+ if(!ns)return `<div class="cta"><div class="in"><div class="btn2 b-soft" style="cursor:default">${ICON.check}Trip complete. Thank you.</div></div></div>`;
+ return `<div class="cta"><div class="in">${canGo?'':`<small>Status updates open ${t.unlocks_in_hours?`in about ${t.unlocks_in_hours} hour${t.unlocks_in_hours>1?'s':''}`:'soon'}</small>`}<button class="btn2 b-main" data-s="${ns[0]}" data-t="${t.id}" ${canGo?'':'disabled'}>${ICON.check}${esc(ns[2])}</button></div></div>`;
+}
 async function load(){
  const r=await fetch(API);
- if(!r.ok){if(!tripMode){try{localStorage.removeItem('gabDriver')}catch{};}app.innerHTML=`<div class="card"><h2>Link not valid</h2><p>This link has expired or was replaced. Ask dispatch for a new one.</p></div>`;return;}
- const d=await r.json();$('#who').textContent=d.driver.name;
- if(!d.trips.length){app.innerHTML=`<div class="empty"><h3>No upcoming trips</h3><p>When dispatch assigns you a trip it shows up here.</p><a class="callbtn alt" href="${tel(d.dispatch.phone)}">Call dispatch<small>${esc(d.dispatch.phone)}</small></a></div>`;return;}
- app.innerHTML=d.trips.map(t=>{
-  const idx=FLOW.findIndex(f=>f[0]===t.driver_status);
-  return `<article class="trip ${t.contact_unlocked?'live':''}"><div class="th"><span class="pillx">${esc((t.driver_status||t.status).replace('_',' '))}</span><div class="when">${fmtWhen(t.depart_at)}</div><div class="ref">${esc(t.ref)} · ${esc(t.title||'')}</div></div>
-  <div class="sec"><h4>Route · ${t.itinerary.length||2} stops</h4>${t.route_url?`<a class="callbtn alt" style="margin-bottom:10px" href="${t.route_url}" target="_blank" rel="noopener">🧭 Open full route in Maps</a>`:''}
-   ${t.itinerary.length?`<ol class="tl">${t.itinerary.map((x,i)=>`<li><b>${i+1}</b><div><span class="pillx">${esc(x.label)}</span> ${x.time?`<b style="background:none;color:inherit;display:inline;width:auto;height:auto">${fmtWhen(x.time)}</b>`:''}<div class="addr"><a href="${x.map}" target="_blank" rel="noopener">${esc(x.address)}</a></div>${x.wait_min?`<div class="mut">Wait ${x.wait_min} min</div>`:''}${x.pax?`<div class="mut">${x.pax} passengers</div>`:''}${x.note?`<div class="mut">${esc(x.note)}</div>`:''}${x.contact_phone?`<a href="${tel(x.contact_phone)}">📞 ${esc(x.contact_name||'Contact')} ${esc(x.contact_phone)}</a>`:''}</div></li>`).join('')}</ol>`:`<div class="addr"><a href="${map(t.pickup)}">📍 ${esc(t.pickup||'TBD')}</a></div><div class="addr" style="margin-top:6px"><a href="${map(t.dropoff)}">🏁 ${esc(t.dropoff||'TBD')}</a></div>`}</div>
-  <div class="sec"><h4>Trip</h4>${t.vendor?`Vendor: <b>${esc(t.vendor)}</b><br>`:''}Return: <b>${fmtWhen(t.return_at)}</b><br>Passengers: <b>${t.passengers||'-'}</b>${t.vehicle?`<br>Vehicle: <b>${esc(t.vehicle)}</b>`:''}</div>
-  ${t.notes||t.driver_notes?`<div class="sec"><h4>Notes</h4>${esc(t.driver_notes||'')} ${esc(t.notes||'')}</div>`:''}
-  <div class="sec"><h4>Customer contact</h4>${t.contact_unlocked?`<div class="cust"><div><b style="font-size:1.1rem">${esc(t.contact.name||'')}</b></div>
-   ${t.contact.phone?`<a class="callbtn" href="${tel(t.contact.phone)}">📞 Call customer<small>${esc(t.contact.phone)}</small></a><a class="callbtn alt" href="${sms(t.contact.phone)}">💬 Text customer</a>`:''}
-   ${t.contact.onsite_name||t.contact.onsite_phone?`<div class="muted">On-site contact: <b>${esc(t.contact.onsite_name||'')}</b></div>${t.contact.onsite_phone?`<a class="callbtn alt" href="${tel(t.contact.onsite_phone)}">📞 Call on-site contact<small>${esc(t.contact.onsite_phone)}</small></a>`:''}`:''}
-   ${t.contact.email?`<div class="muted">${esc(t.contact.email)}</div>`:''}</div>`:`<div class="lock">🔒 Customer contact info unlocks ${t.unlocks_in_hours?`in about ${t.unlocks_in_hours} hour${t.unlocks_in_hours>1?'s':''}`:'soon'} (24 hours before the trip). Call dispatch if you need it sooner.</div>`}</div>
-  ${t.contact_unlocked?`<div class="sec"><h4>Update status</h4><div class="steps">${FLOW.map((f,i)=>`<button data-t="${t.id}" data-s="${f[0]}" class="${i<=idx?'done':i===idx+1?'cur':''}">${i<=idx?'✓ ':''}${f[1]}</button>`).join('')}</div>
-   <div style="display:flex;gap:8px;margin-top:12px"><input id="n${t.id}" placeholder="Add a note for dispatch…" style="flex:1"><button class="btn btn-line btn-sm" data-note="${t.id}">Send</button></div></div>`:''}
-  <div class="sec"><a class="callbtn alt" href="${tel(t.dispatch_phone)}">☎ Call dispatch<small>${esc(t.dispatch_phone)}</small></a></div></article>`;}).join('');
+ if(!r.ok){if(!tripMode){try{localStorage.removeItem('gabDriver')}catch{};}$('#who').textContent='';app.innerHTML=`<div class="err2"><h2>Link no longer valid</h2><p>This link has expired or the trip changed. Please call dispatch for a new one.</p></div>`;document.querySelector('.cta')?.remove();return;}
+ data=await r.json();$('#who').textContent=data.driver.name;
+ if(!data.trips.length){app.innerHTML=`<div class="err2"><h2>No upcoming trips</h2><p>When dispatch assigns you a trip, it shows up here.</p><a class="btn2 b-line" href="${tel(data.dispatch.phone)}">${ICON.call}Call dispatch</a></div>`;return;}
+ const keep=[...document.querySelectorAll('input[id^=n]')].map(i=>[i.id,i.value]);
+ app.innerHTML=data.trips.map(card).join('')+`<div class="foot">Get A Bus NY dispatch</div>`;
+ keep.forEach(([id,v])=>{const i=document.getElementById(id);if(i)i.value=v;});
+ document.querySelector('.cta')?.remove();document.body.insertAdjacentHTML('beforeend',bar());
 }
-app.addEventListener('click',async e=>{
+document.addEventListener('click',async e=>{
  const b=e.target.closest('button[data-s]');
  if(b){b.disabled=true;await fetch(tripMode?`${API}/status`:`${API}/trips/${b.dataset.t}/status`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:b.dataset.s})});load();return;}
  const n=e.target.closest('button[data-note]');
- if(n){const i=$('#n'+n.dataset.note);if(!i.value.trim())return;n.disabled=true;await fetch(tripMode?`${API}/note`:`${API}/trips/${n.dataset.note}/note`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:i.value})});i.value='';n.disabled=false;n.textContent='Sent ✓';setTimeout(()=>n.textContent='Send',1500);}
+ if(n){const i=document.getElementById('n'+n.dataset.note);if(!i.value.trim())return;n.disabled=true;await fetch(tripMode?`${API}/note`:`${API}/trips/${n.dataset.note}/note`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:i.value})});i.value='';n.disabled=false;n.textContent='Sent';setTimeout(()=>n.textContent='Send',1800);}
 });
 const tick=()=>{$('#clock').textContent=new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});};tick();setInterval(tick,30000);
 load();setInterval(load,120000);

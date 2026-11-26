@@ -26,10 +26,13 @@ function loadTrip(req, res, next) {
   if (!t || !d || t.status === 'cancelled') return res.status(404).json({ error: 'This link is no longer valid. The trip may have changed. Call dispatch.' });
   req.trip = t; req.driver = d; next();
 }
-driver.get('/trip/:ttoken', loadTrip, (req, res) => res.json({ driver: { name: req.driver.name }, mode: 'trip', now: new Date().toISOString(), dispatch: { phone: getSetting('phone'), email: getSetting('email') }, trips: [shape(req.trip, nowLocalMs())] }));
+driver.get('/trip/:ttoken', loadTrip, (req, res) => res.json({ driver: { name: req.driver.name }, mode: 'trip', now: new Date().toISOString(), dispatch: { phone: getSetting('phone') }, trips: [shape(req.trip, nowLocalMs())] }));
 driver.post('/trip/:ttoken/status', loadTrip, (req, res) => setStatus(req, res, req.trip));
 driver.post('/trip/:ttoken/note', loadTrip, (req, res) => addNote(req, res, req.trip));
 driver.use('/:token', load);
+
+// Nothing about the customer reaches a driver: only the on-site contact the office set for the trip, and no email address anywhere.
+const scrub = (v) => String(v ?? '').replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '').replace(/\s{2,}/g, ' ').trim();
 
 function shape(t, now_ms) {
   const before = Number(getSetting('driver_window_before_hrs')) || 24;
@@ -37,16 +40,15 @@ function shape(t, now_ms) {
   const start = naiveMs(t.depart_at);
   const end = naiveMs(t.return_at || t.depart_at);
   const open = now_ms >= start - before * 3600000 && now_ms <= end + after * 3600000;
-  const c = one('SELECT name,phone,email FROM customers WHERE id=?', t.customer_id) || {};
   const hours_until = Math.round((start - before * 3600000 - now_ms) / 3600000);
+  const it = normItinerary(parse(t.itinerary, []));
   return {
-    id: t.id, ref: t.ref, title: t.title, purpose: t.purpose, status: t.status, pickup: t.pickup, dropoff: t.dropoff, stops: t.stops,
-    itinerary: normItinerary(parse(t.itinerary, [])).map((x) => ({ ...x, ...(open ? {} : { contact_name: undefined, contact_phone: undefined }), label: KINDS[x.kind], map: mapsPlaceUrl(x) })),
-    route_url: mapsDirUrl(normItinerary(parse(t.itinerary, [])).filter((x) => x.kind !== 'end')), depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers,
-    notes: t.notes, driver_notes: t.driver_notes, driver_status: t.driver_status, vehicle: one('SELECT name FROM vehicles WHERE id=?', t.vehicle_id)?.name || null,
-    contact_unlocked: open,
-    contact: open ? { name: c.name, phone: c.phone, email: c.email, onsite_name: t.onsite_name, onsite_phone: t.onsite_phone } : null,
-    unlocks_in_hours: open ? 0 : Math.max(hours_until, 0),
+    id: t.id, ref: t.ref, purpose: t.purpose, status: t.status,
+    itinerary: it.map((x) => ({ kind: x.kind, label: KINDS[x.kind], address: x.address, time: x.time, wait_min: x.wait_min, pax: x.pax, note: scrub(x.note), contact_name: x.contact_name, contact_phone: x.contact_phone, map: mapsPlaceUrl(x) })),
+    route_url: mapsDirUrl(it.filter((x) => x.kind !== 'end')), depart_at: t.depart_at, return_at: t.return_at, passengers: t.passengers,
+    notes: scrub(t.notes), driver_notes: scrub(t.driver_notes), driver_status: t.driver_status, vehicle: one('SELECT name FROM vehicles WHERE id=?', t.vehicle_id)?.name || null,
+    status_open: open, unlocks_in_hours: open ? 0 : Math.max(hours_until, 0),
+    onsite: t.onsite_name || t.onsite_phone ? { name: t.onsite_name || '', phone: t.onsite_phone || '' } : null,
     dispatch_phone: getSetting('phone'),
     vendor: t.vendor_id ? one('SELECT name FROM vendors WHERE id=?', t.vendor_id)?.name || null : null, // the driver sees who the trip is for; the customer never does
   };
@@ -56,7 +58,7 @@ driver.get('/:token', (req, res) => {
   const nm = nowLocalMs();
   const rows = all("SELECT * FROM trips WHERE driver_id=? AND status<>'cancelled' ORDER BY depart_at", req.driver.id)
     .filter((t) => { const s = naiveMs(t.depart_at); const e = naiveMs(t.return_at || t.depart_at); return e + 36 * 3600000 >= nm && s - 30 * 86400000 <= nm; });
-  res.json({ driver: { name: req.driver.name }, now: new Date().toISOString(), dispatch: { phone: getSetting('phone'), email: getSetting('email') }, trips: rows.map((t) => shape(t, nm)) });
+  res.json({ driver: { name: req.driver.name }, now: new Date().toISOString(), dispatch: { phone: getSetting('phone') }, trips: rows.map((t) => shape(t, nm)) });
 });
 
 driver.post('/:token/trips/:id/status', (req, res) => setStatus(req, res, one('SELECT * FROM trips WHERE id=? AND driver_id=?', req.params.id, req.driver.id)));
